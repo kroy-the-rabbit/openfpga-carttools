@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# mGBA, for playing a dump this core produced and seeing whether it is real.
+#
+# Ubuntu and not Fedora because mGBA is not packaged in Fedora's repositories
+# at all -- `dnf list mgba*` returns nothing. Ubuntu carries it in universe.
+#
+# The binary this installs is /usr/games/mgba, NOT mgba-sdl. The package is
+# called mgba-sdl and the binary is not; running `mgba-sdl` gets you
+# "executable file not found in $PATH".
+#
+# xdotool and imagemagick are here for capturing evidence unattended. They are
+# not needed to simply play the dump, which is the usual case.
+FROM docker.io/library/ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        mgba-sdl x11-utils imagemagick xdotool \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /work

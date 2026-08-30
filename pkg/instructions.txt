@@ -1,0 +1,8 @@
+Copy the 3 folders (Cores/, Platforms/, Assets/) to the root of your Analogue
+Pocket SD card.
+
+Note: macOS Finder replaces folders instead of merging them, so do it all
+manually and be careful.
+
+CartTools reads the cartridge in the Pocket's slot. It does not load ROMs from
+the SD card; it writes them to it, under /Assets/carttools/.

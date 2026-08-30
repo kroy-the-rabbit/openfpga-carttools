@@ -1,0 +1,428 @@
+# Handoff
+
+Traps and next steps. Read `docs/STATUS.md` for the current position and
+`plan.md` for the direction.
+
+## Where this was left, 2026-08-26
+
+Committed and clean on branch `hardware-bringup`, not merged to `main`.
+`make test` is 20 of 20. The card carries `ec566cd`, stamp `EC56` on the
+title row.
+
+**GBA dumping is verified on hardware, and reproduces.** `gba_size_probe.sv`,
+`cart_dump_gba.sv` and `dump_crc32.sv`, wired through `dump_engine` and
+`core_top`. Twelve images at 4, 8 and 16 MB, every one passing the Nintendo
+logo byte for byte, the header checksum, the `0x96` fixed byte and an entry
+point that is a real ARM branch. Two are matched against published records.
+Golden Sun and Minish Cap have each been dumped twice and are byte identical,
+so the single-attempt caveat no longer applies to the GBA path.
+
+`dump_crc32` agrees with `zlib` on hardware, and `dump_checksum` has now
+caught a real bad dump rather than only agreeing with good ones - see
+`docs/STATUS.md`.
+
+The card holds `be33725`, stamp `BE33`, with `.gb`, `.gbc` and `.gba` naming
+confirmed in the wild. The repository is at
+<https://github.com/kroy-the-rabbit/openfpga-carttools>, first release tagged
+`v0.1.0-alpha.1`.
+
+**GB/GBC dumping works and is verified.** Eighteen cartridges dumped by the
+core, from 32 KB to 1 MB across ROM-only, MBC1 and MBC5, plus four Game Boy
+Color images. Every one passes its own logo, header checksum, global checksum
+and size byte, except `TENNIS.gb` - see below. One is matched to a No-Intro
+record by CRC32. `docs/STATUS.md` has the tables. The images are not in the
+repo; they are on the card under `/Assets/carttools/common/`, except Link's
+Awakening DX, which is off the card because a second Zelda cartridge
+overwrote it and survives only in a copy.
+
+**The on-device checksum has caught a real bad dump.** `TENNIS.gb` came back
+corrupt and the screen said `image sum BB29 want E047`; both numbers were
+confirmed independently on a PC. The header checksum on the row above it
+passed, which is the same blind spot that let MarioLand2 through. This is the
+first time that check has found something rather than agreeing with a good
+cartridge. The re-dump is clean (`5009215F`), so the fault is intermittent;
+what it correlates with is item 1 below.
+
+**`TETRIS.gb` and `OTHELLO.gb` are resolved, and the earlier conclusion was
+wrong.** This file previously recorded them as cartridges that probably ship
+an incorrect global checksum. They do not: re-dumped on `ec566cd` both verify
+completely, with different CRC32s (`46DF91AD` and `C17A002E`). The old files
+were corrupt, in a way that is structured rather than random — the head of
+each 1 KB window holding the head of a different window, with the same
+relocation map in both cartridges. The mechanism is not identified; it has
+not reproduced on `ec566cd`, and Tetris has since dumped identically four
+times, but nothing in the difference between the two bitstreams plausibly
+touches the chunk path. `docs/STATUS.md` has the evidence.
+
+That caution has since been answered. Twelve cartridges were re-dumped in one
+session, including all three that have ever failed, and every one came back
+byte for byte identical. The dump path reproduces; what does not is the
+connection to the cartridge. See item 1.
+
+`MARIOLAND2.gb` was a bad contact and its re-dump verifies clean; the two
+attempts differ in 105,121 bytes and every difference is bit 7 alone, which
+is one data line reading randomly.
+
+The diagnostic artifacts (`PROBE.gb`, `CARTDUMP.gb`, `SELFTEST.bin`) have
+been removed from the card. `CARTDUMP.gb` was for the fallback that writes
+into the slot's own file when `0x0192` is refused; that path still exists and
+is tested, but `0x0192` works now and it has never been used on hardware.
+
+## Position
+
+Subtracted from Rai's cartridge-support branch of the Pocket GBA core, the
+v0.4.0 lineage rather than mincer-ray's `master` (`docs/PROVENANCE.md`; the
+abandoned first attempt is on branch `abandoned-master-base`). The emulator is
+gone.
+
+Identification is **verified on hardware** for both platforms: five cartridges
+across two GB mappers, all three CGB flag values, both GB header layouts, and
+two GBA cartridges. `plan.md`'s First Hard Stop is cleared.
+
+Dumping is **verified on hardware** for both platforms: twenty GB/GBC
+cartridges across ROM-only, MBC1, MBC1+RAM+battery and MBC5, and fourteen GBA
+cartridges at 4, 8 and 16 MB. The core computes the GB global checksum itself
+while dumping and a CRC32 on both platforms.
+
+## Inherited code
+
+`src/fpga/core/gba_cart_bus.sv` is unchanged from the fork, byte for byte, and
+is the only module allowed to touch GBA-mode cartridge pins.
+`tools/sim/check_pin_isolation.py` enforces that in the test suite.
+
+Any `tools/sim/check_*.py` joins `make test` automatically - they run before
+the testbenches and are reported the same way. `check_qsf_sources.py` is the
+second: every `.sv` under the synthesised directories must appear in
+`ap_core.qsf`. It exists because each testbench names its own sources in a
+`// SOURCES:` header, so a new module compiles under Icarus the moment a
+testbench asks for it and the whole suite goes green while Quartus has never
+heard of the file. `cart_save_gb.sv` did exactly that: three testbenches
+passing, and `Error (12006): instantiates undefined entity` on the runner.
+
+Its author's own commit message is "Initial WIP on cart support. Not all save
+types have been tested!". Specifically:
+
+- Its testbench had never passed. It failed its own assertion 146 ns in, and
+  the assertion was wrong rather than the module.
+- That testbench overrode all six timing parameters to 1 or 2, so the numbers
+  that reach a cartridge were never simulated. The suite now covers the
+  defaults.
+- Its `physical_cart_id` probe never worked: it drove request signals nothing
+  was connected to, and captured whatever the emulator's ROM cache was
+  fetching at the time.
+
+## The traps
+
+**A Game Boy cartridge in this slot will contend with the GBA bus.** On a GB
+cartridge, `bank1` carries D0-D7 and the cartridge drives them on any read in
+ROM space. `gba_cart_bus` holds `bank1` as an output for the whole
+transaction, read window included. `cart_probe` is what keeps this from
+happening: it probes GB first and escalates to GBA only when the GB probe
+found nothing at all. Never reorder that. Established in
+`docs/HARDWARE-NOTES.md`, asserted in `tb_cart_probe`.
+
+**The core cannot tell you why an SD write failed.** From
+`docs/APF-NOTES.md`: a full card, a write-protected card and a filesystem
+error all return `target_dataslot_err` 5. `0x0188` flush is now implemented
+and `apf_file_writer` checks every command rather than the last one, which is
+the most that can be done. The error codes and what they narrow to are
+tabulated in `docs/BRINGUP.md`.
+
+**Aborting a write mid-pulse corrupts what the cartridge latches. Fixed for
+the mode-change case; still open for slot power loss.** `e_ctl_out` and
+`e_hi_oe` in `gb_cart_bus` are both gated by `gb_mode` combinationally, so
+the instant the connector mode goes away `/WR` rises and the data pins
+release together, on the edge a cartridge latches a mapper register on. The
+strobe cannot defend itself, because `cart_pins` owns the pins and honours
+the mode immediately.
+
+So whoever changes the mode must wait for `gb_cart_bus`'s `busy` to fall
+first, and `dump_engine` now does, including on an abort: the reader is
+reset but the transaction it left in flight still completes on its own,
+because `req` is only sampled in `ST_IDLE`. Bounded by one transaction, with
+a counter as a backstop.
+
+`tb_dump_engine` watches `want_gb` continuously and fails if it ever falls
+while the bus is busy. That test was vacuous when first written — at a
+three-cycle bus transaction an abort always arrived after the transaction
+had finished, so it passed with or without the fix. It only became real once
+the modelled transaction was made long enough for an abort to land inside
+one. A monitor for a one-cycle window has to be shown to fire.
+
+Still open: losing **slot power** mid-write does the same thing and nothing
+here can prevent it, because `cart_mode_s` is the Pocket's decision. If VCC
+is going away the cartridge has other problems, but the window during the
+fall is real.
+
+**A cartridge pulled mid-dump used to hang the core.** `gb_cart_bus` drops a
+transaction when `gb_mode` goes away and never asserts `done`, so the reader
+waited forever and so did everything above it, with `dump_busy` stuck high
+blocking the probe. Recovery needed exiting the core. `dump_engine` now
+watches `cart_powered` and turns it into a failure with error code 7, which is
+outside the 0 to 5 APF returns. Covered by `tb_dump_engine` and
+`tb_apf_file_writer`, including that the next dump still works.
+
+## APF's file interface, measured
+
+All of this is measured. Where an earlier version of this file stated
+something confidently that had not been, it is called out below, because
+that pattern cost four sessions.
+
+**The read window is pipelined and both halves are required.**
+`io_bridge_peripheral.v` holds the address from the SPI phase, waits four
+clocks, samples `bridge_rd_data`, then pulses `bridge_rd`. So the address
+must free-run: a window that waits for `bridge_rd` looks too late. And the
+value the host keeps is the one presented during the **previous**
+transaction, exactly as `core_bridge_cmd.v` does with the datatable. Free-run
+the address, latch the data on `bridge_rd`. Getting only the first half right
+makes every read arrive one word early, which reads as a malformed path, a
+wrong byte order, a wrong struct layout, or anything else you happen to be
+varying at the time.
+
+**Byte order differs by direction.** On reads, byte 0 of an array is the low
+byte of the word the core presents. On writes, `0x0190`'s reply put byte 0 in
+the high byte. Do not reason from one to the other; that produced the wrong
+answer twice.
+
+**Paths are absolute from the card root.** `/Assets/carttools/common/NAME`.
+APF confirmed it by describing its own output slot via `0x0190`.
+
+**`0x0188` flush is not answered and must not be issued.**
+`core_bridge_cmd`'s target state machine waits in `TARG_ST_WAITRESULT_DSO`
+forever, so one stalled flush blocks every target command after it. It is off
+behind `USE_FLUSH`. Writes commit without it. An earlier version of this file
+called its absence a defect, on the grounds that it is documented. Being
+documented turned out not to mean it is answered.
+
+**Every command has a deadline.** There is no cancel and no documented upper
+bound, so `apf_file_writer` gives each command about 1.8 seconds and reports
+`err 6` with `stall_at` naming open, write or flush. Without that a core can
+wait forever, and two sessions did.
+
+**How to diagnose the next one in one screenshot.** On the diagnostics page, when it existed,
+`<` cycles the four text rows between the cartridge header, APF's reply to
+`0x0190` for slot 0, the same for slot 20, and the first 128 bytes this core
+last handed APF. Reading what the far side received next to what this side
+sent is what finally worked; everything before that compared a screen against
+an intention. `0x0190` needs a file assigned to slot 0, so launch by browsing
+to one rather than by Play Cartridge.
+
+## Driving the bus
+
+`req` is a level sampled in the bus's idle state, and its done state returns
+to idle the cycle after raising `done`. A caller that holds `req` until it
+sees `done` is one cycle too late and gets a second transaction. Drop `req`
+the cycle after raising it, as `cart_identify_gba` does. Nothing in the module
+enforces this.
+
+## The cartridge is asleep for about two seconds after slot power
+
+`cart_pins` only releases pin 30, which is `/RES` on a GB cartridge, once
+`mode_ready` asserts. Read it any sooner and the first identification after
+launch fails while every rescan succeeds, because a rescan follows a cartridge
+that was awake moments earlier. `cart_probe`'s `WAKE_CYCLES` is 2 s and so is
+`dump_engine`'s, for the same reason: `cart_probe` parks the mode at idle when
+it finishes, so a dump starting afterwards is starting from reset again.
+
+The constant works and is not explained. It may vary with cartridge or battery
+level. Both modules parameterise it so testbenches can set it to a handful of
+cycles.
+
+## Timing hazards found in synthesis
+
+Neither was visible in simulation. Both cost a failed build.
+
+- **Constant division is not free.** `row = cell / 30` in the screen painter
+  became an `lpm_divide`, an 11.4 ns path against a 9.93 ns clock, failing
+  setup by 2.3 ns. Use counters that advance together. This is why the dump
+  progress counter is displayed in hexadecimal.
+- **The column path is walked six hundred times a repaint.** This failed
+  setup three times: a divide by 30, then the dump bar and filename fields on
+  top of an already deep mux, then a 128-byte text index with a multiply in
+  it. The rule is not "avoid division"; it is that anything the screen
+  selects per cell must come from a row chosen and registered in the cycle
+  before.
+- **Wide combinational reductions become the critical path even when they run
+  once.** The header checksum summed 29 bytes in one block. Accumulating as
+  the words arrive is two adds deep instead of twenty-nine. The same reasoning
+  keeps `ui_screen`'s repaint comparator to 35 bits: only the low eight bits
+  of the chunk count are in it.
+
+Every milestone must build before moving forward.
+
+## Tests
+
+`make test` runs the suite in a container. Every testbench declares its
+sources in a `// SOURCES:` header and must print `TB PASS: <name>` before
+finishing: `vvp` exits 0 for a testbench that printed nothing, one that
+stopped half way, and one that only called `$error`. Silence is failure.
+
+`tb_dump_engine` is the one that matters for dumping. It reads a modelled
+32 KB cartridge, crosses the payload into the bridge domain, answers the
+target commands the way APF does, reassembles the file the way a little-endian
+host would, and compares it byte for byte. It also covers a short trailing
+chunk and a partial bridge word, which no cartridge size can produce, a failed
+open, and a cartridge pulled at chunk 4 followed by a clean dump.
+
+`tb_gb_save_write_protect` is the one that matters for saves, and it is the
+first test here that **carries its own mutation**: phase 1 runs the real
+reader and must be clean, phase 2 drives a deliberate write into the RAM
+window through the same bus and the run fails unless the monitor catches it.
+A monitor for a condition that never occurs passes whether or not it works,
+which is how two earlier monitors in this tree passed with their fixes
+removed. Copy the shape rather than the note.
+
+Mutation-test anything that matters. The header checksum test once passed with
+a mutation that dropped the last reserved word from the sum, because the
+fixture had zeros there; there is now a fixture with a non-zero byte in all 29
+checksummed positions.
+
+`ui_screen`'s combinational logic is written as functions behind continuous
+assignments, not `always @(*)`, to avoid a simulation and synthesis mismatch
+on a cold boot with an empty slot. See `docs/UI.md`.
+
+## What to do next, in order
+
+1. **Probably dirty contacts, and downgraded accordingly.** Three cartridges
+   have ever produced a corrupt dump - `TETRIS.gb`, `OTHELLO.gb`, `TENNIS.gb`
+   - and all three are cartridge type `00`, ROM only, which looked like a
+   sharp correlation. Then twelve cartridges were re-dumped in one session,
+   including all three of those, and **every one came back byte for byte
+   identical**. Tennis had been corrupt hours earlier, with no code change in
+   between.
+
+   That makes intermittent contact the better explanation and the mapper
+   correlation a coincidence: the three suspects are the three smallest
+   cartridges, hence the oldest and most handled. It also fits the shape of
+   the corruption, which had no structure that maps to the RTL - two runs
+   holding data from sixteen bytes higher, early in bank 0, not at a bank
+   boundary, not chunk aligned, not on a byte lane.
+
+   **It is not proven.** Twelve clean dumps are equally consistent with a rare
+   logic defect that did not fire. What settles it is unchanged and still not
+   done: **when a dump fails, copy the bad image off before re-dumping it.**
+   There has still never been a corrupt-and-clean pair of the same cartridge
+   to diff, because Tennis's bad file was overwritten by its own re-dump.
+
+   The practical handling is already right: `dump_checksum` turns a silent bad
+   file into a loud one, and the answer to a mismatch is to clean the contacts
+   and dump again. `docs/STATUS.md` has the counts and the byte map.
+
+2. **Fix the filename: the two halves that are left.** The extension half is
+   done in `47bcd54` - `.gb`, `.gbc`, `.gba`. Still outstanding: `dump_path_gen`
+   takes fifteen bytes from `0x134`, which is the old title field, so on a CGB
+   cartridge the four-byte manufacturer code at `0x13F`-`0x142` lands in the
+   name and `ZELDA_DIN__AZ7E.gbc` should be `ZELDA_DIN.gbc`. And nothing
+   checks whether the chosen name is taken: Link's Awakening and Link's
+   Awakening DX both title themselves `ZELDA`, and the second dump silently
+   destroyed the first. See the collision entry under *Deliberately not done*
+   for why overwriting was thought correct, and why that reasoning does not
+   cover two different cartridges.
+
+3. **Close the gap between `docs/FILE-FORMATS.md` and what the core writes.**
+   That document specifies a `Dumps/`/`Saves/`/`Metadata/`/`Restore/` tree and
+   a `.cart.json` sidecar; the core writes flat files and no sidecar. Decide
+   which is right and move one of them - the companion app in
+   `docs/COMPANION-APP-PLAN.md` is already written against the spec, so
+   leaving them apart means the app is built against fiction. The sidecar is
+   also where the MBC1 large-cartridge caveat belongs, which
+   `cart_dump_gb.sv` has wanted somewhere since it was written.
+4. **Add the double read to the save path.** The save backup itself is
+   **done and verified**: a 32 KB four-bank GBC save was dumped, loaded in
+   mGBA beside its own ROM, and the game came up with everything intact. See
+   `docs/STATUS.md`. What is left is the check the plan calls mandatory and
+   the core still does not do.
+
+   - **The double read.** Read twice, compare, and do not write the file on a
+     mismatch. A save has no checksum, no logo and no length, so a second
+     pass is the only check available to it at all - and unlike a ROM dump, a
+     bad one cannot be fetched from anywhere else. It needs the buffering in
+     `docs/DUMP-VERIFY-PLAN.md`; 32 KB fits in block RAM with room to spare,
+     which is what makes "do not write the file on a mismatch" achievable
+     here and not for a 16 MB ROM. Until it lands, the second opinion is
+     dumping twice and running `scripts/verify_dump.py --compare`.
+
+   - **More cartridges, and specifically an MBC1 one.** One cartridge proves
+     one path. The verified one is MBC5, which has no mode register, so
+     **MBC1's mode-1 trap is still simulation only** - and it is the trap
+     that produces a plausible file rather than an obvious failure. Seven
+     MBC1 cartridges here have 8 KB saves; any of them exercises the mode
+     write, none exercises banking. 64 KB and 128 KB have no cartridge at all.
+
+   - **The collision bites hardest here.** Link's Awakening and Link's
+     Awakening DX both title themselves `ZELDA`, so their `.sav` files land
+     on the same name and the second destroys the first. For a ROM that means
+     a re-dump; for a save it means the backup is gone. Item 2 should land
+     before anyone backs up two cartridges with the same title.
+
+   Also open: **GBA saves.** `gba_cart_bus.sv` already implements the save
+   window - `save_space`, `/CS2`, the 16-bit address on AD, the byte off the
+   high bus - so SRAM needs no bus work either, and unlike GB it needs no
+   write to the cartridge at all. Two cartridges here use SRAM (Kirby:
+   Nightmare in Dream Land, Metroid: Zero Mission), one uses Flash (Golden
+   Sun) and seven use EEPROM, read out of each ROM's SDK id string. SRAM
+   first: it is a plain 32 KB read window with no command sequence.
+
+5. **Cover the mappers that still have no cartridge.** ROM-only, MBC1 to
+   512 KB, MBC1+RAM+battery and MBC5 to 1 MB are proven on hardware. MBC2,
+   MBC3 and MBC1 **above** 512 KB are simulation only, and GBA above 16 MB is
+   untested.
+
+   MBC1 above 512 KB is the interesting one: the mapper forces the low five
+   bits of the bank register to 1 when written as 0, so banks `0x20`, `0x40`
+   and `0x60` cannot be selected at all. A real dump will contain duplicates
+   and will not match a published hash - documented behaviour that has never
+   been watched to happen. `DONKEY_KONG.gb` at 512 KB is the largest MBC1
+   tested and sits one size below it.
+
+   Cartridges that would settle each: Donkey Kong Land, Kirby's Dream Land 2
+   or Wario Land II for MBC1 at 1 MB; Kid Icarus or Golf for MBC2; Pokemon
+   Gold or Crystal for MBC3, and Crystal also has 32 KB of save RAM, which is
+   the only way to exercise the save banking path in `docs/GB-SAVE-PLAN.md`.
+
+## Deliberately not done
+
+- **No cartridge bus HAL layer.** The bus that exists is the HAL.
+- **No flush, so no commit confirmation.** `0x0188` is unanswered and
+  issuing it wedges the target command path. Writes land; nothing verifies
+  they reached the card. `dump_checksum` covers the read path but not this
+  one: it sums the bytes on their way out of the core, so a byte lost after
+  that point would still report `image checksum ok`.
+- **The slot-file fallback has never run on hardware.** If every `0x0192`
+  open is refused, `dump_engine` writes into the file `data.json` names for
+  slot 20 instead. Tested in simulation, never needed since `0x0192` started
+  working.
+- **No read-back verification pass.** `dump_checksum` checks the image
+  against the cartridge's own value as it streams, which catches a misread,
+  but it never re-reads the file from the card, so it cannot catch a bad
+  write. A dump that needs that level of trust still gets it from a hash
+  comparison on a PC.
+- **No collision handling on filenames**, and this has now cost something.
+  The reasoning was that two dumps of the same cartridge should overwrite:
+  there is no directory listing command, so uniquifying would mean probing
+  names one round trip at a time, and a dump that silently became
+  `POKEMON_3.gb` is worse than one that replaced `POKEMON.gb`. The resize
+  flag is set so a shorter dump does not leave the tail of a longer one
+  behind.
+
+  What that missed is that two *different* cartridges can produce the same
+  name — Link's Awakening and Link's Awakening DX both title themselves
+  `ZELDA` — and the second silently destroyed the first. Overwriting a
+  re-dump is fine; overwriting a different cartridge is not, and the core
+  cannot currently tell the two cases apart. Item 2 above.
+- **No sidecar metadata, and no `Dumps/` tree.** `docs/FILE-FORMATS.md`
+  specifies both in full - subdirectories for dumps, saves, metadata and
+  restore, plus a `<basename>.cart.json` next to every image with hashes,
+  header judgements and a `verified` field. The core writes flat into
+  `/Assets/carttools/common/` and writes no sidecar at all. That document now
+  carries a table of what is specified against what exists, because for two
+  days it read as a contract while describing nothing that had been built.
+- **The engine's introspection ports have no consumer.** `dump_engine` still
+  drives `dbg_reads`, `dbg_struct_reads`, `dbg_last_addr`, `dbg_first_word`,
+  `dbg_flags_word`, `dbg_size_word`, `probe_err`, `resp_words` and
+  `sent_words`, and `core_top` no longer reads any of them, so Quartus strips
+  them. They were how the APF path search was diagnosed and they are worth
+  keeping until the save path has been through its own bring-up; after that,
+  either delete them or give them somewhere to go.
+- **No companion app.** `docs/COMPANION-APP-PLAN.md` plans the desktop side.
+  It waits on a core that has written files to a real card.

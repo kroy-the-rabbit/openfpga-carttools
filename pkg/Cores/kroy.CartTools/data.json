@@ -1,0 +1,36 @@
+{
+  "data": {
+    "magic": "APF_VER_1",
+    "data_slots": [
+      {
+        "name": "Cartridge",
+        "id": 0,
+        "required": true,
+        "parameters": "0x0",
+        "deferload": true,
+        "extensions": [
+          "gba",
+          "gb",
+          "gbc"
+        ],
+        "address": "0x10000000",
+        "size_maximum": "0x2000000"
+      },
+      {
+        "name": "ROM Dump",
+        "id": 20,
+        "required": false,
+        "parameters": "0x0",
+        "extensions": [
+          "gb",
+          "gbc",
+          "gba",
+          "bin"
+        ],
+        "address": "0x60000000",
+        "size_maximum": "0x2000000",
+        "filename": "CARTDUMP.gb"
+      }
+    ]
+  }
+}

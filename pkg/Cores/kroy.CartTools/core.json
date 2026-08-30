@@ -1,0 +1,36 @@
+{
+  "core": {
+    "magic": "APF_VER_1",
+    "metadata": {
+      "platform_ids": [
+        "carttools"
+      ],
+      "shortname": "CartTools",
+      "description": "Cartridge Tools",
+      "author": "kroy",
+      "url": "https://github.com/kroy-the-rabbit/openfpga-carttools",
+      "version": "0.9999",
+      "date_release": "2026-08-25"
+    },
+    "framework": {
+      "target_product": "Analogue Pocket",
+      "version_required": "1.2",
+      "sleep_supported": false,
+      "dock": {
+        "supported": true,
+        "analog_output": false
+      },
+      "hardware": {
+        "link_port": false,
+        "cartridge_adapter": "0x01000000"
+      }
+    },
+    "cores": [
+      {
+        "name": "default",
+        "id": 0,
+        "filename": "bitstream.rbf_r"
+      }
+    ]
+  }
+}

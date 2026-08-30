@@ -1,0 +1,104 @@
+name: Release
+
+# Gate 2: a tag, and the tag has to be on main.
+#
+# Both, not either. A tag alone would let a release be cut from a branch that
+# never passed the main gate; main alone would publish on every merge. The
+# ancestry check below is what makes "and" real - GitHub will happily run this
+# for a tag pushed anywhere.
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false      # never cancel a half-published release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The gate. A tag is just a label and can be put on any commit, so this
+      # asks git whether the tagged commit is actually reachable from main.
+      - name: Require the tag to be on main
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::${GITHUB_REF_NAME} points at $GITHUB_SHA, which is not on main."
+            echo "Tag a commit that has been merged to main and passed the Build workflow."
+            exit 1
+          fi
+          echo "$GITHUB_REF_NAME is on main."
+
+      # Alpha, beta and rc tags publish as prereleases. This project is at
+      # alpha: both dump paths are verified on hardware and both reproduce, but
+      # several documented gaps remain in docs/HANDOFF.md - the CGB filename
+      # bug, no save backup, whole mapper families with no cartridge to test
+      # against - and nothing has a second opinion on the SD write path. A
+      # release that did not say so would be overclaiming.
+      - name: Classify the tag
+        id: kind
+        run: |
+          case "$GITHUB_REF_NAME" in
+            # -testing is for a tag cut so a specific thing can be tried on
+            # hardware. It is the least finished kind of tag here, so it has
+            # to classify as a prerelease or the default would publish it as
+            # a stable one.
+            *-alpha*|*-beta*|*-rc*|*-testing*)
+              echo "prerelease=true"  >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Simulation suite
+        run: |
+          docker build -t carttools-sim:1 -f tools/podman/Containerfile.sim tools/podman
+          docker run --rm -v "$PWD:/work" -w /work -e HOME=/tmp \
+            carttools-sim:1 python3 tools/sim/run_all.py
+
+      # RELEASE_NAME stamps core.json so the Pocket menu shows the version, and
+      # names the zip. build.sh exits 3 on negative slack, so a release cannot
+      # be cut from a bitstream that does not close timing.
+      - name: Build
+        run: make cart PODMAN=docker RELEASE_NAME=${{ github.ref_name }}
+
+      - name: Timing report
+        if: always()
+        run: cat build/cart/report.txt || true
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/cart/*.zip
+            build/cart/report.txt
+          prerelease: ${{ steps.kind.outputs.prerelease }}
+          generate_release_notes: true
+          body: |
+            Analogue Pocket cartridge utility. Unzip to the root of your SD card.
+
+            **Alpha.** GB/GBC dumping is verified on twenty cartridges and
+            GBA dumping on twelve, at 4, 8 and 16 MB. Three images match
+            published records. Twelve GB/GBC cartridges and both of the first
+            two GBA cartridges dump byte for byte identically on a repeat.
+            GB/GBC save backup works and is verified the only way a save
+            can be: one cartridge's 32 KB save dumped, loaded in an emulator
+            beside its own ROM, and the game's state came back intact. It is
+            still a single read - the double read is not built - so do not
+            treat a `.sav` as a backup you would rely on.
+
+            Read `docs/STATUS.md` for what is proven and how, and
+            `docs/HANDOFF.md` for what is not.
+
+            This core writes to a cartridge in two places, both mapper
+            registers in ROM space: bank registers, which is how a Game Boy
+            cartridge is banked, and the save RAM gate on a save backup, which
+            is closed again on every exit. It never writes to GBA ROM space
+            and never writes a byte into cartridge RAM.

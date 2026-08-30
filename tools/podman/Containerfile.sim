@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Tiny Icarus Verilog image for unit-testing plain RTL (no Altera IP involved).
+# Separate from the Quartus image so simulation stays fast to rebuild.
+FROM docker.io/library/ubuntu:22.04
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        iverilog python3 ca-certificates make \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /work

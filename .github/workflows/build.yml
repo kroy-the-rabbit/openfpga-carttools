@@ -1,0 +1,68 @@
+name: Build
+
+# Gate 1: main only.
+#
+# Not every branch. A Quartus run is ~6 minutes of a hosted runner and this
+# core's timing margin has been thin enough to fail a build once already, so
+# what matters is that main always holds something that compiles and closes
+# timing. Feature branches get tested by `make test`, which is seconds.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sim:
+    name: Simulation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Every cartridge-facing module has a testbench because the hardware it
+      # talks to cannot be put in CI: a wrong write to a cartridge is not
+      # recoverable. This is the cheap gate and it runs first.
+      - name: Build the Icarus image
+        run: docker build -t carttools-sim:1 -f tools/podman/Containerfile.sim tools/podman
+
+      - name: Run the suite
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work -e HOME=/tmp \
+            carttools-sim:1 python3 tools/sim/run_all.py
+
+  synth:
+    name: Synthesis and timing
+    runs-on: ubuntu-latest
+    needs: sim
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # build.sh stamps core.json from the commit
+
+      # PODMAN is a variable precisely so this works. build.sh exits 3 when
+      # worst slack is negative, which is what makes this a gate rather than a
+      # report: a bitstream that does not close timing must not reach main.
+      - name: Build
+        run: make cart PODMAN=docker
+
+      - name: Timing report
+        if: always()
+        run: cat build/cart/report.txt || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report-${{ github.sha }}
+          path: build/cart/report.txt
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-${{ github.sha }}
+          path: build/cart/*.zip
+          if-no-files-found: error
