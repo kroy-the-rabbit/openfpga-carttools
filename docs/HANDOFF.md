@@ -3,6 +3,34 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## Both GBA save sizes are verified, 2026-09-01
+
+`ZEROMISSIONE`, 8 MB, **32 KiB SRAM**, loaded in mGBA with its file intact.
+Kroy: "Confirmed working". That was the last untested path in the accepted
+set, and it arrived on a cartridge nobody expected to have.
+
+    0x1c    ZeroMissionUSAver005
+    0x80    ZERO_MISSION_010
+    0xcf    Planet Zebes...
+    0x2d0    - Samus Aran -
+    175 distinct byte values, four banks all different, crc32 6C90074B
+
+| Path | State |
+|---|---|
+| Save type scan | **verified**, EEPROM and 128 KiB Flash refused on three cartridges, SRAM and Flash accepted |
+| Flash 64 KiB | **verified**, Golden Sun |
+| SRAM 32 KiB | **verified**, Zero Mission |
+| 128 KiB Flash, EEPROM | refused, both need a write |
+
+`NHL 2002`, `ANLE`, 4 MB, also came back refused, so it is EEPROM or 128 KiB
+Flash. That is three cartridges the refusal path has been right about.
+
+**`scripts/verify_dump.py` has the same defect the core just had.** It
+cross-checks a `.sav` against the byte at `0x0149` of the ROM beside it, which
+is a Game Boy header field, so it reported `FAIL size matches the cartridge
+header, 0x0149 = 00 wants 0 bytes` on Zero Mission's perfectly good save. It
+will do that on every GBA save. Not fixed.
+
 ## GBA save backup is verified on hardware, 2026-09-01
 
 **Golden Sun. The first GBA save this core has ever taken, and it loads.**
