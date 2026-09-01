@@ -61,6 +61,17 @@ wire        found_eeprom, found_sram, found_sram_f;
 wire        found_flash, found_flash512, found_flash1m;
 wire        ambiguous, found_any;
 wire        want_gba;
+wire        complete;
+reg         cart_mode = 1'b1;
+// Cycles after start before cart_mode rises, standing in for cart_pins
+// turning the connector round. 0 means it is already up.
+integer     mode_delay = 0;
+// Hold cart_mode low for the whole run, standing in for an empty or
+// unpowered slot. The scan must time out rather than wait.
+reg         mode_never = 1'b0;
+// Feed count at which cart_mode is dropped mid-scan. -1 never.
+integer     drop_at = -1;
+integer     feeds = 0;
 
 wire        bus_req, bus_wr;
 wire [27:0] bus_addr;
@@ -76,6 +87,7 @@ gba_save_scan dut (
     .clk (clk), .reset (reset),
     .start (start), .rom_size_bytes (rom_size_bytes),
     .busy (busy), .done (done), .want_gba (want_gba),
+    .cart_mode (cart_mode), .complete (complete),
     .found_eeprom (found_eeprom), .found_sram (found_sram),
     .found_sram_f (found_sram_f), .found_flash (found_flash),
     .found_flash512 (found_flash512), .found_flash1m (found_flash1m),
@@ -120,6 +132,11 @@ always @(posedge clk) begin
     bus_done <= 1'b0;
     if (reset) begin
         bus_busy <= 1'b0;
+    end else if (!cart_mode) begin
+        // gba_cart_bus holds its FSM in reset while cart_mode is low and never
+        // raises done. The stub has to do the same or the tests below prove
+        // nothing about the real thing.
+        bus_busy <= 1'b0;
     end else if (bus_req && !bus_busy) begin
         bus_busy <= 1'b1;
         bus_rdata <= {rom_byte(bus_addr + 3), rom_byte(bus_addr + 2),
@@ -128,6 +145,11 @@ always @(posedge clk) begin
         bus_busy <= 1'b0;
         bus_done <= 1'b1;
     end
+end
+
+// Counts bytes fed, so a test can drop the mode partway through a scan.
+always @(posedge clk) begin
+    if (!reset && dut.state == 3'd4) feeds <= feeds + 1;
 end
 
 // --- the mode must be held for the whole scan --------------------------------
@@ -189,14 +211,26 @@ end
 endtask
 
 task run_scan(input [31:0] n);
+    integer d;
 begin
     rom_size_bytes = n;
+    feeds     = 0;
+    cart_mode = (mode_delay == 0) && !mode_never;
     @(negedge clk);
     start = 1'b1;
     @(negedge clk);
     start = 1'b0;
+    if (mode_delay > 0 && !mode_never) begin
+        for (d = 0; d < mode_delay; d = d + 1) @(negedge clk);
+        cart_mode = 1'b1;
+    end
+    if (drop_at >= 0) begin
+        wait (feeds >= drop_at);
+        cart_mode = 1'b0;
+    end
     wait (done == 1'b1);
     @(negedge clk);
+    cart_mode = 1'b1;
 end
 endtask
 
@@ -317,6 +351,66 @@ initial begin
     // ---- A zero-size ROM finishes and touches nothing -----------------------
     run_scan(32'd0);
     expect_only(6'b000000, "a zero-size ROM");
+
+    // ---- The connector is not up yet when the scan starts -------------------
+    // This is the case that shipped and froze a core. cart_probe parks the
+    // mode, the size probe drops its request as it finishes, and cart_pins
+    // takes sixteen cycles to turn the connector round, so cart_mode is low
+    // when the scan begins. A scan that issues a request now is ignored by
+    // gba_cart_bus and waits for a done that never comes.
+    plant_at = -1; plant_len = 0; no_plant2;
+    set_plant("SRAM_V", 6, 512);
+    mode_delay = 40;
+    run_scan(ROM_BYTES);
+    mode_delay = 0;
+    expect_only(6'b000010, "SRAM_V with the mode arriving late");
+    if (complete !== 1'b1) begin
+        $display("ERROR: a scan that waited for the mode did not report complete");
+        errors = errors + 1;
+    end
+
+    // ---- The connector never comes up ---------------------------------------
+    // An empty or unpowered slot. It must give up and finish, and it must NOT
+    // claim the ROM held no save string, because it never read the ROM.
+    mode_never = 1'b1;
+    run_scan(ROM_BYTES);
+    mode_never = 1'b0;
+    if (complete !== 1'b0) begin
+        $display("ERROR: a scan that never got the connector reported complete");
+        errors = errors + 1;
+    end
+    if (busy !== 1'b0) begin
+        $display("ERROR: the scanner is still busy after giving up on the mode");
+        errors = errors + 1;
+    end
+
+    // ---- The mode drops partway through -------------------------------------
+    // A cartridge pulled mid-scan. gba_cart_bus resets and the outstanding
+    // request is never answered, so the scan has to notice rather than wait.
+    set_plant("FLASH1M_V", 9, 3000);
+    drop_at = 600;
+    run_scan(ROM_BYTES);
+    drop_at = -1;
+    if (complete !== 1'b0) begin
+        $display("ERROR: a scan abandoned mid-run reported complete");
+        errors = errors + 1;
+    end
+    if (busy !== 1'b0) begin
+        $display("ERROR: the scanner is still busy after the mode dropped");
+        errors = errors + 1;
+    end
+
+    // ---- And it recovers -----------------------------------------------------
+    // The next cartridge must scan normally. A module that latched an abort
+    // would pass everything above and be useless.
+    plant_at = -1; plant_len = 0; no_plant2;
+    set_plant("SRAM_V", 6, 512);
+    run_scan(ROM_BYTES);
+    expect_only(6'b000010, "SRAM_V after an abandoned scan");
+    if (complete !== 1'b1) begin
+        $display("ERROR: the scan after an abandoned one did not report complete");
+        errors = errors + 1;
+    end
 
     // A scan must actually have run, or the invariant above was never tested.
     if (want_errors == 0 && errors == 0 && busy !== 1'b0) begin

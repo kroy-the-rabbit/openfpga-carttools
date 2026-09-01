@@ -59,9 +59,20 @@
 // could raise it.
 //
 
-module gba_save_scan (
+module gba_save_scan #(
+    // Long enough for cart_pins to turn the connector round, which takes
+    // sixteen cycles, with room to spare. Same value gba_size_probe uses.
+    parameter integer MODE_WAIT_CYCLES = 4096
+) (
     input  wire        clk,
     input  wire        reset,
+
+    // The connector's actual state, not the request. gba_cart_bus ignores
+    // requests while this is low and never raises done, so a scan that does
+    // not wait for it hangs, and a scan that does not notice it dropping hangs
+    // on the request already outstanding. gba_size_probe learned both of those
+    // the hard way and this module did not, which cost a shipped core.
+    input  wire        cart_mode,
 
     input  wire        start,             // pulse
     input  wire [31:0] rom_size_bytes,    // from gba_size_probe
@@ -91,6 +102,12 @@ module gba_save_scan (
     output wire        ambiguous,
     output wire        found_any,
 
+    // The whole ROM was read. Low when the scan gave up waiting for the
+    // connector or the mode dropped underneath it. Without this, an abandoned
+    // scan and a ROM with no save string are the same answer, and only one of
+    // them means the cartridge has no save.
+    output reg         complete,
+
     // gba_cart_bus master port. Same handshake rule as cart_dump_gba: wait for
     // !bus_busy, raise req for one cycle, drop it, then wait for done.
     output reg         bus_req,
@@ -109,12 +126,15 @@ assign bus_wr    = 1'b0;
 assign bus_acc   = ACCESS_32BIT;
 assign bus_wdata = 32'd0;
 
-localparam [1:0] ST_IDLE = 2'd0;
-localparam [1:0] ST_REQ  = 2'd1;
-localparam [1:0] ST_WAIT = 2'd2;
-localparam [1:0] ST_FEED = 2'd3;
+localparam [2:0] ST_IDLE = 3'd0;
+localparam [2:0] ST_MODE = 3'd1;
+localparam [2:0] ST_REQ  = 3'd2;
+localparam [2:0] ST_WAIT = 3'd3;
+localparam [2:0] ST_FEED = 3'd4;
+localparam [2:0] ST_DONE = 3'd5;
 
-reg [1:0]  state;
+reg [2:0]  state;
+reg [15:0] mode_wait;
 reg [27:0] addr;
 reg [31:0] word;
 reg [1:0]  bsel;
@@ -201,9 +221,11 @@ always @(posedge clk) begin
     bus_req <= 1'b0;
 
     if (reset) begin
-        state    <= ST_IDLE;
-        busy     <= 1'b0;
-        want_gba <= 1'b0;
+        state     <= ST_IDLE;
+        busy      <= 1'b0;
+        want_gba  <= 1'b0;
+        complete  <= 1'b0;
+        mode_wait <= 16'd0;
         addr     <= 28'd0;
         word     <= 32'd0;
         bsel     <= 2'd0;
@@ -215,14 +237,27 @@ always @(posedge clk) begin
         seen_flash512 <= 1'b0;
         seen_flash1m  <= 1'b0;
         for (k = 0; k < 10; k = k + 1) w[k] <= 8'h00;
+    end else if (state != ST_IDLE && state != ST_MODE && state != ST_DONE &&
+                 !cart_mode) begin
+        // The connector left GBA mode underneath us. gba_cart_bus has reset
+        // and will never answer the outstanding request, so stop rather than
+        // hang, and report nothing rather than a result gathered across a mode
+        // change. ST_DONE is excluded for the reason gba_size_probe documents:
+        // without that, a scan started with cart_mode already low re-enters
+        // this branch forever, busy stuck high and done never pulsing, which
+        // is the hang the branch exists to prevent.
+        bus_req  <= 1'b0;
+        complete <= 1'b0;
+        state    <= ST_DONE;
     end else begin
         case (state)
             ST_IDLE: begin
                 busy     <= 1'b0;
                 want_gba <= 1'b0;
                 if (start) begin
-                    busy     <= 1'b1;
-                    want_gba <= 1'b1;
+                    busy      <= 1'b1;
+                    want_gba  <= 1'b1;
+                    mode_wait <= MODE_WAIT_CYCLES[15:0];
                     addr <= 28'd0;
                     bsel <= 2'd0;
                     // Cleared here, so a signature can never be reported from
@@ -234,14 +269,26 @@ always @(posedge clk) begin
                     seen_flash512 <= 1'b0;
                     seen_flash1m  <= 1'b0;
                     for (k = 0; k < 10; k = k + 1) w[k] <= 8'h00;
-                    if (rom_size_bytes < 32'd4) begin
-                        busy     <= 1'b0;
-                        want_gba <= 1'b0;
-                        done     <= 1'b1;
-                        state    <= ST_IDLE;
-                    end else begin
-                        state <= ST_REQ;
-                    end
+                    // A ROM too small to hold a signature is a complete scan
+                    // of nothing, not an abandoned one.
+                    complete <= (rom_size_bytes >= 32'd4);
+                    state    <= (rom_size_bytes < 32'd4) ? ST_DONE : ST_MODE;
+                end
+            end
+
+            // The mode was asked for one cycle ago and cart_pins takes sixteen
+            // to turn the connector round, so cart_mode is still low even on a
+            // good cartridge. Waiting is not optional: a request issued now is
+            // ignored and done never comes. The timeout is what turns an
+            // unpowered slot into an answer instead of a hang.
+            ST_MODE: begin
+                if (cart_mode) begin
+                    state <= ST_REQ;
+                end else if (mode_wait == 16'd0) begin
+                    complete <= 1'b0;
+                    state    <= ST_DONE;
+                end else begin
+                    mode_wait <= mode_wait - 16'd1;
                 end
             end
 
@@ -277,10 +324,7 @@ always @(posedge clk) begin
 
                 if (bsel == 2'd3) begin
                     if (at_end) begin
-                        busy     <= 1'b0;
-                        want_gba <= 1'b0;
-                        done     <= 1'b1;
-                        state    <= ST_IDLE;
+                        state <= ST_DONE;
                     end else begin
                         addr  <= next_addr[27:0];
                         state <= ST_REQ;
@@ -288,6 +332,13 @@ always @(posedge clk) begin
                 end else begin
                     bsel <= bsel + 2'd1;
                 end
+            end
+
+            ST_DONE: begin
+                busy     <= 1'b0;
+                want_gba <= 1'b0;
+                done     <= 1'b1;
+                state    <= ST_IDLE;
             end
 
             default: state <= ST_IDLE;

@@ -3,6 +3,54 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## The same defect, twice, and what it should have been copied from
+
+**Second hardware run.** The freeze was gone: Minish Cap at 16 MB, Super Mario
+Advance at 4 MB and ZELDA all dumped clean on stamp `3AC8`. But both GBA
+cartridges showed `A scan  X dump` with no save row at all, and a five second
+wait with no button pressed changed nothing. Both are EEPROM cartridges, so a
+refusal row was owed and never came.
+
+**The scan was hanging, and for the reason the first fix should have found.**
+`cart_probe` parks the mode. `gba_size_probe` drops `want_gba` in the same
+cycle it raises `done`. `cart_pins` takes sixteen cycles to turn the connector
+round. So `cart_mode` is low exactly when the scan starts, and
+`gba_cart_bus` ignores requests while it is low and never raises `done`.
+
+`gba_size_probe` already had all three defences, with comments saying why, and
+`gba_save_scan` had none of them:
+
+| | `gba_size_probe` | `gba_save_scan`, as shipped |
+|---|---|---|
+| `cart_mode` input | yes | absent |
+| `ST_MODE` wait, with a timeout | yes | absent |
+| Abandon guard if the mode drops | yes | absent |
+
+That module's own comment records the abandon guard hanging it once and being
+caught by case 11 of `tb_gba_size_probe`. **The lesson is narrow and worth
+keeping: this module was written from `cart_dump_gba`'s shape, and the parts
+that matter were in `gba_size_probe`'s scars.** A new bus master gets read
+against the most bruised master on the same bus, not the tidiest.
+
+**The fix.** `cart_mode` input, `ST_MODE` with the same 4096 cycle timeout, and
+the abandon guard in the same shape. A new `complete` output, because without
+it an abandoned scan and a ROM carrying no save string are the same answer and
+only one of them means the cartridge has no save; `core_top` sets
+`save_scan_valid` only when `complete` is set. And `save_scan_start` now holds
+the mode as well, closing a one cycle gap where the request fell back to
+parked idle between the size probe finishing and the scan asking.
+
+**Four new cases in `tb_gba_save_scan`:** the mode arriving late, never
+arriving, dropping mid-scan, and the next cartridge scanning normally
+afterwards. Mutation checked: removing the `ST_MODE` wait or the abandon guard
+makes the testbench **hang**, which is the hardware symptom reproduced in
+simulation rather than described in a comment.
+
+**Known and deliberately left:** pressing X while a scan is running abandons it
+and nothing restarts it, so that cartridge shows no save row until A is
+pressed. Worth fixing separately rather than bundled into a third emergency
+build.
+
 ## The GBA save scan froze the core, 2026-09-01
 
 **Shipped to the card, ran on hardware, broke it.** Kroy: "All the dumping

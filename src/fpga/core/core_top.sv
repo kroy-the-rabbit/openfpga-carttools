@@ -708,9 +708,14 @@ wire        probe_answered_gba;
 wire [1:0]  dump_want_mode;
 wire        sz_want_gba;
 wire        save_scan_want_gba;
+// save_scan_start is in the mode request as well as save_scan_want_gba, and
+// that is not belt and braces. gba_size_probe drops want_gba in the same cycle
+// it raises done, and the scan raises its own a cycle after that, so without
+// this the request falls back to parked idle for exactly one cycle and
+// cart_pins begins a turnaround nobody wanted.
 wire [1:0]  cart_mode_req = (dump_want_mode != 2'b00) ? dump_want_mode :
-                            (sz_want_gba |
-                             save_scan_want_gba)       ? 2'b01
+                            (sz_want_gba | save_scan_want_gba |
+                             save_scan_start)          ? 2'b01
                                                        : probe_mode;
 
 wire        gb_mode_s  = cart_mode_s && (cart_mode_req == 2'b10) && cart_mode_ready;
@@ -1148,7 +1153,7 @@ gba_size_probe sizer (
 wire        save_scan_done;
 wire        svs_eeprom, svs_sram, svs_sram_f;
 wire        svs_flash, svs_flash512, svs_flash1m;
-wire        svs_ambiguous, svs_found_any;
+wire        svs_ambiguous, svs_found_any, svs_complete;
 
 // On the edge of the size probe finishing with a size. No size, no scan: the
 // scan's loop bound is the ROM size and a zero would scan nothing anyway.
@@ -1162,6 +1167,7 @@ assign save_scan_start = sz_done && sz_size_valid;
 gba_save_scan save_scanner (
     .clk            ( clk_sys ),
     .reset          ( ~pll_core_locked | dump_busy | scan_start ),
+    .cart_mode      ( gba_mode_s ),
     .start          ( save_scan_start ),
     .rom_size_bytes ( sz_size_bytes ),
     .busy           ( save_scan_busy ),
@@ -1175,6 +1181,7 @@ gba_save_scan save_scanner (
     .found_flash1m  ( svs_flash1m ),
     .ambiguous      ( svs_ambiguous ),
     .found_any      ( svs_found_any ),
+    .complete       ( svs_complete ),
     .bus_req        ( scn_req ),
     .bus_wr         ( scn_wr ),
     .bus_addr       ( scn_addr ),
@@ -1194,7 +1201,7 @@ always @(posedge clk_sys) begin
     if (~pll_core_locked)        save_scan_valid <= 1'b0;
     else if (scan_start)         save_scan_valid <= 1'b0;
     else if (save_scan_start)    save_scan_valid <= 1'b0;
-    else if (save_scan_done)     save_scan_valid <= 1'b1;
+    else if (save_scan_done)     save_scan_valid <= svs_complete;
 end
 
 // What the scan means, decided here rather than in the scanner, which reports
