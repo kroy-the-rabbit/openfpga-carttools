@@ -28,7 +28,7 @@ what was written here.
 | Files named `.gb` / `.gbc` / `.gba` | **works** |
 | GB / GBC save backup | **works**, four cartridges, each loaded in an emulator with its state intact |
 | Save RAM banking, to 128 KB | **works** at 8 KB one bank and 32 KB four banks; 64 KB and 128 KB built, untested |
-| GBA save backup | **SRAM only.** Save type detection works on hardware and correctly refuses EEPROM cartridges. The SRAM reader has never run, because no SRAM cartridge has been to hand. Flash and EEPROM are refused, because both need a write and writes are blocked |
+| GBA save backup | **SRAM 32 KiB and Flash 64 KiB**, both of which read without writing to the cartridge. Save type detection works on hardware. 128 KiB Flash and EEPROM are refused, because reading either needs a write and writes are blocked. The reader itself has not yet run on a cartridge |
 | Save restore | not started |
 | MBC3 RTC | not started |
 | MBC2, MBC3, MBC1 above 512 KB | simulation only, no cartridge to test |

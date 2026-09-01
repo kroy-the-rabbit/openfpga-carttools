@@ -3,6 +3,38 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## Flash 64 KiB, which needs no writes at all, 2026-09-01
+
+Golden Sun, 8 MB, came back `save RAM here is not supported`. It is a Flash
+cartridge, and refusing it was leaving an easy case on the floor.
+
+**A GBA Flash chip powers up in read array mode and sits in the same
+`0x0E000000` window as SRAM.** Commands are needed for chip ID, erase, program
+and bank select. A backup does none of those, so **reading a 64 KiB Flash is
+the same plain byte read `cart_save_gba` already does.** The change is the
+accept condition in `core_top` and a size, not a new module and not a write
+path. `tb_gba_save_write_protect` still holds at the pins.
+
+    SRAM_V, SRAM_F_V      32 KiB   accepted
+    FLASH_V, FLASH512_V   64 KiB   accepted, new
+    FLASH1M_V                      refused: its first bank would read, but the
+                                   second needs 0xB0 and a bank number written
+                                   to 0x0E000000, and half a save is worse
+                                   than none
+    EEPROM_V                       refused: the address is clocked in, so
+                                   reading starts with writing, and the string
+                                   does not say 512 B or 8 KiB
+
+`tb_cart_save_gba` gains a 64 KiB read, which is the largest this module can
+be asked for and the one that runs the save window's 16 bit address to its
+last value. An offset that wrapped would re-read the head of the chip and the
+content check catches it.
+
+**The assumption worth naming:** that Flash answers reads with no command
+first. It is standard behaviour and it is why this works, but it is not
+verified against a cartridge. Golden Sun settles it in one test, and this is
+the change that lets that test happen.
+
 ## The GBA save scan works on hardware, 2026-09-01
 
 **Verified.** Stamp `141B`, seed 5. Two GBA cartridges, nothing pressed, both

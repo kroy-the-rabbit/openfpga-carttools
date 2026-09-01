@@ -315,6 +315,25 @@ initial begin
         errors = errors + 1;
     end
 
+    // ---- Phase 5: a whole 64 KiB Flash -------------------------------------
+    // The largest read this module can be asked for, and the one that runs the
+    // save window's 16 bit address to its last value. An offset that wrapped
+    // would re-read the start of the chip and the content check would catch it.
+    run_read(32'd65536, 1'b0);
+    if (got !== 65536) begin
+        $display("ERROR: phase 5 emitted %0d bytes, expected 65536", got);
+        errors = errors + 1;
+    end
+    if (save_rd_count !== 32'd65536) begin
+        $display("ERROR: %0d save reads for 65536 bytes", save_rd_count);
+        errors = errors + 1;
+    end
+    if (save_wr_count !== 32'd0 || wr_pulse_count !== 32'd0) begin
+        $display("ERROR: %0d writes reached the cartridge during a Flash read",
+                 save_wr_count);
+        errors = errors + 1;
+    end
+
     if (errors == 0) $display("TB PASS: tb_cart_save_gba");
     else begin
         $display("TB FAIL: tb_cart_save_gba, %0d errors", errors);

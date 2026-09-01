@@ -11,17 +11,24 @@
 // address, pulse RD#, take the byte. The whole module is an address counter
 // feeding a byte stream, the same shape as cart_dump_gba.
 //
-// **SRAM only, and that is a deliberate limit rather than a first cut.**
-// A GBA cartridge carries one of five save technologies and only this one can
-// be read without writing to the cartridge:
+// **Whatever can be read without writing, and that is a deliberate limit
+// rather than a first cut.** A GBA cartridge carries one of five save
+// technologies and two of them answer plain reads in the save window:
 //
-//   SRAM 32 KiB       plain reads in the save window          this module
-//   FLASH 64 KiB      readable, but indistinguishable from    refused
-//                     SRAM without an ID command, which is
-//                     a write
-//   FLASH 128 KiB     needs a bank select write               refused
+//   SRAM 32 KiB       plain reads                             this module
+//   FLASH 64 KiB      plain reads: the chip powers up in      this module
+//                     read array mode and commands are only
+//                     needed for ID, erase, program and bank
+//                     select, none of which a backup does
+//   FLASH 128 KiB     first bank would read, second needs a   refused
+//                     bank select write, and half a save is
+//                     worse than none
 //   EEPROM 512 B      serial, the address is written in       refused
 //   EEPROM 8 KiB      serial, the address is written in       refused
+//
+// Which of the two it is comes from the caller, off the ROM scan, and reaches
+// this module only as a byte count. Nothing here behaves differently for
+// Flash: the read is the same read.
 //
 // The three refusals are not caution for its own sake. Writing to a GBA
 // cartridge is blocked by an open defect: aborting inside gba_cart_bus's
@@ -48,9 +55,9 @@
 //
 // LIMIT: 64 KiB. gba_cart_bus uses latched_addr[15:0] as the address it
 // drives in save space, so an offset past 0xFFFF wraps to the start of the
-// window rather than reading anything new. Real GBA SRAM is 32 KiB and the
-// only larger technology in the save window is Flash, which this module
-// refuses, so the limit is above anything it can legitimately be asked for.
+// window rather than reading anything new. That is exactly 64 KiB, which is
+// the largest thing this module is ever asked for: a 128 KiB Flash would need
+// the bank select write that gets it refused.
 //
 // Byte order does not arise. Save space is read a byte at a time - the bus
 // replicates the byte across all four lanes of rdata and returns in one beat

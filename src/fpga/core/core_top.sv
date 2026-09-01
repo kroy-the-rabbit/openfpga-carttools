@@ -1207,13 +1207,33 @@ end
 // What the scan means, decided here rather than in the scanner, which reports
 // only what it saw.
 //
-// SRAM and FRAM are the same 32 KiB read through the same window. Everything
-// else is refused: Flash needs a command sequence to identify and a bank
-// select at 128 KiB, EEPROM is addressed by clocking the address in, and every
-// one of those is a write. A cartridge carrying two families of string is
-// refused as well rather than guessed at.
-wire gba_save_ok = save_scan_valid && !svs_ambiguous && (svs_sram || svs_sram_f);
-wire [31:0] gba_save_size = gba_save_ok ? 32'd32768 : 32'd0;
+// What can be read without writing to the cartridge, which is the whole of the
+// constraint while the ST_WRITE abort defect is open.
+//
+//   SRAM_V, SRAM_F_V     32 KiB   plain reads in the save window
+//   FLASH_V, FLASH512_V  64 KiB   also plain reads: a Flash chip powers up in
+//                                 read array mode and sits in the same window.
+//                                 Commands are only needed for chip ID, erase,
+//                                 program and bank select, none of which a
+//                                 backup does.
+//
+// Still refused, and each for a write this core may not make:
+//
+//   FLASH1M_V   its first 64 KiB would read fine, but the second bank needs
+//               0xB0 then a bank number written to 0x0E000000. Half a save is
+//               worse than none, so the whole thing waits.
+//   EEPROM_V    the address is clocked into the chip a bit at a time, so
+//               reading it starts with writing to it. It also does not say
+//               whether it is 512 B or 8 KiB.
+//
+// A cartridge carrying two families of string is refused rather than guessed
+// at, as before.
+wire gba_sram_ok  = svs_sram  | svs_sram_f;
+wire gba_flash_ok = svs_flash | svs_flash512;
+wire gba_save_ok  = save_scan_valid && !svs_ambiguous &&
+                    (gba_sram_ok || gba_flash_ok);
+wire [31:0] gba_save_size = !gba_save_ok ? 32'd0 :
+                            gba_flash_ok ? 32'd65536 : 32'd32768;
 
 // A GBA cartridge that has a save this core will not read. It drives the same
 // screen row a refused GB save does, so nothing new reaches ui_screen, whose
