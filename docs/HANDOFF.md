@@ -85,20 +85,41 @@ Timing is met on every corner. **The worst setup path is the PLL output
 counter in both builds, not `ui_screen` and not any of this**, so what changed
 is congestion rather than a new critical path.
 
-**Do not read that -0.360 ns as a measured cost.** One build against one build
-does not separate the change from placement noise, and this design has moved
-by that much on seed alone before. `scripts/seed_sweep.sh` is what would
-settle it, and it has not been run.
+**The -0.360 ns was noise, and the sweep is what proved it.** Five seeds per
+commit, ten builds, scratch wiped between every one, all rc=0 and all met
+timing:
+
+    setup slack, ns
+
+    9530316   0.381  0.736  0.789  0.873  0.996    mean 0.755  spread 0.615
+    a94d78e   0.667  0.702  0.883  0.888  0.979    mean 0.824  spread 0.312
+
+The branch's mean setup slack is **0.069 ns higher**, not lower, and its worst
+seed beats the baseline's worst seed. The baseline's own spread across seeds,
+0.615 ns, is wider than the regression a single pair appeared to show. The
+worst build in the sweep is the baseline on seed 3.
+
+Hold is the same: baseline 0.028 to 0.124, branch 0.045 to 0.117, both dipping
+on seed 5, so that dip belongs to the seed rather than to this change.
+
+**Area is the real cost, and it is measurable precisely because ALMs barely
+move with seed:** baseline 3383 to 3394, branch 3547 to 3554. **+164 ALMs,
+about 4.8%**, 18% to 19% utilisation, +295 registers, no change in RAM.
+
+Two things fell out of it. The default seed is a poor one for this design:
+`a94d78e` first fitted at 0.496 ns, near the bottom of its own range. And
+**`scripts/seed_sweep.sh` is stale** - it shells out to `docker` and writes a
+`build_output/` layout this repo no longer has. The sweep ran on
+`make cart SEED=n` instead, which is the maintained path.
 
 **What is left:**
-
-1. A seed sweep, before this is trusted at 0.496 ns.
-2. A cartridge to test on. Nothing in the set here is known to be GBA SRAM,
+1. A cartridge to test on. Nothing in the set here is known to be GBA SRAM,
    and the type cannot be known until the scan runs on hardware.
-3. EEPROM's string does not say whether it is 512 B or 8 KiB, so even were
+2. EEPROM's string does not say whether it is 512 B or 8 KiB, so even were
    EEPROM readable the size would still be undetermined.
-4. The write defect, if Flash or EEPROM is ever wanted.
-5. Merge to `main`. This is on `gba-save-wiring` and nothing is flashed.
+3. The write defect, if Flash or EEPROM is ever wanted.
+4. `scripts/seed_sweep.sh` needs rewriting onto the current harness or
+   removing. It cannot run as it stands.
 
 ## Where this was left, 2026-08-31
 
