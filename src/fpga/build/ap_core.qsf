@@ -840,6 +840,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE ../core/video_adapter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/cart_pins.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/gba_cart_bus.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/identify/cart_identify_gba.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../services/identify/gba_save_scan.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/identify/cart_identify_gb.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/identify/cart_probe.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/gb_cart_bus.sv
@@ -847,6 +848,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/apf_file_writer.
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/cart_dump_gb.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/cart_dump_gba.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/cart_save_gb.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/cart_save_gba.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/gba_size_probe.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/dump_crc32.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/dump_buffer.sv

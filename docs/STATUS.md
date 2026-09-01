@@ -17,9 +17,9 @@ has to come from a cartridge.
 | v0.4 | GB/GBC ROM dumping and verification | **verified on hardware** |
 | v0.5 | GB/GBC save backup | **verified on hardware** |
 | v0.6 | GB/GBC save restore | not started |
-| v0.7 | GBA SRAM backup and restore | not started |
-| v0.8 | GBA Flash backup and restore | not started |
-| v0.9 | GBA EEPROM backup and restore | not started |
+| v0.7 | GBA SRAM backup and restore | backup **in simulation only**, not wired to the UI, never run on a cartridge. Restore not started |
+| v0.8 | GBA Flash backup and restore | not started, and blocked: identifying Flash needs a write |
+| v0.9 | GBA EEPROM backup and restore | not started, and blocked: EEPROM is addressed by writing |
 | v0.10 | RTC support | not started |
 | v1.0 | Stable GB/GBC/GBA cartridge utility | not started |
 
@@ -1024,6 +1024,9 @@ would make it wrong.
 | A write outside a writable space never reaches WR# | `tb_gba_cart_write_protect`, 62 cases |
 | Reading a GB save never pulses /WR while /CS is low | `tb_gb_save_write_protect`, at the pins, every clock edge of a full 8 KB read, and it proves it can fail in the same run |
 | A save read opens the RAM gate and shuts it again | `tb_cart_save_gb`, mutation checked |
+| Reading a GBA save never pulses WR# at the connector | `tb_gba_save_write_protect`, over a whole 32 KiB read, and it drives a deliberate write in the same run to prove the monitor is live. Mutation checked: a reader that asserts `bus_wr` on one byte trips four separate checks |
+| A GBA save is read a byte at a time, in ascending addresses, from the save window | `tb_cart_save_gba`, against the real bus and cartridge model, counting CS2# phases and RD# pulses. Mutation checked on a stuck address and on a widened access |
+| A GBA cartridge's save type is found without writing to it | `tb_gba_save_scan`, every signature at all four byte alignments, one ending on the last byte of the ROM, and two families at once reported as ambiguous. Mutation checked both ways |
 | **A save this core dumped is the save the cartridge held** | **Hardware. A 32 KB four-bank GBC save loaded in mGBA beside its own ROM dump, game state intact. The only test that can prove a save read, because save RAM carries no checksum** |
 | A save's length is the length its cartridge declares | `scripts/verify_dump.py`, cross-checking `0x0149` in the ROM beside it. Necessary, not sufficient - it passed on the first save ever taken and would pass on a subtly wrong one |
 | A banked save is not bank 0 repeated | `scripts/verify_dump.py` compares the banks to each other; nothing on the device can see this |

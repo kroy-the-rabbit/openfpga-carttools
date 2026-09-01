@@ -3,6 +3,70 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## GBA save backup, started 2026-09-01
+
+**In simulation only. Nothing here has seen a cartridge and nothing on the
+device can reach it yet.**
+
+Two new modules, both read-only, both in `ap_core.qsf`, neither instantiated
+in `core_top`:
+
+| Module | What it does |
+|---|---|
+| `src/fpga/services/identify/gba_save_scan.sv` | reads the ROM and reports which of the six SDK save library strings it saw, plus `ambiguous` when two families are present |
+| `src/fpga/services/dump/cart_save_gba.sv` | reads SRAM out of the save window a byte at a time and emits the same byte stream `cart_dump_gba` does |
+
+`make test` is 29 of 29, up from 26.
+
+**Why SRAM only.** Of the five GBA save technologies, SRAM is the only one
+that can be read without writing to the cartridge. Flash is identified by a
+command sequence, 128 KiB Flash needs a bank select, and EEPROM is addressed
+by clocking the address in. All three are writes, and **writes to a GBA
+cartridge are blocked** by the open defect in `gba_cart_bus`: aborting inside
+`ST_WRITE` raises WR# and releases the data pins on the same instant, so the
+cartridge latches whatever the bus settles to. It is asserted in its real form
+in `tb_gba_cart_async` under a KNOWN DEFECT heading. That defect is the gate
+on v0.8 and v0.9, not a shortage of code.
+
+**Why the type comes from a string and not a probe.** Same reason. The scan
+reads the ROM, which costs time and nothing else. It reports what it saw
+rather than resolving a winner, because a cartridge carrying two families of
+string is a real thing and `plan.md` Phase 12 says ambiguous cases are
+reported as ambiguous.
+
+**One defect was found and fixed while writing the tests.** `gba_save_scan`
+first compared the registered ten-byte window, which evaluates one byte
+behind, so a signature ending on the final byte of the ROM was never tested:
+the scan finishes on the same cycle that byte is fed. The window now includes
+the byte being fed. `tb_gba_save_scan` covers it, and reverting the fix fails
+exactly those two cases and no others.
+
+**Every new test was mutation checked**, and each was watched to fail:
+
+- stuck address, and a widened access, against `tb_cart_save_gba`
+- a reader asserting `bus_wr` on one byte, against `tb_gba_save_write_protect`,
+  which tripped four separate checks
+- the registered-window defect, and a reversed byte order, against
+  `tb_gba_save_scan`
+
+`tb_gba_save_write_protect` also carries the built-in mutation `cart_save_gb`'s
+does: phase 2 takes the bus off the reader and drives a deliberate write into
+the save window, so a monitor that has quietly stopped working takes the run
+down with it.
+
+**What is left before this is worth anything on hardware:**
+
+1. Wire both into `dump_engine` and `core_top`, and give the screen a GBA save
+   entry, its refusals and its ambiguity message. **This touches `ui_screen`,
+   whose `col -> tb_char` path has failed setup three times**, so it needs a
+   fit on a build runner rather than a local guess.
+2. Decide what the caller does with the scan result. SRAM and SRAM_F are 32
+   KiB. EEPROM's string does not say whether it is 512 B or 8 KiB, so even
+   were EEPROM readable, the size would still be undetermined.
+3. A cartridge to test on. Nothing in the set here is known to be GBA SRAM,
+   and the type cannot be known until the scan runs.
+4. The write defect, if Flash or EEPROM is ever wanted.
+
 ## Where this was left, 2026-08-31
 
 **Six new GB/GBC cartridges are on the card, structurally clean.** Written by

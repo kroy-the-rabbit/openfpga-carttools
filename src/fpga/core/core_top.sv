@@ -623,11 +623,29 @@ wire        dump_busy;
 // below needs it and that has to sit next to cart_probe.
 wire        sz_start;
 
-wire        gba_req_mux   = dump_busy ? gdmp_req   : probe_sizing ? sz_req   : id_req;
-wire        gba_wr_mux    = dump_busy ? gdmp_wr    : probe_sizing ? sz_wr    : id_wr;
-wire [27:0] gba_addr_mux  = dump_busy ? gdmp_addr  : probe_sizing ? sz_addr  : id_addr;
-wire [1:0]  gba_acc_mux   = dump_busy ? gdmp_acc   : probe_sizing ? sz_acc   : id_acc;
-wire [31:0] gba_wdata_mux = dump_busy ? gdmp_wdata : probe_sizing ? sz_wdata : id_wdata;
+// gba_save_scan, the fourth master. It reads the whole ROM once, after the
+// size probe, looking for the string the SDK's save library leaves in the
+// image. Named save_scan throughout: scan_start already belongs to
+// cart_probe, which is what the A button does, and the two are unrelated.
+wire        save_scan_busy;
+// Assigned where the scanner is instantiated. Declared here because
+// cart_engine_busy needs it and that has to sit next to cart_probe, the same
+// reason sz_start is declared up here.
+wire        save_scan_start;
+wire        scn_req, scn_wr;
+wire [27:0] scn_addr;
+wire [1:0]  scn_acc;
+wire [31:0] scn_wdata;
+
+// The select order follows the one already here: a dump wins over everything,
+// then the save scan, then the size probe, then identification. The save scan
+// is started by the size probe finishing, so those two are never both busy
+// and the order between them states intent rather than arbitrating.
+wire        gba_req_mux   = dump_busy ? gdmp_req   : save_scan_busy ? scn_req   : probe_sizing ? sz_req   : id_req;
+wire        gba_wr_mux    = dump_busy ? gdmp_wr    : save_scan_busy ? scn_wr    : probe_sizing ? sz_wr    : id_wr;
+wire [27:0] gba_addr_mux  = dump_busy ? gdmp_addr  : save_scan_busy ? scn_addr  : probe_sizing ? sz_addr  : id_addr;
+wire [1:0]  gba_acc_mux   = dump_busy ? gdmp_acc   : save_scan_busy ? scn_acc   : probe_sizing ? sz_acc   : id_acc;
+wire [31:0] gba_wdata_mux = dump_busy ? gdmp_wdata : save_scan_busy ? scn_wdata : probe_sizing ? sz_wdata : id_wdata;
 
 gba_cart_bus cart_bus (
     .clk                    ( clk_sys ),
@@ -929,14 +947,22 @@ wire        probe_done;
 // in the same block that raises done, so in the cycle probe_done pulses,
 // probe_busy has already fallen and probe_sizing has not yet risen: the bus
 // is spoken for and no flag says so.
-wire        cart_engine_busy = probe_busy | probe_sizing | sz_start;
+// save_scan_busy and save_scan_start are in it for both reasons at once. The
+// scan owns the GBA bus while it runs, so a dump started underneath it would
+// be handed the bus by the mux and leave the scan waiting for a done that is
+// never coming, with its busy flag stuck high. And save_scan_start has the
+// same one cycle hole sz_start does: gba_size_probe clears busy in the block
+// that raises done, so in the cycle sz_done pulses neither flag is set.
+wire        cart_engine_busy = probe_busy | probe_sizing | sz_start |
+                               save_scan_busy | save_scan_start;
 
 // A scan is about to run: the cartridge woke, the slot changed, or A was
 // pressed. Named rather than left inline in cart_probe's instantiation
 // because the dump display has to clear on exactly the same event, and two
 // copies of this expression would drift.
 wire        scan_start = (cart_wake_pulse | cart_mode_fell | key_a_edge) &
-                         ~dump_busy & ~probe_sizing & ~sz_start;
+                         ~dump_busy & ~probe_sizing & ~sz_start &
+                         ~save_scan_busy & ~save_scan_start;
 wire [2:0]  platform;
 wire        gb_start, gba_start;
 
@@ -1106,6 +1132,82 @@ gba_size_probe sizer (
     .dbg_points ( sz_points )
 );
 
+// ============================================================
+// The save type scan. One pass over the ROM after the size probe, looking for
+// the string the SDK's save library leaves in the image. It is the only way
+// to learn a GBA cartridge's save type that does not write to the cartridge,
+// and writing to a GBA cartridge is blocked by the open ST_WRITE abort defect
+// in gba_cart_bus. See gba_save_scan.sv.
+//
+// It costs one full ROM read: about half a second on a 4 MB cartridge and a
+// few seconds on a 32 MB one, while the user is already looking at the
+// identification screen.
+// ============================================================
+
+wire        save_scan_done;
+wire        svs_eeprom, svs_sram, svs_sram_f;
+wire        svs_flash, svs_flash512, svs_flash1m;
+wire        svs_ambiguous, svs_found_any;
+
+// On the edge of the size probe finishing with a size. No size, no scan: the
+// scan's loop bound is the ROM size and a zero would scan nothing anyway.
+assign save_scan_start = sz_done && sz_size_valid;
+
+gba_save_scan save_scanner (
+    .clk            ( clk_sys ),
+    .reset          ( ~pll_core_locked ),
+    .start          ( save_scan_start ),
+    .rom_size_bytes ( sz_size_bytes ),
+    .busy           ( save_scan_busy ),
+    .done           ( save_scan_done ),
+    .found_eeprom   ( svs_eeprom ),
+    .found_sram     ( svs_sram ),
+    .found_sram_f   ( svs_sram_f ),
+    .found_flash    ( svs_flash ),
+    .found_flash512 ( svs_flash512 ),
+    .found_flash1m  ( svs_flash1m ),
+    .ambiguous      ( svs_ambiguous ),
+    .found_any      ( svs_found_any ),
+    .bus_req        ( scn_req ),
+    .bus_wr         ( scn_wr ),
+    .bus_addr       ( scn_addr ),
+    .bus_acc        ( scn_acc ),
+    .bus_wdata      ( scn_wdata ),
+    .bus_rdata      ( cart_bus_rdata ),
+    .bus_done       ( cart_bus_done ),
+    .bus_busy       ( cart_bus_busy )
+);
+
+// A scan result is only meaningful once one has finished for the cartridge
+// currently in the slot. Cleared when cart_probe starts, which is what the A
+// button does, so a result can never outlive the cartridge it describes. That
+// is the same rule the dump result on screen already follows.
+reg save_scan_valid;
+always @(posedge clk_sys) begin
+    if (~pll_core_locked)        save_scan_valid <= 1'b0;
+    else if (scan_start)         save_scan_valid <= 1'b0;
+    else if (save_scan_start)    save_scan_valid <= 1'b0;
+    else if (save_scan_done)     save_scan_valid <= 1'b1;
+end
+
+// What the scan means, decided here rather than in the scanner, which reports
+// only what it saw.
+//
+// SRAM and FRAM are the same 32 KiB read through the same window. Everything
+// else is refused: Flash needs a command sequence to identify and a bank
+// select at 128 KiB, EEPROM is addressed by clocking the address in, and every
+// one of those is a write. A cartridge carrying two families of string is
+// refused as well rather than guessed at.
+wire gba_save_ok = save_scan_valid && !svs_ambiguous && (svs_sram || svs_sram_f);
+wire [31:0] gba_save_size = gba_save_ok ? 32'd32768 : 32'd0;
+
+// A GBA cartridge that has a save this core will not read. It drives the same
+// screen row a refused GB save does, so nothing new reaches ui_screen, whose
+// per-column path has failed setup three times.
+wire gba_save_refused = save_scan_valid &&
+                        (svs_ambiguous || (svs_found_any && !gba_save_ok));
+
+
 // The size as a code for the screen, so ui_screen compares four bits in its
 // repaint trigger instead of thirty-four, and picks a whole row rather than
 // formatting a number in a per-column path. 0 is "nothing to say".
@@ -1220,7 +1322,13 @@ wire want_rom_dump = key_x_edge && dump_ready && !dump_busy;
 // live off the header for exactly this, so the button is absent rather than
 // inert. See cart_save_gb for what is refused and why none of it could ever
 // be verified against a cartridge on this desk.
-wire save_ready = dump_ready && (platform == 3'd2) && dump_save_supported;
+// GBA joins it on the one technology that can be read without writing to the
+// cartridge. dump_save_supported is live off the GB header; gba_save_ok comes
+// from the ROM scan and is false until that scan has finished, so Y is absent
+// rather than inert during the scan.
+wire save_ready = dump_ready &&
+                  (((platform == 3'd2) && dump_save_supported) ||
+                   ((platform == 3'd1) && gba_save_ok));
 
 // A cartridge that has a save and is refused anyway. MBC2's RAM lives inside
 // the mapper and reports 0x00 at 0x0149, so the type has to be asked as well
@@ -1228,8 +1336,8 @@ wire save_ready = dump_ready && (platform == 3'd2) && dump_save_supported;
 // that got no explanation.
 wire gb_has_ram = (gbid_ram_size != 8'd0) ||
                   ((gbid_cart_type >= 8'h05) && (gbid_cart_type <= 8'h06));
-wire save_refused = id_valid && (platform == 3'd2) && gb_has_ram &&
-                    !dump_save_supported;
+wire save_refused = (id_valid && (platform == 3'd2) && gb_has_ram &&
+                     !dump_save_supported) || gba_save_refused;
 wire want_save  = key_y_edge && save_ready && !dump_busy;
 
 wire dump_start = want_rom_dump | want_save;
@@ -1303,6 +1411,7 @@ dump_engine dump (
     .platform_gba  ( platform == 3'd1 ),
     .cart_kind     ( cart_kind ),
     .gba_size_bytes( sz_size_bytes ),
+    .gba_save_size_bytes( gba_save_size ),
     .crc32         ( dump_crc32 ),
 
     .busy          ( dump_busy ),

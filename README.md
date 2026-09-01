@@ -28,7 +28,7 @@ what was written here.
 | Files named `.gb` / `.gbc` / `.gba` | **works** |
 | GB / GBC save backup | **works**, four cartridges, each loaded in an emulator with its state intact |
 | Save RAM banking, to 128 KB | **works** at 8 KB one bank and 32 KB four banks; 64 KB and 128 KB built, untested |
-| GBA save backup | not started |
+| GBA save backup | **SRAM only**, in simulation. Not wired to the UI and never run on a cartridge. Flash and EEPROM refused, because both need a write and writes are blocked |
 | Save restore | not started |
 | MBC3 RTC | not started |
 | MBC2, MBC3, MBC1 above 512 KB | simulation only, no cartridge to test |

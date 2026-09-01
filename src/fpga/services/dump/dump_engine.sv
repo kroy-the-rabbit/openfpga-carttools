@@ -98,6 +98,11 @@ module dump_engine #(
     // read live.
     input  wire        platform_gba,
     input  wire [31:0] gba_size_bytes,
+    // How many bytes of GBA save to read, decided by core_top from
+    // gba_save_scan's result. Zero when the type was refused or not found, and
+    // cart_save_gba treats that as finish without touching the connector.
+    // Latched at start for the same reason gba_size_bytes is.
+    input  wire [31:0] gba_save_size_bytes,
 
     output reg         busy,
     output reg         done,              // one cycle
@@ -319,12 +324,14 @@ wire [31:0] rom_bytes;      // from cart_dump_gb, combinational off size_l
 reg         gba_l;          // which reader this dump is using, latched
 reg [1:0]   kind_l;         // which system, for the extension, latched
 reg  [31:0] gsize_l;        // the probed size, latched
+reg  [31:0] gssize_l;       // the GBA save size, latched
 
 // Three sources, one number, and everything downstream - the chunk count, the
 // progress bar, the length in the APF open struct - reads only this one.
-assign total_bytes = sel_l  ? SELFTEST_BYTES :
-                     save_l ? save_bytes :
-                     gba_l  ? gsize_l : rom_bytes;
+assign total_bytes = sel_l            ? SELFTEST_BYTES :
+                     (gba_l & save_l) ? gsv_bytes :
+                     save_l           ? save_bytes :
+                     gba_l            ? gsize_l : rom_bytes;
 
 // Chunks the file will take. Every GB ROM size is a multiple of the chunk so
 // the round-up only ever matters for the self-test, but a progress display
@@ -447,6 +454,7 @@ always @(posedge clk_sys) begin
         gba_l      <= 1'b0;
         kind_l     <= 2'd0;
         gsize_l    <= 32'd0;
+        gssize_l   <= 32'd0;
         go_toggle  <= 1'b0;
         hold       <= 5'd0;
         wake       <= 32'd0;
@@ -492,6 +500,7 @@ always @(posedge clk_sys) begin
                     gba_l      <= platform_gba;
                     kind_l     <= cart_kind;
                     gsize_l    <= gba_size_bytes;
+                    gssize_l   <= gba_save_size_bytes;
                     arm        <= 1'b1;
                     if (selftest) begin
                         ss <= SS_PATH;
@@ -647,9 +656,22 @@ wire [7:0] src_data;
 wire       src_valid;
 wire       src_ready;
 wire       rd_busy, rd_done;
-wire [7:0] gb_data, gba_data;
-wire       gb_valid, gba_valid;
+wire [7:0] gb_data, gba_data, gsv_data;
+wire       gb_valid, gba_valid, gsv_valid;
 wire       gb_busy, gb_done, gba_rd_busy, gba_rd_done;
+wire       gsv_busy, gsv_done;
+wire [31:0] gsv_bytes;
+
+// The GBA bus has two masters now for the same reason the GB bus does: a ROM
+// reader and a save reader.
+wire        gdmp_req, gdmp_wr;
+wire [27:0] gdmp_addr;
+wire [1:0]  gdmp_acc;
+wire [31:0] gdmp_wdata;
+wire        gsv_req, gsv_wr;
+wire [27:0] gsv_addr;
+wire [1:0]  gsv_acc;
+wire [31:0] gsv_wdata;
 
 // The GB bus has two masters now: the ROM reader and the save reader.
 wire        grom_req, grom_wr;
@@ -668,10 +690,11 @@ wire [31:0] save_bytes;
 // Starting both would be worse than untidy - the engine whose connector mode
 // is not selected would wait forever for a done that its bus, disabled by
 // cart_pins, is never going to raise.
-// Three operations, three readers, one running at a time.
-wire rd_start_gb  = rd_start & ~gba_l & ~save_l;
-wire rd_start_gba = rd_start &  gba_l;
-wire rd_start_sv  = rd_start & ~gba_l &  save_l;
+// Four operations, four readers, one running at a time.
+wire rd_start_gb     = rd_start & ~gba_l & ~save_l;
+wire rd_start_gba    = rd_start &  gba_l & ~save_l;
+wire rd_start_sv     = rd_start & ~gba_l &  save_l;
+wire rd_start_gba_sv = rd_start &  gba_l &  save_l;
 
 // Held in reset by an abort rather than given an abort input of its own: it
 // is stalled waiting for a bus_done that is not coming, and a reset is the
@@ -749,11 +772,11 @@ cart_dump_gba reader_gba (
     .busy        ( gba_rd_busy ),
     .done        ( gba_rd_done ),
     .total_bytes (  ),
-    .bus_req     ( gba_req ),
-    .bus_wr      ( gba_wr ),
-    .bus_addr    ( gba_addr ),
-    .bus_acc     ( gba_acc ),
-    .bus_wdata   ( gba_wdata ),
+    .bus_req     ( gdmp_req ),
+    .bus_wr      ( gdmp_wr ),
+    .bus_addr    ( gdmp_addr ),
+    .bus_acc     ( gdmp_acc ),
+    .bus_wdata   ( gdmp_wdata ),
     .bus_rdata   ( gba_rdata ),
     .bus_done    ( gba_done ),
     .bus_busy    ( gba_busy ),
@@ -762,12 +785,46 @@ cart_dump_gba reader_gba (
     .out_ready   ( src_ready )
 );
 
+// The GBA save reader. Unlike cart_save_gb it opens no gate, so there is
+// nothing it has to close on the way out and it can be held in reset by an
+// abort exactly as the two ROM readers are. That is the whole difference, and
+// it is why this instance carries no abort input.
+cart_save_gba reader_gba_save (
+    .clk         ( clk_sys ),
+    .reset       ( reset_sys | abort_l ),
+    .start       ( rd_start_gba_sv ),
+    .size_bytes  ( gssize_l ),
+    .busy        ( gsv_busy ),
+    .done        ( gsv_done ),
+    .total_bytes ( gsv_bytes ),
+    .bus_req     ( gsv_req ),
+    .bus_wr      ( gsv_wr ),
+    .bus_addr    ( gsv_addr ),
+    .bus_acc     ( gsv_acc ),
+    .bus_wdata   ( gsv_wdata ),
+    .bus_rdata   ( gba_rdata ),
+    .bus_done    ( gba_done ),
+    .bus_busy    ( gba_busy ),
+    .out_data    ( gsv_data ),
+    .out_valid   ( gsv_valid ),
+    .out_ready   ( src_ready )
+);
+
+// Two masters on the GBA bus, one of them ever started, so this is a mux
+// rather than an arbiter, the same as the GB side above.
+assign gba_req   = save_l ? gsv_req   : gdmp_req;
+assign gba_wr    = save_l ? gsv_wr    : gdmp_wr;
+assign gba_addr  = save_l ? gsv_addr  : gdmp_addr;
+assign gba_acc   = save_l ? gsv_acc   : gdmp_acc;
+assign gba_wdata = save_l ? gsv_wdata : gdmp_wdata;
+
 // The stream below here has never cared which platform it came from, and
 // still does not: one byte, one valid, one ready.
-assign src_data  = gba_l ? gba_data    : save_l ? sv_data  : gb_data;
-assign src_valid = gba_l ? gba_valid   : save_l ? sv_valid : gb_valid;
-assign rd_busy   = gba_l ? gba_rd_busy : save_l ? sv_busy  : gb_busy;
-assign rd_done   = gba_l ? gba_rd_done : save_l ? sv_done  : gb_done;
+wire gba_sv_l = gba_l & save_l;
+assign src_data  = gba_sv_l ? gsv_data : gba_l ? gba_data    : save_l ? sv_data  : gb_data;
+assign src_valid = gba_sv_l ? gsv_valid: gba_l ? gba_valid   : save_l ? sv_valid : gb_valid;
+assign rd_busy   = gba_sv_l ? gsv_busy : gba_l ? gba_rd_busy : save_l ? sv_busy  : gb_busy;
+assign rd_done   = gba_sv_l ? gsv_done : gba_l ? gba_rd_done : save_l ? sv_done  : gb_done;
 
 // Which bus SS_END has to see go idle before it drops the mode.
 wire dump_bus_busy = gba_l ? gba_busy : bus_busy;
