@@ -17,8 +17,8 @@ has to come from a cartridge.
 | v0.4 | GB/GBC ROM dumping and verification | **verified on hardware** |
 | v0.5 | GB/GBC save backup | **verified on hardware** |
 | v0.6 | GB/GBC save restore | not started |
-| v0.7 | GBA SRAM backup and restore | save type detection **verified on hardware**. SRAM 32 KiB and Flash 64 KiB accepted, both read-only; the reader itself has not run on a cartridge. Restore not started |
-| v0.8 | GBA Flash backup and restore | 64 KiB backup built, read-only, no write needed. 128 KiB blocked on the bank select write. Restore not started |
+| v0.7 | GBA SRAM backup and restore | save type detection **verified on hardware**. The reader is verified too, on Flash; SRAM shares the code path but no SRAM cartridge has been to hand. Restore not started |
+| v0.8 | GBA Flash backup and restore | 64 KiB backup **verified on hardware**, Golden Sun loaded in mGBA with its state intact, and it needs no write. 128 KiB blocked on the bank select write. Restore not started |
 | v0.9 | GBA EEPROM backup and restore | not started, and blocked: EEPROM is addressed by writing |
 | v0.10 | RTC support | not started |
 | v1.0 | Stable GB/GBC/GBA cartridge utility | not started |

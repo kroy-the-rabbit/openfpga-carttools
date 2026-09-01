@@ -3,6 +3,58 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## GBA save backup is verified on hardware, 2026-09-01
+
+**Golden Sun. The first GBA save this core has ever taken, and it loads.**
+Stamp `52B6`. `GOLDEN_SUN_A.sav`, 65536 bytes, crc32 `32F42D38`, loaded in
+mGBA beside its own ROM dump. Kroy's verdict: "save confirmed load".
+
+The file carries its own corroboration, which is unusual for a save:
+
+    43 41 4d 45 4c 4f 54 ...     ASCII "CAMELOT" at offset 0
+    CAMELOT again at 0x1000, 0x2000, 0x3000, 0x4000, 0x5000
+    "Adam" at 0x5010
+    84.7% zeros, 0.5% FF, 222 distinct byte values
+
+Camelot Software Planning wrote Golden Sun, and that header repeats once per
+4 KB save slot. But the emulator is what proves it, as always: a save carries
+no checksum, so nothing short of the game loading its own state counts.
+
+**The assumption held.** A GBA Flash chip answers plain reads with no command
+first. That was the load bearing guess behind accepting Flash at all, it is
+now measured rather than assumed, and it means **a 64 KiB Flash save needs no
+write to the cartridge.** `bus_wr` stayed tied low throughout.
+
+**What is verified, precisely:**
+
+| | |
+|---|---|
+| Save type scan on hardware | **yes**, EEPROM refused on two cartridges, Flash accepted on one |
+| Flash 64 KiB backup | **yes**, Golden Sun, loaded in an emulator |
+| SRAM 32 KiB backup | **no**. Same code path, never run: no SRAM cartridge to hand |
+| 128 KiB Flash, EEPROM | refused, both need a write |
+
+## Two defects the Golden Sun run exposed
+
+**1. The evidence rows lie about a GBA save, and they lie in the dangerous
+direction.** The screen said `SAVE RAM DID NOT ANSWER` and `first 00000000`
+over a read that had just worked. `save_responded`, `save_blank_ff`,
+`save_blank_00` and `save_first` are wired in `dump_engine` from
+`cart_save_gb`, which never runs for a GBA save, so the screen was showing a
+stale Game Boy verdict about a Game Boy Advance read. `cart_save_gba` was
+built without any of the evidence outputs its GB counterpart has, and nothing
+caught it because nothing had ever run it. **A save path that reports failure
+on success is worse than one that reports nothing**, because the next person
+re-dumps a good save chasing a fault that is not there.
+
+**2. Y disappears for a second after a ROM dump.** A finished dump releases
+`dump_want_mode`, the connector mode drops, and that is indistinguishable from
+a cartridge being removed, so `scan_start` fires, `save_scan_valid` clears and
+the whole ROM is scanned again to rediscover a save type that cannot have
+changed. It comes back on its own, so nothing is stuck, but it is a needless
+8 MB read and a confusing gap. The result should survive a dump of the same
+cartridge and clear only on a real removal or on A.
+
 ## Flash 64 KiB, which needs no writes at all, 2026-09-01
 
 Golden Sun, 8 MB, came back `save RAM here is not supported`. It is a Flash
