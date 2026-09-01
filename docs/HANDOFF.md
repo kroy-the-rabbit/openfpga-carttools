@@ -3,6 +3,28 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## The GBA save scan works on hardware, 2026-09-01
+
+**Verified.** Stamp `141B`, seed 5. Two GBA cartridges, nothing pressed, both
+showing `save RAM here is not supported` on their own:
+
+    GBAZELDA MC    16 MB    EEPROM    refused, correctly
+    SUPER MARIOA    4 MB    EEPROM    refused, correctly
+
+That row can only come from `gba_save_refused`, which needs `save_scan_valid`,
+which needs `complete`. So the scan started after the size probe, waited for
+the connector to turn round, read **every byte of a 16 MB cartridge**, found
+the `EEPROM_V` signature and reported it. The whole path is exercised except
+the part that reads a save.
+
+**What this does not prove.** `cart_save_gba` has never run. No cartridge here
+is SRAM, so the reader itself is still simulation only, and so is every
+refusal other than EEPROM. Ambiguity has never been seen on a cartridge.
+
+**What to try next:** a GBA cartridge that is actually SRAM, which is the
+minority of the platform. Until one turns up, the reader stays unverified no
+matter how many EEPROM cartridges are correctly refused.
+
 ## The same defect, twice, and what it should have been copied from
 
 **Second hardware run.** The freeze was gone: Minish Cap at 16 MB, Super Mario

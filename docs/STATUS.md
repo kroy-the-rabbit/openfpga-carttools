@@ -17,7 +17,7 @@ has to come from a cartridge.
 | v0.4 | GB/GBC ROM dumping and verification | **verified on hardware** |
 | v0.5 | GB/GBC save backup | **verified on hardware** |
 | v0.6 | GB/GBC save restore | not started |
-| v0.7 | GBA SRAM backup and restore | backup **in simulation only**, not wired to the UI, never run on a cartridge. Restore not started |
+| v0.7 | GBA SRAM backup and restore | save type detection **verified on hardware**, two EEPROM cartridges correctly refused. The SRAM reader itself is still simulation only, no SRAM cartridge to hand. Restore not started |
 | v0.8 | GBA Flash backup and restore | not started, and blocked: identifying Flash needs a write |
 | v0.9 | GBA EEPROM backup and restore | not started, and blocked: EEPROM is addressed by writing |
 | v0.10 | RTC support | not started |
