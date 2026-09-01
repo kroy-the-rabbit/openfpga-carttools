@@ -707,8 +707,10 @@ wire        probe_answered_gba;
 // mid-transaction wins.
 wire [1:0]  dump_want_mode;
 wire        sz_want_gba;
+wire        save_scan_want_gba;
 wire [1:0]  cart_mode_req = (dump_want_mode != 2'b00) ? dump_want_mode :
-                            sz_want_gba                ? 2'b01
+                            (sz_want_gba |
+                             save_scan_want_gba)       ? 2'b01
                                                        : probe_mode;
 
 wire        gb_mode_s  = cart_mode_s && (cart_mode_req == 2'b10) && cart_mode_ready;
@@ -947,22 +949,21 @@ wire        probe_done;
 // in the same block that raises done, so in the cycle probe_done pulses,
 // probe_busy has already fallen and probe_sizing has not yet risen: the bus
 // is spoken for and no flag says so.
-// save_scan_busy and save_scan_start are in it for both reasons at once. The
-// scan owns the GBA bus while it runs, so a dump started underneath it would
-// be handed the bus by the mux and leave the scan waiting for a done that is
-// never coming, with its busy flag stuck high. And save_scan_start has the
-// same one cycle hole sz_start does: gba_size_probe clears busy in the block
-// that raises done, so in the cycle sz_done pulses neither flag is set.
-wire        cart_engine_busy = probe_busy | probe_sizing | sz_start |
-                               save_scan_busy | save_scan_start;
+// The save scan is deliberately NOT in this list, and that is the second half
+// of a bug this shipped once. It runs for seconds on a large cartridge, so
+// gating dump_ready on it made every dump option vanish for the whole scan;
+// combined with the scan hanging, they never came back. A ROM dump has to
+// stay available throughout. The bus conflict that would create is handled by
+// resetting the scanner when a dump starts, below, rather than by making the
+// user wait for it.
+wire        cart_engine_busy = probe_busy | probe_sizing | sz_start;
 
 // A scan is about to run: the cartridge woke, the slot changed, or A was
 // pressed. Named rather than left inline in cart_probe's instantiation
 // because the dump display has to clear on exactly the same event, and two
 // copies of this expression would drift.
 wire        scan_start = (cart_wake_pulse | cart_mode_fell | key_a_edge) &
-                         ~dump_busy & ~probe_sizing & ~sz_start &
-                         ~save_scan_busy & ~save_scan_start;
+                         ~dump_busy & ~probe_sizing & ~sz_start;
 wire [2:0]  platform;
 wire        gb_start, gba_start;
 
@@ -1153,13 +1154,19 @@ wire        svs_ambiguous, svs_found_any;
 // scan's loop bound is the ROM size and a zero would scan nothing anyway.
 assign save_scan_start = sz_done && sz_size_valid;
 
+// Reset by a dump and by a new probe, not just by the PLL. Both of those take
+// the GBA bus away through the mux above, and a scanner left running would
+// wait for a done that is never coming with its busy flag stuck high. Abandon
+// it instead: save_scan_valid stays low, so Y is absent rather than offering a
+// save read on a scan that never finished.
 gba_save_scan save_scanner (
     .clk            ( clk_sys ),
-    .reset          ( ~pll_core_locked ),
+    .reset          ( ~pll_core_locked | dump_busy | scan_start ),
     .start          ( save_scan_start ),
     .rom_size_bytes ( sz_size_bytes ),
     .busy           ( save_scan_busy ),
     .done           ( save_scan_done ),
+    .want_gba       ( save_scan_want_gba ),
     .found_eeprom   ( svs_eeprom ),
     .found_sram     ( svs_sram ),
     .found_sram_f   ( svs_sram_f ),

@@ -60,6 +60,7 @@ wire        busy, done;
 wire        found_eeprom, found_sram, found_sram_f;
 wire        found_flash, found_flash512, found_flash1m;
 wire        ambiguous, found_any;
+wire        want_gba;
 
 wire        bus_req, bus_wr;
 wire [27:0] bus_addr;
@@ -74,7 +75,7 @@ integer errors = 0;
 gba_save_scan dut (
     .clk (clk), .reset (reset),
     .start (start), .rom_size_bytes (rom_size_bytes),
-    .busy (busy), .done (done),
+    .busy (busy), .done (done), .want_gba (want_gba),
     .found_eeprom (found_eeprom), .found_sram (found_sram),
     .found_sram_f (found_sram_f), .found_flash (found_flash),
     .found_flash512 (found_flash512), .found_flash1m (found_flash1m),
@@ -126,6 +127,27 @@ always @(posedge clk) begin
     end else if (bus_busy) begin
         bus_busy <= 1'b0;
         bus_done <= 1'b1;
+    end
+end
+
+// --- the mode must be held for the whole scan --------------------------------
+// By the time this module starts, cart_probe has parked the connector at idle.
+// gba_cart_bus holds its FSM in ST_IDLE while cart_mode is low and never
+// raises done, so a scan that does not ask for the mode waits forever with
+// busy high. That shipped to a card once and froze the core: every dump option
+// vanished and only a reload recovered it. gba_size_probe has want_gba for
+// exactly this reason and this module now does too.
+//
+// The invariant is want_gba == busy, every cycle. Asserted rather than
+// sampled at the ends, because a hold that drops mid-scan is the same failure
+// arriving later.
+integer want_errors = 0;
+always @(posedge clk) begin
+    if (!reset && want_gba !== busy) begin
+        if (want_errors < 5)
+            $display("ERROR: want_gba=%b with busy=%b at %0t", want_gba, busy, $time);
+        want_errors = want_errors + 1;
+        errors = errors + 1;
     end
 end
 
@@ -295,6 +317,12 @@ initial begin
     // ---- A zero-size ROM finishes and touches nothing -----------------------
     run_scan(32'd0);
     expect_only(6'b000000, "a zero-size ROM");
+
+    // A scan must actually have run, or the invariant above was never tested.
+    if (want_errors == 0 && errors == 0 && busy !== 1'b0) begin
+        $display("ERROR: the scanner is still busy at the end of the run");
+        errors = errors + 1;
+    end
 
     if (errors == 0) $display("TB PASS: tb_gba_save_scan");
     else begin

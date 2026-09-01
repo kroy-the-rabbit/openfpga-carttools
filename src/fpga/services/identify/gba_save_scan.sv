@@ -69,6 +69,15 @@ module gba_save_scan (
     output reg         busy,
     output reg         done,
 
+    // The connector must be in GBA mode for the whole scan, and by the time
+    // this starts cart_probe has already parked the mode at idle: the size
+    // probe hits the same problem and solves it the same way. Without this the
+    // bus sits with cart_mode low, gba_cart_bus holds its FSM in ST_IDLE and
+    // never raises done, and this module waits for a done that is not coming
+    // with busy stuck high. That is not hypothetical; it shipped to a card
+    // once and froze the core. core_top's mode mux honours this.
+    output reg         want_gba,
+
     // One bit per signature, latched across a whole scan. Held after done
     // until the next start.
     output wire        found_eeprom,
@@ -194,6 +203,7 @@ always @(posedge clk) begin
     if (reset) begin
         state    <= ST_IDLE;
         busy     <= 1'b0;
+        want_gba <= 1'b0;
         addr     <= 28'd0;
         word     <= 32'd0;
         bsel     <= 2'd0;
@@ -208,9 +218,11 @@ always @(posedge clk) begin
     end else begin
         case (state)
             ST_IDLE: begin
-                busy <= 1'b0;
+                busy     <= 1'b0;
+                want_gba <= 1'b0;
                 if (start) begin
-                    busy <= 1'b1;
+                    busy     <= 1'b1;
+                    want_gba <= 1'b1;
                     addr <= 28'd0;
                     bsel <= 2'd0;
                     // Cleared here, so a signature can never be reported from
@@ -223,9 +235,10 @@ always @(posedge clk) begin
                     seen_flash1m  <= 1'b0;
                     for (k = 0; k < 10; k = k + 1) w[k] <= 8'h00;
                     if (rom_size_bytes < 32'd4) begin
-                        busy  <= 1'b0;
-                        done  <= 1'b1;
-                        state <= ST_IDLE;
+                        busy     <= 1'b0;
+                        want_gba <= 1'b0;
+                        done     <= 1'b1;
+                        state    <= ST_IDLE;
                     end else begin
                         state <= ST_REQ;
                     end
@@ -264,9 +277,10 @@ always @(posedge clk) begin
 
                 if (bsel == 2'd3) begin
                     if (at_end) begin
-                        busy  <= 1'b0;
-                        done  <= 1'b1;
-                        state <= ST_IDLE;
+                        busy     <= 1'b0;
+                        want_gba <= 1'b0;
+                        done     <= 1'b1;
+                        state    <= ST_IDLE;
                     end else begin
                         addr  <= next_addr[27:0];
                         state <= ST_REQ;

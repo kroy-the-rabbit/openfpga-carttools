@@ -3,6 +3,52 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## The GBA save scan froze the core, 2026-09-01
+
+**Shipped to the card, ran on hardware, broke it.** Kroy: "All the dumping
+options disappeared and it froze up trying to dump both minish cap and super
+mario advance", both cartridges that had dumped fine before. Two defects, one
+cause each, and the fix is in `a624443`'s successor.
+
+**1. The scan never asked for the connector.** `cart_probe` parks the mode at
+idle when it finishes identifying. `gba_size_probe` already knows this and
+raises `want_gba` for its whole run; its comment says so in as many words.
+`gba_save_scan` had no such output, so it started after the mode was parked,
+`gba_cart_bus` held its FSM in `ST_IDLE` because `cart_mode` was low - line
+118, `if (reset || !cart_mode)` - and never raised `done`. The scan waited
+forever with `busy` high.
+
+**2. That stuck flag was wired into `cart_engine_busy`**, which `dump_ready`
+gates on, so every dump option vanished and never came back. Only a core
+reload recovered it.
+
+Either alone would have been survivable. The first is a hang in a module
+nobody has to press a button to reach; the second turned it into a dead core.
+
+**The fixes.**
+
+- `gba_save_scan` has a `want_gba` output, held for exactly as long as `busy`,
+  and `core_top`'s mode mux honours it beside `sz_want_gba`.
+- The scan is **out of `cart_engine_busy`**. It runs for seconds on a large
+  cartridge and a ROM dump must stay available throughout, which was a
+  regression in its own right even without the hang.
+- The scanner is reset by `dump_busy` and by `scan_start`. Both take the bus
+  through the mux, so it is abandoned rather than left waiting. Its result
+  never becomes valid, so Y is absent rather than offering a read from a scan
+  that never finished.
+
+**What the tests did and did not do.** All 29 passed before the fix and all 29
+pass after, which is the whole lesson: the invariant was never stated, so
+nothing could check it. `tb_gba_save_scan` now asserts `want_gba == busy`
+every cycle, and it is mutation checked both ways - removing the request
+entirely, which is the bug as shipped, and dropping the hold one state early.
+Both fail the run.
+
+**The half that is still not covered.** Nothing here tests that `core_top`
+honours `want_gba`. There is no core_top level testbench in this tree and this
+change did not add one, so the integration half of both defects rests on
+reading the mode mux rather than on a test.
+
 ## GBA save backup, started 2026-09-01
 
 **In simulation only. Nothing here has seen a cartridge and nothing on the
