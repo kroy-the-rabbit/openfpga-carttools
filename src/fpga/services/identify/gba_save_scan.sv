@@ -77,6 +77,15 @@ module gba_save_scan #(
     input  wire        start,             // pulse
     input  wire [31:0] rom_size_bytes,    // from gba_size_probe
 
+    // Stop a scan that is running, without destroying one that finished. A
+    // dump takes the GBA bus through core_top's mux, so a scan underneath it
+    // waits for a done that never comes; this is how it lets go. It was a
+    // reset once, and a reset also cleared the seen bits, so dumping a ROM
+    // silently threw away a completed scan and the save button vanished until
+    // the cartridge was rescanned. An abort leaves `complete` low, so a
+    // partial result is never mistaken for a whole one.
+    input  wire        abort,
+
     output reg         busy,
     output reg         done,
 
@@ -237,6 +246,10 @@ always @(posedge clk) begin
         seen_flash512 <= 1'b0;
         seen_flash1m  <= 1'b0;
         for (k = 0; k < 10; k = k + 1) w[k] <= 8'h00;
+    end else if (busy && abort) begin
+        bus_req  <= 1'b0;
+        complete <= 1'b0;
+        state    <= ST_DONE;
     end else if (state != ST_IDLE && state != ST_MODE && state != ST_DONE &&
                  !cart_mode) begin
         // The connector left GBA mode underneath us. gba_cart_bus has reset

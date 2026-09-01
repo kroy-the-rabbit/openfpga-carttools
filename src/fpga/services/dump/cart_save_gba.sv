@@ -79,6 +79,34 @@ module cart_save_gba (
     output reg         done,
     output wire [31:0] total_bytes,
 
+    // Evidence, in the same shape cart_save_gb reports it, because ui_screen
+    // reads one set of signals and does not know which platform filled them.
+    // Wiring these from the GB reader on a GBA save is what made the screen
+    // say SAVE RAM DID NOT ANSWER over a Golden Sun backup that was perfect.
+    //
+    // `responded` is the one that does not carry across. On a Game Boy it is a
+    // real measurement: the first 256 bytes are read with the RAM gate shut
+    // and again with it open, and equal sums mean the gate never opened. A GBA
+    // cartridge has no gate, so there is no second reading to compare against
+    // and no honest way to answer the question. It is therefore held high
+    // whenever a read completes, and the blank flags below carry the weight
+    // instead: on this platform an absent or unpowered chip reads as open bus,
+    // which is all 0xFF, and `blank_ff` says exactly that. Claiming a test
+    // that was not performed would be worse than saying less.
+    output reg         responded,
+
+    // Every byte was 0xFF, or every byte was 0x00. Not errors: a dead cell
+    // reads this way and so does an empty save. On GBA all 0xFF is also the
+    // open-bus signature, so it is the row that stands in for a chip that was
+    // never there.
+    output reg         blank_ff,
+    output reg         blank_00,
+
+    // The first four bytes, most significant first. A verdict says a read
+    // failed; this says how. All FF is open bus or a dead chip, and anything
+    // else is data.
+    output reg  [31:0] first_word,
+
     // gba_cart_bus master port. The handshake rule is the one from
     // cart_identify_gba and cart_dump_gba: that bus samples req only in its
     // own idle state and has no refuse guard, so wait for !bus_busy, raise
@@ -142,6 +170,10 @@ always @(posedge clk) begin
         out_valid <= 1'b0;
         out_data  <= 8'd0;
         bus_addr  <= 28'd0;
+        responded <= 1'b0;
+        blank_ff  <= 1'b0;
+        blank_00  <= 1'b0;
+        first_word <= 32'd0;
     end else begin
         case (state)
             ST_IDLE: begin
@@ -151,6 +183,12 @@ always @(posedge clk) begin
                     busy    <= 1'b1;
                     offset  <= 32'd0;
                     emitted <= 32'd0;
+                    // Both start asserted and are cleared by the first byte
+                    // that disagrees, so a zero-length read reports neither.
+                    responded  <= 1'b0;
+                    blank_ff   <= (size_bytes != 32'd0);
+                    blank_00   <= (size_bytes != 32'd0);
+                    first_word <= 32'd0;
                     // A zero-byte save is the right answer for a cartridge
                     // whose type was refused or not found. Finishing without
                     // a transaction keeps the connector alone.
@@ -174,6 +212,12 @@ always @(posedge clk) begin
                     out_data  <= bus_rdata[7:0];
                     out_valid <= 1'b1;
                     state     <= ST_EMIT;
+                    if (bus_rdata[7:0] != 8'hFF) blank_ff <= 1'b0;
+                    if (bus_rdata[7:0] != 8'h00) blank_00 <= 1'b0;
+                    // Shifted in so the first four bytes end up most
+                    // significant first, matching cart_save_gb.
+                    if (offset < 32'd4)
+                        first_word <= {first_word[23:0], bus_rdata[7:0]};
                 end
             end
 
@@ -197,6 +241,10 @@ always @(posedge clk) begin
                 busy      <= 1'b0;
                 out_valid <= 1'b0;
                 done      <= 1'b1;
+                // See the port comment: there is no gate to toggle on this
+                // platform, so this says the read ran to completion and
+                // nothing more. blank_ff is what reports an absent chip.
+                responded <= (size_bytes != 32'd0);
                 state     <= ST_IDLE;
             end
 

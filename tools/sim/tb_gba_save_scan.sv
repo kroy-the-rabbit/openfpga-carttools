@@ -69,6 +69,9 @@ integer     mode_delay = 0;
 // Hold cart_mode low for the whole run, standing in for an empty or
 // unpowered slot. The scan must time out rather than wait.
 reg         mode_never = 1'b0;
+reg         abort = 1'b0;
+// Feed count at which abort is pulsed mid-scan. -1 never.
+integer     abort_at = -1;
 // Feed count at which cart_mode is dropped mid-scan. -1 never.
 integer     drop_at = -1;
 integer     feeds = 0;
@@ -87,7 +90,7 @@ gba_save_scan dut (
     .clk (clk), .reset (reset),
     .start (start), .rom_size_bytes (rom_size_bytes),
     .busy (busy), .done (done), .want_gba (want_gba),
-    .cart_mode (cart_mode), .complete (complete),
+    .cart_mode (cart_mode), .complete (complete), .abort (abort),
     .found_eeprom (found_eeprom), .found_sram (found_sram),
     .found_sram_f (found_sram_f), .found_flash (found_flash),
     .found_flash512 (found_flash512), .found_flash1m (found_flash1m),
@@ -227,6 +230,16 @@ begin
     if (drop_at >= 0) begin
         wait (feeds >= drop_at);
         cart_mode = 1'b0;
+    end
+    if (abort_at >= 0) begin
+        // Driven from a negedge, as everything else here is. wait releases
+        // just after a posedge, so raising it there and dropping it at the
+        // following negedge never spans an edge the DUT samples.
+        wait (feeds >= abort_at);
+        @(negedge clk);
+        abort = 1'b1;
+        @(negedge clk);
+        abort = 1'b0;
     end
     wait (done == 1'b1);
     @(negedge clk);
@@ -415,6 +428,39 @@ initial begin
     // A scan must actually have run, or the invariant above was never tested.
     if (want_errors == 0 && errors == 0 && busy !== 1'b0) begin
         $display("ERROR: the scanner is still busy at the end of the run");
+        errors = errors + 1;
+    end
+
+    // ---- Abort stops a running scan --------------------------------------
+    // A dump takes the bus, so a scan underneath it has to let go rather than
+    // wait for a done that is never coming.
+    plant_at = -1; plant_len = 0; no_plant2;
+    set_plant("SRAM_V", 6, 512);
+    abort_at = 300;
+    run_scan(ROM_BYTES);
+    abort_at = -1;
+    if (busy !== 1'b0) begin
+        $display("ERROR: the scanner is still busy after an abort");
+        errors = errors + 1;
+    end
+    if (complete !== 1'b0) begin
+        $display("ERROR: an aborted scan reported complete");
+        errors = errors + 1;
+    end
+
+    // ---- An abort does NOT destroy a finished scan -------------------------
+    // This is the defect the abort input exists to fix. It was a reset, and a
+    // reset cleared the seen bits, so dumping a ROM threw away a completed
+    // scan and the save button vanished until the cartridge was rescanned.
+    run_scan(ROM_BYTES);
+    expect_only(6'b000010, "SRAM_V before an abort");
+    abort = 1'b1;
+    repeat (4) @(negedge clk);
+    abort = 1'b0;
+    repeat (4) @(negedge clk);
+    expect_only(6'b000010, "SRAM_V after an abort with no scan running");
+    if (complete !== 1'b1) begin
+        $display("ERROR: an abort with no scan running cleared complete");
         errors = errors + 1;
     end
 

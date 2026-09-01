@@ -661,6 +661,8 @@ wire       gb_valid, gba_valid, gsv_valid;
 wire       gb_busy, gb_done, gba_rd_busy, gba_rd_done;
 wire       gsv_busy, gsv_done;
 wire [31:0] gsv_bytes;
+wire        gsv_responded, gsv_blank_ff, gsv_blank_00;
+wire [31:0] gsv_first;
 
 // The GBA bus has two masters now for the same reason the GB bus does: a ROM
 // reader and a save reader.
@@ -682,6 +684,8 @@ wire [15:0] sv_addr;
 wire [7:0]  sv_wdata;
 wire [7:0]  sv_data;
 wire        sv_valid, sv_busy, sv_done;
+wire        sv_responded, sv_blank_ff, sv_blank_00;
+wire [31:0] sv_first;
 wire [31:0] save_bytes;
 
 // One reader runs per dump and the other is left in idle, which is why the
@@ -738,10 +742,10 @@ cart_save_gb reader_save (
     .busy          ( sv_busy ),
     .done          ( sv_done ),
     .total_bytes   ( save_bytes ),
-    .responded     ( save_responded ),
-    .blank_ff      ( save_blank_ff ),
-    .blank_00      ( save_blank_00 ),
-    .first_word    ( save_first ),
+    .responded     ( sv_responded ),
+    .blank_ff      ( sv_blank_ff ),
+    .blank_00      ( sv_blank_00 ),
+    .first_word    ( sv_first ),
     .bus_req       ( sv_req ),
     .bus_wr        ( sv_wr ),
     .bus_addr      ( sv_addr ),
@@ -797,6 +801,10 @@ cart_save_gba reader_gba_save (
     .busy        ( gsv_busy ),
     .done        ( gsv_done ),
     .total_bytes ( gsv_bytes ),
+    .responded   ( gsv_responded ),
+    .blank_ff    ( gsv_blank_ff ),
+    .blank_00    ( gsv_blank_00 ),
+    .first_word  ( gsv_first ),
     .bus_req     ( gsv_req ),
     .bus_wr      ( gsv_wr ),
     .bus_addr    ( gsv_addr ),
@@ -825,6 +833,16 @@ assign src_data  = gba_sv_l ? gsv_data : gba_l ? gba_data    : save_l ? sv_data 
 assign src_valid = gba_sv_l ? gsv_valid: gba_l ? gba_valid   : save_l ? sv_valid : gb_valid;
 assign rd_busy   = gba_sv_l ? gsv_busy : gba_l ? gba_rd_busy : save_l ? sv_busy  : gb_busy;
 assign rd_done   = gba_sv_l ? gsv_done : gba_l ? gba_rd_done : save_l ? sv_done  : gb_done;
+
+// The evidence follows whichever reader ran, for the same reason the stream
+// does. These were wired straight from the GB reader once, and the screen
+// reported SAVE RAM DID NOT ANSWER over a Golden Sun Flash backup that had
+// worked, because cart_save_gb had never run and was still holding its idle
+// values.
+assign save_responded = gba_sv_l ? gsv_responded : sv_responded;
+assign save_blank_ff  = gba_sv_l ? gsv_blank_ff  : sv_blank_ff;
+assign save_blank_00  = gba_sv_l ? gsv_blank_00  : sv_blank_00;
+assign save_first     = gba_sv_l ? gsv_first     : sv_first;
 
 // Which bus SS_END has to see go idle before it drops the mode.
 wire dump_bus_busy = gba_l ? gba_busy : bus_busy;

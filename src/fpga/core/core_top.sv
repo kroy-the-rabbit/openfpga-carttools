@@ -1159,14 +1159,17 @@ wire        svs_ambiguous, svs_found_any, svs_complete;
 // scan's loop bound is the ROM size and a zero would scan nothing anyway.
 assign save_scan_start = sz_done && sz_size_valid;
 
-// Reset by a dump and by a new probe, not just by the PLL. Both of those take
-// the GBA bus away through the mux above, and a scanner left running would
-// wait for a done that is never coming with its busy flag stuck high. Abandon
-// it instead: save_scan_valid stays low, so Y is absent rather than offering a
-// save read on a scan that never finished.
+// Reset by a new probe, which is a new cartridge and so a result that no
+// longer describes anything. A dump is different and used to be a reset here:
+// it takes the GBA bus away through the mux above, so a scan underneath it
+// must let go, but a reset also cleared the seen bits, which threw away a
+// finished scan and made the save button vanish after every ROM dump. So a
+// dump aborts instead, which stops a running scan and leaves a finished one
+// alone.
 gba_save_scan save_scanner (
     .clk            ( clk_sys ),
-    .reset          ( ~pll_core_locked | dump_busy | scan_start ),
+    .reset          ( ~pll_core_locked | scan_start ),
+    .abort          ( dump_busy ),
     .cart_mode      ( gba_mode_s ),
     .start          ( save_scan_start ),
     .rom_size_bytes ( sz_size_bytes ),
