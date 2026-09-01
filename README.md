@@ -20,14 +20,14 @@ what was written here.
 |---|---|
 | GB / GBC cartridge identification | **works** |
 | GBA cartridge identification | **works** |
-| GB / GBC ROM dumping | **works**, twenty cartridges |
+| GB / GBC ROM dumping | **works**, twenty-six cartridges, 32 KB to 4 MB |
 | GBA ROM dumping | **works**, twelve cartridges |
 | GBA ROM size detection | **works**, measured from open bus |
 | CRC32 shown on the device | **works**, both platforms |
 | Image checked against the cartridge's own checksum | **works**, GB / GBC only |
 | Files named `.gb` / `.gbc` / `.gba` | **works** |
-| GB / GBC save backup | **works**, one cartridge, loaded in an emulator with its state intact |
-| Save RAM banking, to 128 KB | **works** at 32 KB and four banks; larger sizes built, untested |
+| GB / GBC save backup | **works**, four cartridges, each loaded in an emulator with its state intact |
+| Save RAM banking, to 128 KB | **works** at 8 KB one bank and 32 KB four banks; 64 KB and 128 KB built, untested |
 | GBA save backup | not started |
 | Save restore | not started |
 | MBC3 RTC | not started |

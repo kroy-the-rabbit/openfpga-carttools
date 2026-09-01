@@ -3,6 +3,109 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## Where this was left, 2026-08-31
+
+**Six new GB/GBC cartridges are on the card, structurally clean.** Written by
+the core to `/Assets/carttools/common/`, five of them with a save beside the
+ROM. Every ROM passes its Nintendo logo byte for byte, its header checksum,
+its global checksum and the size its header declares. Every save is the
+length `0x0149` declares, is not blank, and where it has four banks the four
+banks differ. `scripts/verify_dump.py` on all thirteen files: `all checks
+passed`.
+
+| File | Bytes | Type | RAM | CGB | CRC32 | Save CRC32 |
+|---|---|---|---|---|---|---|
+| `DQM2_R_____BQLJ.gbc` | 4,194,304 | `1B` MBC5+RAM+bat | `03` 32 KB, 4 banks | `80` | `2C428A87` | `08BE7E23` |
+| `YUGIOUDM4J_BY6J.gbc` | 4,194,304 | `1B` MBC5+RAM+bat | `02` 8 KB, 1 bank | `C0` | `298BD054` | `6646D2D7` |
+| `HAMUPARA2__BHMJ.gbc` | 2,097,152 | `1B` MBC5+RAM+bat | `02` 8 KB, 1 bank | `C0` | `542C78B6` | `D29428FB` |
+| `JINSEI_TOMOACJJ.gbc` | 1,048,576 | `1B` MBC5+RAM+bat | `02` 8 KB, 1 bank | `80` | `C8D46E99` | `A6F62B50` |
+| `PNBALFRENZYVM2E.gbc` | 1,048,576 | `1E` MBC5+RUMBLE+RAM+bat | `02` 8 KB, 1 bank | `C0` | `364F9CCD` | `D6A21D0D` |
+| `TYCORAT1___BTIE.gbc` | 1,048,576 | `19` MBC5 | `00` none | `C0` | `D6881014` | none |
+
+**What these cartridges actually are.** The stem is the header's 11-character
+title field, not a name: a cartridge whose retail title is longer spends those
+characters on whichever part of it fits, so the stem cannot be expanded back
+into a title by reading it. No No-Intro DAT is configured, so nothing here
+resolves a stem automatically. Filled in as each one is confirmed; blank means
+nobody has said, and guessing from the stem is what this table exists to stop.
+
+| Stem | Game code | Cartridge |
+|---|---|---|
+| `PNBALFRENZY` | `VM2E` | Disney's The Little Mermaid II: Pinball Frenzy |
+| `DQM2_R` | `BQLJ` | |
+| `YUGIOUDM4J` | `BY6J` | |
+| `HAMUPARA2` | `BHMJ` | |
+| `JINSEI_TOMOA` | `CJJ` | |
+| `TYCORAT1` | `BTIE` | |
+
+**What this closes.** `docs/STATUS.md`'s hardware coverage table stopped at
+1 MB for MBC5 and at one save size.
+
+| Gap | Closed by |
+|---|---|
+| MBC5 ROM above 1 MB | 2 MB, and 4 MB twice. 4 MB is 256 banks, so the ninth bank bit at `0x3000` is exercised on hardware for the first time |
+| Cartridge type `1E`, MBC5+RUMBLE+RAM+battery | `PNBALFRENZYVM2E` |
+| Cartridge type `19`, MBC5 with no RAM, at 1 MB | `TYCORAT1___BTIE`, and `Y` is correctly absent on it |
+| RAM size code `02`, 8 KB, single bank | four cartridges. Only `03` had been read on hardware |
+| A second cartridge through the four-bank save path | `DQM2_R_____BQLJ` |
+
+**What is still open after them.** MBC2, MBC3 and MBC3 RTC. MBC1 above
+512 KB, which is the case `cart_dump_gb.sv` expects to differ. RAM size codes
+`01` (2 KB), `04` (128 KB) and `05` (64 KB). GBA saves, which are not started.
+None of these six is a cartridge that could have covered any of them.
+
+**Loaded in mGBA, 2026-08-31.** A save carries no checksum, so this is the
+only check that can prove one. `tools/podman/play-dump.sh`, one cartridge at a
+time, `ZELDA` first as a control and it came up intact. Screenshots were
+kept locally in `screenshot_proofs/` and are gitignored.
+
+| Cartridge | ROM | Save | Evidence |
+|---|---|---|---|
+| `DQM2_R_____BQLJ` | pass | **pass** | file select gives master name, `031:17` played, three monsters at Lv99/54/50, location. In world afterwards with gold and party HP/MP, which is what proves 4 MB high banks rather than a menu |
+| `YUGIOUDM4J_BY6J` | pass | **pass** | records screen reads Duelist Level 255, Deck Capacity 2728. `2728` is `a8 0a` little endian at `0x4b7` and `0x11af` in the dumped file, stored twice and both copies identical |
+| `JINSEI_TOMOACJJ` | pass | **pass** | character file holds five player entered names, slot 1/10, portrait rendered |
+| `HAMUPARA2__BHMJ` | pass | **fail** | game refuses to let the cursor reach Continue. See below |
+| `PNBALFRENZYVM2E` | pass | n/a | game runs. Battery dead, so the save content is volatile and differs every read. The dump is faithful to what the chip held at read time |
+| `TYCORAT1___BTIE` | pass | none | boots and plays. Type `19`, no save RAM, so `play-dump.sh` correctly reports no save rather than failing |
+
+**Two cartridges are flagged as suspected battery failures, to be re-ripped
+before anything is concluded from them.** Neither is evidence against the save
+path: three saves of two sizes read correctly in the same session on the same
+build.
+
+`HAMUPARA2__BHMJ.sav` is noise. All 256 byte values present, no run of zeros
+longer than 4, `0xFF` on 26.8% of bytes and alternating with data:
+
+    80 ef 06 ff a6 ff e1 ff 8e ff 53 ff 25 ff 35 bf
+
+The game's own checksum rejects it, which is the correct behaviour and not a
+symptom of this core.
+
+`PNBALFRENZYVM2E` is resolved and is **not** a core fault. Its battery is
+dead. The ROM read three times, byte identical every time, md5
+`7f8c472f3c7bd1eec56a3bad10a2e94c`. The save was dumped three times: the
+header `44 41 56 45 dd ca ba aa` and the high score initials `BRO` came back
+identical each time, and the six score digit bytes came back different each
+time. The game runs off the dump. Volatile content on a dead cell, read
+faithfully.
+
+`HAMUPARA2__BHMJ` is the same cause and is still worth a second rip, since
+nothing has been dumped off it twice.
+
+**One item belongs to `pocket-tools`, not here**, and is carried as open
+item 5 in `pocket-dev/docs/HANDOFF.md`. `DQM2-R` is the first
+cartridge on a real card whose title holds a character outside `A-Z0-9`.
+`dump_path_gen.sv`'s `sanitize` turns it into `_` and the card says
+`DQM2_R_____BQLJ.gbc`. `cheatgui/dumps.py`'s `core_stem` keeps `-`, so it
+derives `DQM2-R_____BQLJ` and its `Dump.renamed` reports the file as renamed
+by hand. The divergence is already written down in `docs/FILE-FORMATS.md`,
+the row reading "basename may contain spaces, `-`, mixed case | uppercased;
+everything outside `A-Z0-9` becomes `_` | differs". The core follows the core;
+the app follows the spec. `core_stem` also does not uppercase, which no
+cartridge on the card exercises yet. Route to the picker's session: the six
+files here are the fixtures its `tests/test_dumps.py` was meant to be pinned
+against, and `cart-dumps/`, `roms/` and `saves/` in that repo are still empty.
+
 ## Where this was left, 2026-08-26
 
 Committed and clean on branch `hardware-bringup`, not merged to `main`.

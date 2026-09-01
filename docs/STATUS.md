@@ -33,7 +33,7 @@ has to come from a cartridge.
 | 3. GBA identification | **verified on hardware** | `cart_identify_gba.sv`. Minish Cap read and validated |
 | 5. GB/GBC bus mode | **verified on hardware** | `gb_cart_bus.sv`, `cart_probe.sv`, including the escalation |
 | 6. GB/GBC header parsing | **verified on hardware** | `cart_identify_gb.sv`. Link's Awakening DX read and validated |
-| 8. GB/GBC dumping | **verified on hardware** | twenty cartridges, four mapper families; every retained image passes its own checks, and the on-device checksum is confirmed too |
+| 8. GB/GBC dumping | **verified on hardware** | twenty-six cartridges, 32 KB to 4 MB, five mapper families; every retained image passes its own checks, and the on-device checksum is confirmed too |
 | 4. GBA dumping | **verified on hardware** | `gba_size_probe.sv`, `cart_dump_gba.sv`, `dump_crc32.sv`. Twelve images at 4, 8 and 16 MB; two externally matched; two reproduce byte for byte on a second dump |
 | 7+ | not started | no longer gated: the hard stop is cleared |
 
@@ -442,7 +442,9 @@ Mapper and size coverage on hardware:
 | ROM only (`00`) | 32 KB |
 | MBC1 (`01`) | 64 KB, 128 KB, 256 KB |
 | MBC1+RAM+battery (`03`) | 256 KB, 512 KB (three cartridges) |
-| MBC5+RAM+battery (`1B`) | 1 MB (three cartridges) |
+| MBC5+RAM+battery (`1B`) | 1 MB (four cartridges), 2 MB, 4 MB (two cartridges) |
+| MBC5 (`19`) | 1 MB |
+| MBC5+RUMBLE+RAM+battery (`1E`) | 1 MB |
 
 MBC2, MBC3 and MBC1 above 512 KB remain simulation only. MBC1 above 512 KB
 is the case expected to differ, for the reason `cart_dump_gb.sv` documents:

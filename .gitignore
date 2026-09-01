@@ -41,3 +41,7 @@ stresstest.txt
 /.venv/
 __pycache__/
 *.pyc
+
+# Emulator proof screenshots from cartridge testing. Local evidence, kept
+# out of the repo.
+/screenshot_proofs/
