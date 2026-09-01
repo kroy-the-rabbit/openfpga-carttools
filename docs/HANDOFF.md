@@ -54,18 +54,51 @@ does: phase 2 takes the bus off the reader and drives a deliberate write into
 the save window, so a monitor that has quietly stopped working takes the run
 down with it.
 
-**What is left before this is worth anything on hardware:**
+**Wired up, and it fits.** `dump_engine` has a fourth reader and the GBA bus
+has a two master mux, the same shape the GB bus already had. `core_top` has
+the scanner as a fourth bus master, ordered dump, scan, size probe, identify,
+with `save_scan_busy` and `save_scan_start` both in `cart_engine_busy` so a
+dump started underneath a scan cannot strand it waiting for a `done` the mux
+took away. `save_scan_valid` clears on `scan_start`, so a scan result cannot
+outlive the cartridge it describes.
 
-1. Wire both into `dump_engine` and `core_top`, and give the screen a GBA save
-   entry, its refusals and its ambiguity message. **This touches `ui_screen`,
-   whose `col -> tb_char` path has failed setup three times**, so it needs a
-   fit on a build runner rather than a local guess.
-2. Decide what the caller does with the scan result. SRAM and SRAM_F are 32
-   KiB. EEPROM's string does not say whether it is 512 B or 8 KiB, so even
-   were EEPROM readable, the size would still be undetermined.
-3. A cartridge to test on. Nothing in the set here is known to be GBA SRAM,
-   and the type cannot be known until the scan runs.
+**Nothing new reaches `ui_screen`.** A refused GBA save drives the
+`ROW_NO_SAVE` row a refused GB save already drives.
+
+**`scan_start` was already taken**, by `cart_probe`, which is the A button.
+The save scan's signals are `save_scan_*` and the scanner's own results are
+`svs_*`.
+
+**A/B on `quartus-build`, sisko, identical conditions, scratch wiped between
+runs.**
+
+| | `9530316` baseline | `a94d78e` this branch | delta |
+|---|---|---|---|
+| Setup slack | 0.856 ns | 0.496 ns | **-0.360 ns** |
+| Hold slack | 0.123 ns | 0.122 ns | -0.001 ns |
+| ALMs | 3,391, 18% | 3,549, 19% | +158 |
+| Registers | 4,466 | 4,761 | +295 |
+| RAM blocks | 99 | 99 | 0 |
+| Elapsed | 280 s | 299 s | |
+
+Timing is met on every corner. **The worst setup path is the PLL output
+counter in both builds, not `ui_screen` and not any of this**, so what changed
+is congestion rather than a new critical path.
+
+**Do not read that -0.360 ns as a measured cost.** One build against one build
+does not separate the change from placement noise, and this design has moved
+by that much on seed alone before. `scripts/seed_sweep.sh` is what would
+settle it, and it has not been run.
+
+**What is left:**
+
+1. A seed sweep, before this is trusted at 0.496 ns.
+2. A cartridge to test on. Nothing in the set here is known to be GBA SRAM,
+   and the type cannot be known until the scan runs on hardware.
+3. EEPROM's string does not say whether it is 512 B or 8 KiB, so even were
+   EEPROM readable the size would still be undetermined.
 4. The write defect, if Flash or EEPROM is ever wanted.
+5. Merge to `main`. This is on `gba-save-wiring` and nothing is flashed.
 
 ## Where this was left, 2026-08-31
 
