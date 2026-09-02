@@ -411,7 +411,7 @@ kept locally in `screenshot_proofs/` and are gitignored.
 | `YUGIOUDM4J_BY6J` | pass | **pass** | records screen reads Duelist Level 255, Deck Capacity 2728. `2728` is `a8 0a` little endian at `0x4b7` and `0x11af` in the dumped file, stored twice and both copies identical |
 | `JINSEI_TOMOACJJ` | pass | **pass** | character file holds five player entered names, slot 1/10, portrait rendered |
 | `HAMUPARA2__BHMJ` | pass | **fail** | game refuses to let the cursor reach Continue. See below |
-| `PNBALFRENZYVM2E` | pass | n/a | game runs. Battery dead, so the save content is volatile and differs every read. The dump is faithful to what the chip held at read time |
+| `PNBALFRENZYVM2E` | pass | **pass** | the save reads correctly. Its battery was flat, measured 0 V and replaced, but the content differed between rips because the game was played between them, not because of the battery. See below |
 | `TYCORAT1___BTIE` | pass | none | boots and plays. Type `19`, no save RAM, so `play-dump.sh` correctly reports no save rather than failing |
 
 **Two cartridges are flagged as suspected battery failures, to be re-ripped
@@ -427,16 +427,42 @@ longer than 4, `0xFF` on 26.8% of bytes and alternating with data:
 The game's own checksum rejects it, which is the correct behaviour and not a
 symptom of this core.
 
-`PNBALFRENZYVM2E` is resolved and is **not** a core fault. Its battery is
-dead. The ROM read three times, byte identical every time, md5
-`7f8c472f3c7bd1eec56a3bad10a2e94c`. The save was dumped three times: the
-header `44 41 56 45 dd ca ba aa` and the high score initials `BRO` came back
-identical each time, and the six score digit bytes came back different each
-time. The game runs off the dump. Volatile content on a dead cell, read
-faithfully.
+`PNBALFRENZYVM2E` had **two separate things going on, and treating them as one
+answer is what took four rounds to unpick.**
 
-`HAMUPARA2__BHMJ` is the same cause and is still worth a second rip, since
-nothing has been dumped off it twice.
+**The battery was dead.** Measured at 0 V and since replaced. That is settled
+by a multimeter, not by inference from bytes.
+
+**The save read was correct throughout, and is not a core fault.** The ROM read
+three times byte identical. Across four save rips the header
+`44 41 56 45 dd ca ba aa` and the high score initials `BRO` were constant
+while the six score digit bytes differed every time.
+
+**Those digits changed because the game was being played between rips.** Every
+digit in every rip was in the range 0 to 9 because they were scores. The table
+read empty early on because it had not been played yet. And the contents
+survived from one rip to the next despite the flat battery **because the
+cartridge stayed powered in the slot** - it held the save until it was
+unplugged, which is exactly what a dead cell with continuous power looks like.
+
+**The mistakes, both worth keeping.** The first call, that the battery was
+fine, came from a single rip whose byte 0 read `FAVE`; every rip since reads
+`DAVE`, so one bit error carried a hardware recommendation and nobody said out
+loud that it rested on one sample. Then, told the scores varied, the swing was
+all the way to "nothing was wrong with the cartridge", which was equally
+wrong.
+
+**Two rules out of it.** Before theorising about data that changes between
+reads, ask what the human did between the reads: a cartridge that has been
+played is not a cartridge at rest and no byte pattern will tell you that. And
+a dead battery and a correct read are not competing explanations, they are
+both true here; a single answer that tidily covers every symptom is a reason
+for suspicion, not confidence.
+
+`HAMUPARA2__BHMJ` is a different case and still looks genuinely dead: all 256
+byte values present, `0xFF` alternating with data, longest zero run of 4, and
+the game's own checksum refuses it. That claim now stands on one cartridge
+with a poor track record behind it, and it has still not been dumped twice.
 
 **One item belongs to `pocket-tools`, not here**, and is carried as open
 item 5 in `pocket-dev/docs/HANDOFF.md`. `DQM2-R` is the first
