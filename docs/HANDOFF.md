@@ -452,12 +452,25 @@ loud that it rested on one sample. Then, told the scores varied, the swing was
 all the way to "nothing was wrong with the cartridge", which was equally
 wrong.
 
-**Two rules out of it.** Before theorising about data that changes between
+**Proven, and to the byte.** The save loaded in mGBA and the high score screen
+reads `1. BRO 1,009,441`. That number is in the file:
+
+    0x37..0x3d   01 00 00 09 04 04 01     one digit per byte, high digit first
+    0x3e..0x40   42 52 4f                 "BRO"
+
+Seven digit bytes then three initials. Worth recording because the record
+starts at `0x37`, not `0x38`: every round of analysis above read it as six
+digits from `0x38`, which silently dropped the leading digit of every score
+and then treated the remainder as evidence of instability.
+
+**Three rules out of it.** Before theorising about data that changes between
 reads, ask what the human did between the reads: a cartridge that has been
-played is not a cartridge at rest and no byte pattern will tell you that. And
-a dead battery and a correct read are not competing explanations, they are
-both true here; a single answer that tidily covers every symptom is a reason
-for suspicion, not confidence.
+played is not a cartridge at rest and no byte pattern will tell you that. A
+dead battery and a correct read are not competing explanations, they are both
+true here, and a single answer that tidily covers every symptom is a reason
+for suspicion rather than confidence. And **find where a record actually
+starts before reading meaning into its contents**, because an off-by-one at
+the front turns real data into noise and noise is what invites the theories.
 
 `HAMUPARA2__BHMJ` is a different case and still looks genuinely dead: all 256
 byte values present, `0xFF` alternating with data, longest zero run of 4, and
