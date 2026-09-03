@@ -1,7 +1,7 @@
 # For the orchestrator: cutting a release
 
 What `pocket-dev` needs to cut a release of `pocket-cartridge`. Written
-2026-09-02, at `8883535`. The full record is `docs/HANDOFF.md`, then
+2026-09-02, at `70f03eb`. The full record is `docs/HANDOFF.md`, then
 `docs/STATUS.md`.
 
 ## How a release is cut here
@@ -20,15 +20,15 @@ went out this way with `kroy.CartTools_0.9999.ed18b9b.zip` and `report.txt`.
 
 ## Decide this first: there is no new bitstream
 
-**Nothing in the RTL has changed since the last release.** `ed18b9b..HEAD` is
-five files: four documents and `scripts/match_dats.py`. The last fit was at
-`4a54db4` and every commit since is documentation.
+**Nothing in `src/` has changed since the last release.** `v0.9999.ed18b9b..HEAD`
+is seven files: four documents, `scripts/match_dats.py`, `tb_dump_engine.sv`
+and this file. The last fit was at `4a54db4`.
 
-So a release cut today ships a bitstream identical to `v0.9999.ed18b9b`. That
-is a real thing to release, because what changed is that several claims in it
-were wrong, but it should be cut knowing that is what it is. The alternative
-is to leave the tag where it is and let the documents ride to the next
-release that carries RTL.
+So a release cut today ships a bitstream identical to `v0.9999.ed18b9b`. What
+changed is that several of the claims made about it were wrong, and that one
+shipped behaviour now has a test. That is a real thing to release, but cut it
+knowing that is what it is. The alternative is to leave the tag where it is
+and let this ride to the next release that carries RTL.
 
 ## Fix before tagging: the release body is stale
 
@@ -69,6 +69,7 @@ matters more than any file in `docs/`.
 | GB/GBC identification and dumping | verified, twenty-six cartridges, 32 KB to 4 MB, five mapper families |
 | GBA identification, sizing and dumping | verified, fifteen cartridges, 4 to 16 MB |
 | Every dump matched to a published record | forty-one of forty-one, CRC32 and size, `scripts/match_dats.py` |
+| CRC32 on the device, over a ROM or a save | `tb_dump_engine`, value checked at two lengths against an independent CRC32, mutation checked twice |
 | GB/GBC save backup | six backed up, five loaded in an emulator with their state intact |
 | GBA save backup, Flash 64 KiB and SRAM 32 KiB | verified, and needs no write to a cartridge |
 | GBA 128 KiB Flash and EEPROM | refused, both need a write |
@@ -80,6 +81,11 @@ on the same screen row. That gives a save an identity to compare against a
 second dump or against the file on the card. It is not a verdict: nothing in
 the cartridge and nothing published holds the expected hash of a save, which
 is why row 13 carries the presence probe instead.
+
+That path had no test until `70f03eb`. The engine could have named the file,
+sized it, written it and left `crc32` holding the previous ROM dump's number,
+and the suite would have passed. It is asserted now, at two lengths and
+mutation checked both ways.
 
 **What it must not claim.** A save is read once, the double read is not built,
 and nothing reads a file back off the card. A `.sav` from this core is not yet
@@ -110,3 +116,13 @@ Keep that sentence.
 - `HAMUPARA2__BHMJ` has still never been dumped twice.
 - A stray workflow worktree sits under `.claude/worktrees/`. Nothing has been
   deleted; somebody should say whether it goes.
+
+## Checklist
+
+1. Decide whether a docs-and-tests release is wanted at all, given the
+   bitstream does not move.
+2. Fix the release body in `release.yml`, which is the public text.
+3. Settle the version scheme against `README.md`, across all five projects.
+4. Decide stable or prerelease, and make the tag match the body.
+5. Confirm the Build workflow is green on the commit being tagged.
+6. Tag `main`. CI does the rest.
