@@ -45,21 +45,29 @@ Oracle of Ages is the one that matters most here, because `cart_mode_hold`
 sits between the two engines: a GBC dump and save means the request was held,
 released and handed to the other engine, and both read correctly.
 
-**It costs timing.** A/B on the same runner, same seed, scratch wiped between,
-both builds back to back:
+**It buys timing, once the hold is a register rather than a mux.** All three
+on the same runner, same seed, scratch wiped between:
 
 | | Setup | ALMs |
 |---|---|---|
-| Before | 0.762 ns | 3,573 |
-| After | 0.511 ns | 3,670 |
+| Before the fix | 0.762 ns | 3,573 |
+| Fix, request muxed | 0.511 ns | 3,670 |
+| Fix, request registered | **1.208 ns** | 3,591 |
 
-0.251 ns and 97 ALMs. It still closes, and the fit is deterministic: a repeat
-build gave the same slack and the same bitstream md5. 97 ALMs is more than a
-two-bit mux should cost, and the likely reason is that `cart_mode_req` has
-wide fanout, feeding both engines, so the mux is replicated downstream.
-Registering the held request would break the path from `write_active` into
-`gba_mode_s`, at the cost of landing a mode change a cycle later, which means
-re-reading the `cart_pins` turnaround before trusting it.
+The mux cost 0.251 ns and 97 ALMs, which is far more than two bits of
+selection should, because `cart_mode_req` feeds `gb_mode_s` and `gba_mode_s`
+and from there the `cart_mode` of both engines: putting `write_active` in
+front of that fanout replicates it. Driving the same signal from a flop
+instead starts the fanout at a register and ends up **0.446 ns better than
+the code without the fix at all**, because the mode request was combinational
+from `dump_want_mode` through to both engines before any of this.
+
+The price is that a mode change lands a cycle later. `cart_pins` registers the
+mode into its own `mode_q` and runs a settle counter of tens of cycles from
+there with `mode_ready` low throughout, so nothing downstream can observe it.
+
+The fit is deterministic: a repeat build of the muxed version gave the same
+slack and the same bitstream md5.
 
 ## Forty-one dumps, all externally matched, 2026-09-02
 
