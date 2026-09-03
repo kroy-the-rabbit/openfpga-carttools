@@ -33,8 +33,8 @@ has to come from a cartridge.
 | 3. GBA identification | **verified on hardware** | `cart_identify_gba.sv`. Minish Cap read and validated |
 | 5. GB/GBC bus mode | **verified on hardware** | `gb_cart_bus.sv`, `cart_probe.sv`, including the escalation |
 | 6. GB/GBC header parsing | **verified on hardware** | `cart_identify_gb.sv`. Link's Awakening DX read and validated |
-| 8. GB/GBC dumping | **verified on hardware** | twenty-six cartridges, 32 KB to 4 MB, five mapper families; every retained image passes its own checks, and the on-device checksum is confirmed too |
-| 4. GBA dumping | **verified on hardware** | `gba_size_probe.sv`, `cart_dump_gba.sv`, `dump_crc32.sv`. Twelve images at 4, 8 and 16 MB; two externally matched; two reproduce byte for byte on a second dump |
+| 8. GB/GBC dumping | **verified on hardware** | twenty-six cartridges, 32 KB to 4 MB, five mapper families; every retained image passes its own checks, **all twenty-six externally matched** to No-Intro by CRC32 and size, and the on-device checksum is confirmed too |
+| 4. GBA dumping | **verified on hardware** | `gba_size_probe.sv`, `cart_dump_gba.sv`, `dump_crc32.sv`. Fifteen images at 4, 8 and 16 MB; **all fifteen externally matched** to No-Intro by CRC32 and size; two reproduce byte for byte on a second dump |
 | 7+ | not started | no longer gated: the hard stop is cleared |
 
 ## The hard stop is cleared
@@ -540,7 +540,8 @@ while dumping agree with that record independently:
 
 The lookup was a search summary rather than the No-Intro DAT itself, so the
 corroboration is what makes it worth recording: a bare hash match from a
-secondary source would not be.
+secondary source would not be. **Closed 2026-09-02**: this image, and every
+other, has since been matched against the DAT itself.
 
 `SELFTEST.bin` is a clean ascending ramp, which confirms byte order and the
 read pipeline with no cartridge involved. `0x0192` succeeded throughout, so
@@ -620,7 +621,8 @@ lookup did not use agree with that record independently:
 | probed size | 8 MB | 64 Mbit release |
 
 The lookup was a search summary rather than the No-Intro DAT, so as with the
-Zelda match it is the corroboration that makes it worth recording.
+Zelda match it is the corroboration that makes it worth recording. **Closed
+2026-09-02**, against the DAT itself.
 
 **Minish Cap, and the tightest match here.** `GBAZELDA_MC.gb`, 16,777,216
 bytes, CRC32 `ABCEBBB1`. A reference table that lists all three regional
@@ -787,6 +789,10 @@ byte for byte against copies preserved beforehand:
 Both GBA images now reproduce exactly, including at 16 MB.
 
 ## Twelve GBA and four GBC images, 2026-08-27
+
+> Twelve was the count on the day, and it stayed in these documents until
+> 2026-09-02, by which point fifteen GBA images existed. See "Every image
+> matches a published record" below.
 
 All verified against what the cartridge carries: Nintendo logo byte for byte
 against the constant in `docs/LOGO-BYTES.md`, header checksum, `0x96` at
@@ -982,19 +988,50 @@ What is tested is the contract it depends on: rows 13 and 14 blank when
 `dump_state` is idle even with `sum_checked` and `crc_checked` still
 asserted, mutation checked by removing the state gate from either row.
 
-## Where the images are, 2026-08-27
+## Every image is kept, corrected 2026-09-02
 
-The card was cleared during testing and holds three images. Every image this
-project has produced is kept off-card in the session scratchpad, under
-`snapshot-before-big-dump/` with a CRC32 manifest, each verified byte for byte
-against the card at copy time. `DONKEY_KONG.gb` is the exception: it was
-dumped and verified after the snapshot was taken and was not retained, so its
-CRC32 `EDAB3378` is all that survives of it.
+**Forty-one images, all retained.** This section previously said
+`DONKEY_KONG.gb` had not been retained and that its CRC32 `EDAB3378` was all
+that survived of it. That is wrong. The file exists and still reads
+`EDAB3378`.
 
 Keeping the images rather than only their hashes is what made the
 twelve-for-twelve comparison above possible: a hash says a re-dump differs, the
 file says where and in what pattern, which is how both the 1 KB window heads
-and the sixteen byte displacement were characterised.
+and the sixteen byte displacement were characterised. It is also what makes
+the check below possible at all.
+
+## Every image matches a published record, 2026-09-02
+
+**Forty-one dumps, forty-one matches, no misses.** Checked against the
+No-Intro DATs for Game Boy, Game Boy Color and Game Boy Advance, 7,572
+entries between them. Every dump is present by CRC32, and the size the DAT
+records agrees with the size on disk in all forty-one cases.
+`scripts/match_dats.py` is the check.
+
+**External**, unlike every other check here: the DAT was not produced by this
+core or this repo. The header checks come from the same bytes the core just
+read and catch only a dump that is internally inconsistent. And it is the only
+external check a GBA image can have, because a GBA cartridge carries no
+checksum over its ROM. Two GBA images had been matched by hand; the other
+thirteen rested on their logo and header alone.
+
+**Three GBA images had never been recorded anywhere.** Every count in these
+documents said twelve GBA cartridges. The answer is fifteen.
+
+| File | Bytes | CRC32 | No-Intro |
+|---|---|---|---|
+| `NHL_2002.gba` | 4,194,304 | `D1D9E515` | NHL 2002 (USA) |
+| `SIMCITY_2000.gba` | 4,194,304 | `733751B3` | SimCity 2000 (USA) |
+| `SUPER_MARIOA.gba` | 4,194,304 | `1E4C6D6A` | Super Mario Advance (USA, Europe) |
+
+`NHL_2002` and `SIMCITY_2000` were dumped 2026-08-27, the same day as the
+twelve above, and were left out of the table written that day. `SUPER_MARIOA`
+was dumped 2026-09-01.
+
+**Count from the artefacts, not from the narrative.** `scripts/match_dats.py`
+prints the count it matched, so a number in this file has a command behind
+it.
 
 ## Unverified assumptions in code written here
 
@@ -1034,14 +1071,14 @@ would make it wrong.
 | MBC3's clock registers are never selected over the RAM window | `tb_cart_save_gb` counts writes of `0x08`-`0x0C` to the bank register |
 | A save that could not be read is not filed as a blank one | `tb_cart_save_gb`, a model that ignores the enable |
 | Reset and slot power loss leave the bus in a safe state | `tb_gba_cart_async`, with one exception above |
-| A GB/GBC ROM is dumped correctly, end to end | Hardware, twenty cartridges from 32 KB to 1 MB across ROM-only, MBC1, MBC1+RAM+battery and MBC5. Every retained image passes its own logo, header sum, global sum and size byte; one matched to No-Intro by CRC32. Three cartridges have produced a corrupt image at some point and every one was clean on a re-dump |
+| A GB/GBC ROM is dumped correctly, end to end | Hardware, twenty-six cartridges from 32 KB to 4 MB across ROM-only, MBC1, MBC1+RAM+battery, MBC5 and MBC5+RUMBLE. Every retained image passes its own logo, header sum, global sum and size byte, and **all twenty-six match No-Intro by CRC32 and size**. Three cartridges have produced a corrupt image at some point and every one was clean on a re-dump |
 | The same cartridge dumps identically on repeat | Hardware, **twelve cartridges re-dumped and every one byte for byte identical**, across ROM-only, MBC1, MBC1+RAM and MBC5, 32 KB to 512 KB, plus two GBA images at 8 and 16 MB |
 | The core checks the image against the cartridge's own checksum, on the device | Hardware, `dump_checksum.sv`, row 13. **It has caught a real bad dump**: `TENNIS.gb`, reported as `image sum BB29 want E047`, both numbers confirmed independently on a PC |
 | The same cartridge dumps identically on repeat, on GBA | Hardware, Golden Sun at 8 MB and Minish Cap at 16 MB, each byte for byte against a copy preserved beforehand |
 | The core names files by system | Hardware, `.gb`, `.gbc` and `.gba` all seen on the card |
-| The core can name a file it creates | Hardware, `0x0192` accepted; thirty-four files named from cartridge titles, with `.gb`, `.gbc` and `.gba` all seen. It does not check whether the name is already taken — see the filename wart |
-| A GBA ROM's size is measured correctly from open bus | Hardware, three cartridges at 16, 8 and 8 MB, each sized by observation rather than by reaching the ceiling |
-| A GBA ROM is dumped correctly, end to end | Hardware, Golden Sun at 8 MB (`E1FB68E8`) and Minish Cap at 16 MB (`ABCEBBB1`), both matched to published records; Minish Cap's record discriminates region on CRC32 and header checksum independently and this dump agrees with both |
+| The core can name a file it creates | Hardware, `0x0192` accepted; forty-one files named from cartridge titles, with `.gb`, `.gbc` and `.gba` all seen. It does not check whether the name is already taken — see the filename wart |
+| A GBA ROM's size is measured correctly from open bus | Hardware, **fifteen cartridges at 4, 8 and 16 MB**, each sized by observation rather than by reaching the ceiling, and every one of the fifteen sizes agrees with the size No-Intro records for that CRC32 |
+| A GBA ROM is dumped correctly, end to end | Hardware, **fifteen images, every one matched to No-Intro by CRC32 and size.** This is the only external check a GBA dump can have, because no checksum in the cartridge covers the ROM. Minish Cap's record discriminates region on CRC32 and header checksum independently and this dump agrees with both |
 | The GBA Nintendo logo is read correctly | Hardware, all 156 bytes of `0x04`-`0x9F` identical across two different cartridges. Covered by no checksum, so nothing else here verifies it |
 | A mask ROM larger than its game is sized correctly | Hardware, Minish Cap's last two megabytes are pure `FF` padding and the probe read past both to the real 16 MB boundary |
 | The core's CRC32 agrees with `zlib` | Hardware, the screen and the file on the card both say `E1FB68E8` |

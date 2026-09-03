@@ -5,20 +5,21 @@ writes today. Read the status table below before building anything against
 this: the two are not the same, and the gaps are not small.
 
 **Status: specification, version 1. Most of it is NOT implemented.** Updated
-2026-08-27.
+2026-09-02.
 
-The core has written nineteen files to a real card across GB, GBC and GBA, so
-the old status line here - "nothing has written a file yet, the core has not
-reached Phase 4" - was false for two days. What follows is still the design
-target for the companion app; this section says how much of it the core
-actually does, so nobody builds a consumer against the parts that do not
-exist.
+The core writes ROMs on all three platforms and saves on two, flat into
+`/Assets/carttools/common/`. `docs/STATUS.md` carries the file by file record.
+What follows is still the design target for the companion app; the table says
+how much of it the core actually does, so nobody builds a consumer against the
+parts that do not exist.
 
 | This document specifies | The core does | |
 |---|---|---|
 | `Dumps/`, `Saves/`, `Metadata/`, `Restore/` subdirectories | writes **flat** into `/Assets/carttools/common/` | not implemented |
 | `<basename>.cart.json` sidecar | **nothing writes one** | not implemented |
-| `.gba` / `.gbc` / `.gb` by platform | `.gba` / `.gbc` / `.gb` since `47bcd54` | **in the code, not yet on hardware** - that build failed timing and was not flashed |
+| `.gba` / `.gbc` / `.gb` by platform | `.gba` / `.gbc` / `.gb` since `47bcd54` | **matches**, all three confirmed on a real card |
+| `Saves/<basename>.sav` | `<basename>.sav` written flat, beside the ROM | basename matches, directory does not |
+| `save.technology` names a GBA save type | the core detects the type but writes no sidecar | not implemented |
 | basename may contain spaces, `-`, mixed case | uppercased; everything outside `A-Z0-9` becomes `_` | differs |
 | GBA basename appends ` (game code)` | no game code appended | not implemented |
 | `_2`, `_3` on a collision | **silently overwrites** | not implemented, and it has already cost a dump |
@@ -34,9 +35,12 @@ What the core writes today, for a consumer that has to cope with it now:
 
 ```text
 /Assets/carttools/common/
-    TETRIS.gb              flat, no subdirectory
-    ZELDA_DIN__AZ7E.gbc    the trailing AZ7E is a bug, not a game code
+    TETRIS.gb                  flat, no subdirectory
+    ZELDA_DIN__AZ7E.gbc        the trailing AZ7E is a bug, not a game code
+    DQM2_R_____BQLJ.gbc
+    DQM2_R_____BQLJ.sav        a save sits beside its ROM, same basename
     GOLDEN_SUN_A.gba
+    GOLDEN_SUN_A.sav           GBA saves too: 32 KiB SRAM or 64 KiB Flash
 ```
 
 Two things could still change the specification below: what the APF file API

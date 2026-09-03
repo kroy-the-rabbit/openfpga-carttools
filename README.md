@@ -21,12 +21,12 @@ what was written here.
 | GB / GBC cartridge identification | **works** |
 | GBA cartridge identification | **works** |
 | GB / GBC ROM dumping | **works**, twenty-six cartridges, 32 KB to 4 MB |
-| GBA ROM dumping | **works**, twelve cartridges |
-| GBA ROM size detection | **works**, measured from open bus |
+| GBA ROM dumping | **works**, fifteen cartridges, 4 to 16 MB |
+| GBA ROM size detection | **works**, measured from open bus, and every size agrees with the published record |
 | CRC32 shown on the device | **works**, both platforms |
 | Image checked against the cartridge's own checksum | **works**, GB / GBC only |
 | Files named `.gb` / `.gbc` / `.gba` | **works** |
-| GB / GBC save backup | **works**, four cartridges, each loaded in an emulator with its state intact |
+| GB / GBC save backup | **works**, six cartridges backed up, five loaded in an emulator with their state intact. The sixth is refused by its own game, a dead battery |
 | Save RAM banking, to 128 KB | **works** at 8 KB one bank and 32 KB four banks; 64 KB and 128 KB built, untested |
 | GBA save backup | **works**, two cartridges: 64 KiB Flash and 32 KiB SRAM, each loaded in an emulator with its state intact. Needs no write to the cartridge. 128 KiB Flash and EEPROM refused, both need a write |
 | Save restore | not started |
@@ -107,10 +107,16 @@ the card, so a fault between the core and the SD write is invisible to
 everything above.
 
 Every dumped image passes the checks the cartridge itself carries: the Nintendo
-logo, the header checksum, and for Game Boy the global checksum. Three have been
-matched against published records, one agreeing on CRC32 and header checksum
-independently. [docs/STATUS.md](docs/STATUS.md) has the evidence for each claim
-and [docs/HANDOFF.md](docs/HANDOFF.md) has what is left.
+logo, the header checksum, and for Game Boy the global checksum.
+
+**And every one of the forty-one images matches a published record.** Checked
+2026-09-02 against the No-Intro DATs for Game Boy, Game Boy Color and Game Boy
+Advance, 7,572 entries: all forty-one dumps are present by CRC32, and the size
+agrees too. That is the strongest evidence this project has, because it is
+external to the core, external to this repo, and it covers the GBA images,
+which carry no checksum of their own. [docs/STATUS.md](docs/STATUS.md) has the
+evidence for each claim and [docs/HANDOFF.md](docs/HANDOFF.md) has what is
+left.
 
 ## What this core writes to a cartridge
 
@@ -180,6 +186,7 @@ for anything that identifies itself.
 ```sh
 scripts/verify_dump.py FILE...          logos, checksums, sizes, CRC32
 scripts/verify_dump.py --compare A B    two reads of the same cartridge
+scripts/match_dats.py                   match every dump to a published record
 tools/podman/play-dump.sh ROM [SAV]     play it in mGBA, in a container
 ```
 
@@ -195,7 +202,10 @@ what makes the logo an independent check rather than a circular one. The CRC32
 this core shows for a GBA image is computed from the bytes it just read, so it
 proves a second read matches the first, not that either matches the cartridge.
 Matching a published record, or dumping twice and comparing, is the evidence
-there is. **Save RAM
+there is, and `match_dats.py` is the first of those: it checks every dump
+against a No-Intro DAT by CRC32 and size. The DAT is external to this core and
+to this repo, so it cannot agree with a dump for the same reason the dump is
+wrong. **Save RAM
 carries no checksum of any kind**, so the only thing that can prove a `.sav` is
 loading it beside its ROM and seeing the game's own state come back. That is
 what `play-dump.sh` is for, and it is what moved save backup from built to

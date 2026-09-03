@@ -3,6 +3,30 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## Forty-one dumps, all externally matched, 2026-09-02
+
+**Every image this core has produced matches a published record.** Checked
+against the No-Intro DATs, 7,572 entries: forty-one dumps, forty-one present
+by CRC32, and the recorded size agrees in every case. `scripts/match_dats.py`
+runs it. `docs/STATUS.md` has the full entry under "Every image matches a
+published record".
+
+Twenty-six GB/GBC and **fifteen** GBA. Every count in these documents said
+twelve GBA. `NHL_2002.gba` and `SIMCITY_2000.gba` were dumped 2026-08-27 and
+left out of the table written the same day; `SUPER_MARIOA.gba` was dumped
+2026-09-01 during the GBA save work. All three pass `verify_dump.py` and all
+three are in the DAT.
+
+**Count from the artefacts, not from the narrative.** Every count here had
+been carried forward by hand from the previous session's prose.
+`scripts/match_dats.py` reads the disk instead.
+
+The same check upgraded thirteen GBA dumps from "passes its own header" to
+"matches a published record", and it had been available all along while this
+file said "No No-Intro DAT is configured". **Before writing that something
+cannot be verified, check whether the means to verify it is already to
+hand.**
+
 ## Both GBA save sizes are verified, 2026-09-01
 
 `ZEROMISSIONE`, 8 MB, **32 KiB SRAM**, loaded in mGBA with its file intact.
@@ -371,18 +395,25 @@ passed`.
 **What these cartridges actually are.** The stem is the header's 11-character
 title field, not a name: a cartridge whose retail title is longer spends those
 characters on whichever part of it fits, so the stem cannot be expanded back
-into a title by reading it. No No-Intro DAT is configured, so nothing here
-resolves a stem automatically. Filled in as each one is confirmed; blank means
-nobody has said, and guessing from the stem is what this table exists to stop.
+into a title by reading it.
 
-| Stem | Game code | Cartridge |
-|---|---|---|
-| `PNBALFRENZY` | `VM2E` | Disney's The Little Mermaid II: Pinball Frenzy |
-| `DQM2_R` | `BQLJ` | |
-| `YUGIOUDM4J` | `BY6J` | |
-| `HAMUPARA2` | `BHMJ` | |
-| `JINSEI_TOMOA` | `CJJ` | |
-| `TYCORAT1` | `BTIE` | |
+**Resolved 2026-09-02, and not by reading the stem.** Each image was matched
+by CRC32 against the No-Intro DATs, with `scripts/match_dats.py`. The identity
+comes from the hash of the whole image; the stem played no part in it, which
+is the only way this table is allowed to be filled.
+
+| Stem | Game code | Cartridge | Matched by |
+|---|---|---|---|
+| `PNBALFRENZY` | `VM2E` | Disney's The Little Mermaid II: Pinball Frenzy | `364F9CCD` |
+| `DQM2_R` | `BQLJ` | Dragon Quest Monsters 2: Maruta no Fushigina Kagi, Ruka no Tabidachi (Japan) | `2C428A87` |
+| `YUGIOUDM4J` | `BY6J` | Yu-Gi-Oh! Duel Monsters 4: Battle of Great Duelist, Jounouchi Deck (Japan) | `298BD054` |
+| `HAMUPARA2` | `BHMJ` | Hamster Paradise 2 (Japan) | `542C78B6` |
+| `JINSEI_TOMOA` | `CJJ` | Jinsei Game: Tomodachi Takusan Tsukurou yo! (Japan) | `C8D46E99` |
+| `TYCORAT1` | `BTIE` | Racin' Ratz (USA) | `D6881014` |
+
+`TYCORAT1` is the one that shows why the rule exists. Nothing in that stem
+says Racin' Ratz, and no amount of staring at it would have produced the
+answer that one hash lookup did.
 
 **What this closes.** `docs/STATUS.md`'s hardware coverage table stopped at
 1 MB for MBC5 and at one save size.
