@@ -1,63 +1,106 @@
-# For the orchestrator
+# For the orchestrator: cutting a release
 
-What `pocket-dev` needs from `pocket-cartridge`. Written 2026-09-01. The full
-record is `docs/HANDOFF.md`, then `docs/STATUS.md`.
+What `pocket-dev` needs to cut a release of `pocket-cartridge`. Written
+2026-09-02, at `8883535`. The full record is `docs/HANDOFF.md`, then
+`docs/STATUS.md`.
 
-## What changed
+## How a release is cut here
 
-**GBA save backup works, and it needs no write to a cartridge.** Verified on
-two cartridges, each loaded in mGBA with its own state intact, which is the
-only thing that can prove a save.
+**Tag `main`. CI does the rest.** `.github/workflows/release.yml` fires on any
+`v*` tag and refuses a tag that is not an ancestor of `main`.
+
+1. Runs the simulation suite, 29 testbenches.
+2. Builds the bitstream in Quartus. `build.sh` exits 3 on negative slack, so a
+   release cannot be cut from a design that misses timing.
+3. Stamps `core.json` with the tag name, so the Pocket menu shows the version.
+4. Publishes the zip and `report.txt` to a GitHub release.
+
+Nothing is built or uploaded by hand. The last release, `v0.9999.ed18b9b`,
+went out this way with `kroy.CartTools_0.9999.ed18b9b.zip` and `report.txt`.
+
+## Decide this first: there is no new bitstream
+
+**Nothing in the RTL has changed since the last release.** `ed18b9b..HEAD` is
+five files: four documents and `scripts/match_dats.py`. The last fit was at
+`4a54db4` and every commit since is documentation.
+
+So a release cut today ships a bitstream identical to `v0.9999.ed18b9b`. That
+is a real thing to release, because what changed is that several claims in it
+were wrong, but it should be cut knowing that is what it is. The alternative
+is to leave the tag where it is and let the documents ride to the next
+release that carries RTL.
+
+## Fix before tagging: the release body is stale
+
+`release.yml` hardcodes the text that appears on the public release page, and
+every count in it is now wrong:
+
+| It says | The truth |
+|---|---|
+| GB/GBC verified on twenty cartridges | twenty-six |
+| GBA dumping on twelve | fifteen |
+| Three images match published records | all forty-one, by CRC32 and size |
+| Save backup on one cartridge's 32 KB save | six GB/GBC saves backed up, five verified in an emulator |
+| no mention of GBA saves at all | GBA save backup works, Flash 64 KiB and SRAM 32 KiB |
+
+The comment above the classify step says the same, including "no save
+backup". That text is the first thing anyone downloading this reads, so it
+matters more than any file in `docs/`.
+
+## Two decisions that are not mine
+
+1. **The version scheme does not match the tags.** `README.md` says the set is
+   at `0.9999` and the next release is `0.99991`, then `0.99992`. The two tags
+   cut so far are `v0.9999` and `v0.9999.ed18b9b`, which appends a commit
+   rather than a digit. The version is shared across all five projects, so
+   this is the orchestrator's call, not this repo's. Whichever way it goes,
+   `README.md` and the tags have to say the same thing.
+
+2. **Every `v0.9999.*` tag publishes as a stable release.** The classifier
+   marks a tag as a prerelease only on `-alpha`, `-beta`, `-rc` or `-testing`.
+   `v0.9999.ed18b9b` therefore published as stable while its own body text
+   begins "**Alpha.**". Either the tag carries a suffix or the body stops
+   saying alpha.
+
+## What the core can honestly claim
 
 | Path | State |
 |---|---|
-| Save type scan, by reading the ROM for the SDK signature | verified, three cartridges refused correctly |
-| Flash 64 KiB | verified, Golden Sun |
-| SRAM 32 KiB | verified, Zero Mission |
-| 128 KiB Flash, EEPROM | refused, both need a write |
+| GB/GBC identification and dumping | verified, twenty-six cartridges, 32 KB to 4 MB, five mapper families |
+| GBA identification, sizing and dumping | verified, fifteen cartridges, 4 to 16 MB |
+| Every dump matched to a published record | forty-one of forty-one, CRC32 and size, `scripts/match_dats.py` |
+| GB/GBC save backup | six backed up, five loaded in an emulator with their state intact |
+| GBA save backup, Flash 64 KiB and SRAM 32 KiB | verified, and needs no write to a cartridge |
+| GBA 128 KiB Flash and EEPROM | refused, both need a write |
+| Save restore, either platform | not started |
+| MBC2, MBC3, MBC1 above 512 KB | simulation only, no cartridge to test |
 
-**GB/GBC dumping widened.** Twenty-six cartridges now, 32 KB to 4 MB. MBC5
-above 1 MB is verified for the first time, so the ninth bank bit at `0x3000`
-runs on hardware. Cartridge types `19` and `1E` added, and the 8 KB
-single-bank save size read on two cartridges.
+**What it must not claim.** A save is read once, the double read is not built,
+and nothing reads a file back off the card. A `.sav` from this core is not yet
+a backup anybody should rely on, and the release text has always said so.
+Keep that sentence.
 
-## What the orchestrator has to route elsewhere
+## Still routed elsewhere, unchanged
 
-1. **The core and the picker derive a dump's basename differently**, and a real
-   card proves it. `dump_path_gen.sv` keeps `A-Z0-9`, uppercases `a-z` and
-   turns everything else into `_`. `cheatgui/dumps.py`'s `core_stem` keeps `-`
-   and does not uppercase, following `docs/FILE-FORMATS.md` rather than the
-   core. `DQM2-R` is the first title with a character outside `A-Z0-9`: the
-   card says `DQM2_R_____BQLJ.gbc`, the picker derives `DQM2-R_____BQLJ`, and
-   its `Dump.renamed` calls the file hand-renamed. Decide which side moves,
-   then fix it in the picker's session. Those cartridges are also the real
-   fixtures its `tests/test_dumps.py` was meant to be pinned against;
-   `cart-dumps/`, `roms/` and `saves/` there are still empty.
+1. **The core and the picker derive a dump's basename differently.**
+   `dump_path_gen.sv` keeps `A-Z0-9`, uppercases `a-z` and turns everything
+   else into `_`. `cheatgui/dumps.py`'s `core_stem` keeps `-` and does not
+   uppercase, following `docs/FILE-FORMATS.md` rather than the core. The card
+   says `DQM2_R_____BQLJ.gbc`, the picker derives `DQM2-R_____BQLJ`, and its
+   `Dump.renamed` calls the file hand-renamed. Decide which side moves, then
+   fix it in the picker's session.
 
-2. **`pocket-cartridge` now has GBA saves the picker will see.** `.sav` files
-   beside `.gba` files, 32 KiB and 64 KiB. Nothing in the picker knows about
-   GBA saves yet.
+2. **The picker knows nothing about GBA `.sav` files**, which now exist beside
+   `.gba` files at 32 KiB and 64 KiB.
 
 ## Open here, not for the orchestrator
 
 - `scripts/verify_dump.py` checks a `.sav` against `0x0149` of the ROM beside
-  it, a Game Boy header field, so it fails every GBA save. Same class of
-  defect as the one just fixed in the core.
+  it, a Game Boy header field, so it fails every GBA save.
 - `scripts/seed_sweep.sh` cannot run: it calls `docker` and writes a
   `build_output/` layout this repo no longer has.
-- Two cartridges with dead save batteries, `HAMUPARA2__BHMJ` and
-  `PNBALFRENZYVM2E`. Not core faults.
 - The `ST_WRITE` abort defect in `gba_cart_bus` gates 128 KiB Flash, EEPROM
   and every restore path.
-
-## What this cost, and the rule that came out of it
-
-Two builds went to the card broken and one lied about a save that was correct.
-All three were the same mistake: `gba_save_scan` was written from
-`cart_dump_gba`'s shape, which is the tidiest master on that bus, instead of
-`gba_size_probe`, which does the same job at the same point in the sequence
-and carries a `cart_mode` input, a mode wait with a timeout and an abandon
-guard, each one commented with the hang it already suffered.
-
-**A new bus master gets read against the most bruised master on the same bus,
-not the tidiest one.**
+- `HAMUPARA2__BHMJ` has still never been dumped twice.
+- A stray workflow worktree sits under `.claude/worktrees/`. Nothing has been
+  deleted; somebody should say whether it goes.
