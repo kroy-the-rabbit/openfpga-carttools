@@ -75,6 +75,12 @@ matters more than any file in `docs/`.
 | Save restore, either platform | not started |
 | MBC2, MBC3, MBC1 above 512 KB | simulation only, no cartridge to test |
 
+**A save dump is CRC32'd on the device**, by the same accumulator as a ROM and
+on the same screen row. That gives a save an identity to compare against a
+second dump or against the file on the card. It is not a verdict: nothing in
+the cartridge and nothing published holds the expected hash of a save, which
+is why row 13 carries the presence probe instead.
+
 **What it must not claim.** A save is read once, the double read is not built,
 and nothing reads a file back off the card. A `.sav` from this core is not yet
 a backup anybody should rely on, and the release text has always said so.
