@@ -7,43 +7,23 @@
 // tells them apart by watching the game's DMA transfer length, which a dumper
 // does not have. So ask the chip.
 //
-// A 512 byte chip takes a 6 bit address and an 8 KiB chip 14, and the two
-// widths fail in opposite ways.
+// A 512 byte chip takes a 6 bit address and an 8 KiB chip takes 14. Requests
+// at the wrong width do not reliably fail. Minish Cap proved that a 6 bit
+// request to an 8 KiB chip answers with the wrong block. Super Mario Advance
+// proved the other direction: a 14 bit request to its 512 byte chip answers
+// too, using the first six address bits. Reading wide block numbers 0 through
+// 63 therefore returns the same physical block 64 times.
 //
-//   A 6 bit request to an 8 KiB chip UNDER-RUNS. The chip is still counting
-//   address bits when the request ends, and on a real cartridge it answers
-//   anyway, with a block that is not the one asked for. That is not a refusal.
-//   It is a wrong answer wearing the shape of a right one.
+// Detect that alias instead of treating any wide answer as proof of 8 KiB.
+// Read 64 consecutive blocks with 14 address bits. If any block differs from
+// block zero, the chip is 8 KiB. If all 64 match and the value is not open
+// bus, it is 512 bytes. This is the same discriminator used by the open source
+// cartridge reader implementation checked after the hardware result.
 //
-//   A 14 bit request to a 512 byte chip OVER-RUNS. The chip took its 6 bits,
-//   read the next as the terminator and began its data phase, and the seven
-//   address bits still coming abort it. Nothing is left driving AD0, so the
-//   read that follows returns open bus, which is all ones.
-//
-// So the WIDE request is the one that discriminates, and it goes first. A chip
-// that answers 14 bits is 8 KiB. Only when nothing answers at 14 is 6 worth
-// trying. The other way round, which is what this module did first, reports
-// 512 for every 8 KiB cartridge: Minish Cap has an 8 KiB chip and was dumped
-// as 512 bytes of the wrong blocks before that was understood.
-//
-// WHAT IS VERIFIED AND WHAT IS NOT. The 8 KiB branch is settled on a
-// cartridge. The 512 branch rests on the over-run above and has only ever run
-// in simulation, because no 512 byte EEPROM cartridge has been through here.
-// It is the branch to distrust first if a small save ever comes out wrong.
-//
-// Several blocks are tried at each width, because the whole discriminator is
-// "did anything come back" and a blank block reads all ones exactly like a
-// chip that said nothing.
-//
-// THE 14 BIT ADDRESSES ALL HAVE addr[7:0] == 0, and that is not decoration. A
-// 512 byte chip reads the over-run bits as the start of a fresh command. An
-// over-run beginning 1 0 is a WRITE command aimed at somebody's save. Zeros
-// are hunted for a start bit and discarded, so zeros are the only safe thing
-// to over-run with. Any address added to this list must keep addr[7:0] == 0.
-//
-// A chip that answers at neither width is reported as not found rather than
-// guessed at, which is also what a completely blank save looks like. Refusing
-// to dump beats writing a file of a size nobody established.
+// The test is necessarily data-dependent. A real 8 KiB save whose first 512
+// bytes contain the same 8-byte value would look narrow. Completely blank
+// data is worse: it is indistinguishable from no chip on this bus, so an
+// all-ones result is still refused rather than assigned a size.
 module gba_eeprom_probe (
     input  wire        clk,
     input  wire        reset,
@@ -94,24 +74,14 @@ gba_eeprom_io io (
     .bus_done (bus_done), .bus_busy (bus_busy)
 );
 
-// All ones is open bus, which is what a chip that did not answer leaves on
-// AD0 for all 64 bits.
-wire answered = io_data !== 64'hFFFF_FFFF_FFFF_FFFF;
+// Sixty-four wide requests cover the first 512 bytes. A narrow chip uses the
+// six leading address bits, which are zero throughout this range, so every
+// request aliases block zero.
+reg [5:0] att;
+reg [63:0] first_data;
 
-// The attempts, in order: four at 14 bits, then two at 6. Wide first, because
-// the wide request is the one a chip of the other size cannot answer at all.
-// Every 14 bit address has its low eight bits clear; see the note above.
-localparam [2:0] N_ATTEMPTS = 3'd6;
-
-reg [2:0] att;
-
-wire [3:0]  att_bits  = (att < 3'd4) ? 4'd14 : 4'd6;
-wire [13:0] att_block = (att == 3'd0) ? 14'h0000 :
-                        (att == 3'd1) ? 14'h0100 :
-                        (att == 3'd2) ? 14'h0200 :
-                        (att == 3'd3) ? 14'h0300 :
-                        (att == 3'd4) ? 14'h0000 :
-                                        14'h0001;
+wire [3:0]  att_bits  = 4'd14;
+wire [13:0] att_block = {8'd0, att};
 
 localparam [2:0] ST_IDLE  = 3'd0;
 localparam [2:0] ST_FLUSH = 3'd1;
@@ -136,7 +106,8 @@ always @(posedge clk) begin
         io_flush   <= 1'b0;
         io_bits    <= 4'd14;
         io_block   <= 14'd0;
-        att        <= 3'd0;
+        att        <= 6'd0;
+        first_data <= 64'd0;
     end else if (busy && abort) begin
         // Stops without clearing a result, because abort only fires while
         // busy and busy means there is no result yet. Resetting on a dump is
@@ -162,7 +133,8 @@ always @(posedge clk) begin
                     busy       <= 1'b1;
                     found      <= 1'b0;
                     size_bytes <= 32'd0;
-                    att        <= 3'd0;
+                    att        <= 6'd0;
+                    first_data <= 64'd0;
                     state      <= ST_FLUSH;
                 end
             end
@@ -191,18 +163,28 @@ always @(posedge clk) begin
 
             ST_CHECK: begin
                 if (!io_busy) begin
-                    if (answered) begin
-                        size_bytes <= (att_bits == 4'd14) ? 32'd8192 : 32'd512;
-                        addr_bits  <= att_bits;
+                    if (att == 6'd0) begin
+                        first_data <= io_data;
+                        att        <= 6'd1;
+                        state      <= ST_REQ;
+                    end else if (io_data != first_data) begin
+                        size_bytes <= 32'd8192;
+                        addr_bits  <= 4'd14;
                         found      <= 1'b1;
                         state      <= ST_DONE;
-                    end else if (att + 3'd1 >= N_ATTEMPTS) begin
-                        size_bytes <= 32'd0;
-                        found      <= 1'b0;
+                    end else if (att == 6'd63) begin
+                        if (first_data == 64'hFFFF_FFFF_FFFF_FFFF) begin
+                            size_bytes <= 32'd0;
+                            found      <= 1'b0;
+                        end else begin
+                            size_bytes <= 32'd512;
+                            addr_bits  <= 4'd6;
+                            found      <= 1'b1;
+                        end
                         state      <= ST_DONE;
                     end else begin
-                        att   <= att + 3'd1;
-                        state <= ST_FLUSH;
+                        att   <= att + 6'd1;
+                        state <= ST_REQ;
                     end
                 end
             end

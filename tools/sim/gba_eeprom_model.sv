@@ -45,9 +45,9 @@ begin
 end
 endfunction
 
-reg [6:0]  in_idx  = 7'd0;
+reg [5:0]  in_idx  = 6'd0;
 reg [1:0]  cmd     = 2'b00;
-reg [13:0] addr_sr = 14'd0;
+reg [14:0] payload_sr = 15'd0;
 reg        reading = 1'b0;
 reg [6:0]  out_idx = 7'd0;
 reg [63:0] out_sr  = 64'd0;
@@ -75,7 +75,7 @@ always @(posedge bank0[6]) begin
         if (reading) begin
             reading = 1'b0;
             out_idx = 7'd0;
-            in_idx  = 7'd0;
+            in_idx  = 6'd0;
         end
 
         // Hunting for a start bit. A zero here is not consumed: the chip has
@@ -84,34 +84,27 @@ always @(posedge bank0[6]) begin
         // where it was and drags a chip mid-command back to the same place,
         // rather than leaving the result depending on how many zeros were
         // sent.
-        if (in_idx == 7'd0) begin
+        if (in_idx == 6'd0) begin
             if (bank3[0] === 1'b1) begin
                 cmd[1] = 1'b1;
-                in_idx = 7'd1;
+                in_idx = 6'd1;
             end
-        end else if (in_idx == 7'd1) begin
+        end else if (in_idx == 6'd1) begin
             cmd[0] = bank3[0];
             if ({cmd[1], bank3[0]} == 2'b10)
                 $fatal(1, "EEPROM WRITE COMMAND emitted (1 0). This module must never write.");
-            // 0 0 and 0 1 are not commands. The chip goes back to looking for
-            // a start bit, which is what makes a stream of zeros harmless to a
-            // chip that is already at rest.
-            in_idx = 7'd2;
-        end else if (in_idx < 7'd2 + {3'd0, chip_addr_bits}) begin
-            addr_sr = {addr_sr[12:0], bank3[0]};
-            in_idx  = in_idx + 7'd1;
+            payload_sr = 15'd0;
+            in_idx = 6'd2;
         end else begin
-            if (bank3[0] !== 1'b0)
-                $fatal(1, "EEPROM request terminator was %b, expected 0", bank3[0]);
-            // Only the low chip_addr_bits are the chip's address. A narrow
-            // chip has no more address pins than that, so anything left in
-            // the shift register from an earlier command is not part of it.
-            req_block = addr_sr & ((14'd1 << chip_addr_bits) - 14'd1);
-            req_count = req_count + 32'd1;
-            out_sr    = block_content(req_block);
-            out_idx   = 7'd0;
-            reading   = 1'b1;
-            in_idx    = 7'd0;
+            // Keep the complete host payload. The narrow cartridge result is
+            // equivalent to decoding the first six address bits from a wide
+            // request, not to stopping the transfer after six bits. Modelling
+            // that observed input/output behaviour is enough here; the chip's
+            // internal state machine is not known.
+            if (in_idx < 6'd17) begin
+                payload_sr = {payload_sr[13:0], bank3[0]};
+                in_idx     = in_idx + 6'd1;
+            end
         end
     end
 end
@@ -119,28 +112,37 @@ end
 // One returned bit per RD# pulse. Advanced when RD# rises, so the value is
 // stable for the whole window the host samples in.
 //
-// AN UNDER-RUN ANSWERS. A host that stops sending address bits part way
-// through and starts reading does not get silence. The first dump off Minish
-// Cap, an 8 KiB chip given a 6 bit request, came back with real save data,
-// just not the block that was asked for. This model used to stay silent
-// there, the size probe rested on that silence, and the two agreed with each
-// other all the way onto a cartridge.
+// Both wrong widths answer. A short request to a wide chip returns a wrong
+// block, as Minish Cap showed. A wide request to a narrow chip uses the first
+// six address bits, as Super Mario Advance showed. The latter makes wide
+// blocks 0 through 63 all alias narrow block zero.
 //
-// No mechanism is known for the particular block the cartridge returned, and
-// nothing may depend on the +2 below. What is being modelled is only the part
-// that hardware settled: an under-run answers, and answers with the wrong
-// block. A wide request to a narrow chip is the opposite case and really is
-// silent, because the over-run bits abort the read; that is the asymmetry the
-// probe now uses.
+// No mechanism is known for the particular wide-chip block returned by an
+// under-run, and nothing may depend on the +2 below. It only preserves the
+// observed fact that the request answers with a block other than the one
+// requested.
 always @(posedge bank0[5]) begin
     #1;
-    if (selected && !reading && in_idx >= 7'd2) begin
-        req_block = ((addr_sr + 14'd2) & ((14'd1 << chip_addr_bits) - 14'd1));
+    if (selected && !reading && (in_idx == 6'd9 || in_idx == 6'd17)) begin
+        if (payload_sr[0] !== 1'b0)
+            $fatal(1, "EEPROM request terminator was %b, expected 0", payload_sr[0]);
+
+        if (chip_addr_bits == 4'd6)
+            req_block = (in_idx == 6'd17) ? {8'd0, payload_sr[14:9]}
+                                          : {8'd0, payload_sr[6:1]};
+        else
+            req_block = (in_idx == 6'd17) ? payload_sr[14:1]
+                                          : ({8'd0, payload_sr[6:1]} + 14'd2);
+
         req_count = req_count + 32'd1;
         out_sr    = block_content(req_block);
         out_idx   = 7'd0;
         reading   = 1'b1;
-        in_idx    = 7'd0;
+        in_idx    = 6'd0;
+    end else if (selected && !reading && in_idx != 6'd0) begin
+        // An incomplete or overlong command is abandoned when the host turns
+        // around. A later zero flush then begins from the idle state.
+        in_idx = 6'd0;
     end
     if (reading && selected) begin
         bit_reads = bit_reads + 32'd1;

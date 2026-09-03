@@ -3,6 +3,36 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## EEPROM capacity probe corrected again, awaiting hardware, 2026-09-03
+
+Super Mario Advance is the first 512-byte EEPROM cartridge through this path,
+and it disproved the size probe's remaining simulation-only assumption. A
+14-bit request to the narrow chip is not silent. It answers using the first six
+address bits. The resulting 8 KiB dump contained four distinct 8-byte blocks,
+each repeated 256 times. Cleaning the cartridge pins and dumping again produced
+the exact same bytes.
+
+The probe no longer treats a wide response as proof of an 8 KiB chip. It reads
+wide blocks 0 through 63 and compares them with block zero. A 512-byte chip
+aliases all 64 requests to the same physical block. An 8 KiB chip changes as
+the block number changes. The saved hardware captures separate cleanly: Minish
+Cap, NHL 2002, and SimCity 2000 differ at block 1, Zelda Nayru differs at block
+2, and only Super Mario Advance repeats block zero through block 63.
+
+`gba_eeprom_model` now models both hardware observations: short-to-wide returns
+a wrong block, and wide-to-narrow aliases. The probe test checks that a wide
+chip stops after the first difference and a narrow chip consumes all 64 alias
+checks. All 33 checks pass. For the mutation check, forcing every request to
+block zero made the test call the wide chip 512 bytes; restoring the block walk
+made it pass again.
+
+The repetition test is data-dependent. A real 8 KiB save whose first 512 bytes
+are one repeated 8-byte value would look narrow, and all-FF remains
+indistinguishable from open bus. The latter is refused. The candidate needs a
+Quartus fit, a 512-byte Super Mario Advance dump that loads with the live state,
+and a Minish Cap regression dump before the general EEPROM path can be called
+verified.
+
 ## Both EEPROM defects fixed, on the card, not yet re-dumped, 2026-09-03
 
 **Minish Cap gave up save data**, and then gave up both defects in the path

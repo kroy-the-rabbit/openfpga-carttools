@@ -18,11 +18,10 @@
 //
 //   The block is returned most significant bit first.
 //
-//   The two widths fail in OPPOSITE directions, which is the whole of the size
-//   probe. A short request to a wide chip answers, with the wrong block. A
-//   wide request to a narrow chip answers nothing at all. Both are asserted
-//   here, because the probe used to rest on the first one being silent and
-//   that cost a cartridge dump.
+//   Both wrong widths answer. A short request to a wide chip returns the wrong
+//   block. A wide request to a narrow chip aliases by using the first six
+//   address bits. Both are asserted here because assuming silence in either
+//   direction has already cost a cartridge dump.
 
 `default_nettype none
 `timescale 1ns/1ps
@@ -243,23 +242,25 @@ initial begin
         errors = errors + 1;
     end
 
-    // --- a wide request to a narrow chip is silent, and THAT is the probe --
+    // --- a wide request to a narrow chip aliases ---------------------------
     //
-    // The other direction does discriminate. A 512 byte chip takes six address
-    // bits, reads the seventh as its terminator and starts its data phase, and
-    // the address bits still coming abort it. Nothing is left driving AD0, so
-    // the read returns open bus. gba_eeprom_probe tries 14 bits first for
-    // exactly this reason.
-    //
-    // The address has its low eight bits clear so the over-run is all zeros. An
-    // over-run beginning 1 0 is a write command aimed at somebody's save; the
-    // model kills the run if this module ever emits one.
+    // Super Mario Advance disproved the old silence assumption. Its narrow
+    // chip answers a 14 bit request using the first six address bits. Wide
+    // blocks 0 through 255 therefore all return narrow block zero, and wide
+    // block 0x100 returns narrow block one.
     chip_addr_bits = 4'd6;
     read_block(14'd21, 4'd6);
     expect_eq64(data, want_block(14'd21), "a narrow chip answers its own width");
+    read_block(14'h0000, 4'd14);
+    expect_eq64(data, want_block(14'd0),
+                "wide block 0 aliases narrow block 0");
+    read_block(14'h003F, 4'd14);
+    expect_eq64(data, want_block(14'd0),
+                "wide block 63 still aliases narrow block 0");
     read_block(14'h0100, 4'd14);
-    expect_eq64(data, 64'hFFFF_FFFF_FFFF_FFFF,
-                "a narrow chip does not answer a 14 bit request");
+    expect_eq64(data, want_block(14'd1),
+                "wide block 0x100 aliases narrow block 1");
+    expect_eq(req_count, 9, "requests after narrow alias checks");
     chip_addr_bits = 4'd14;
 
     // --- cart_mode dropping mid-transfer must not hang --------------------

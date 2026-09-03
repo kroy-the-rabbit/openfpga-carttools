@@ -5,18 +5,11 @@
 // Nothing in a cartridge says which. The SDK string is EEPROM_V for both and
 // the header has no save field, so the only source of truth is the chip.
 //
-// ONLY ONE DIRECTION DISCRIMINATES. A narrow request to a wide chip answers,
-// with the wrong block; a wide request to a narrow chip answers nothing. So
-// the wide attempt goes first, and the first case below is what holds it
-// there: with the model returning data for an under-run, as a cartridge does,
-// a probe that tried 6 bits first would call an 8 KiB chip 512 bytes. That is
-// the bug Minish Cap was dumped with, and it is now a failing assertion rather
-// than a paragraph.
-//
-// The third case is the flush. Each attempt leaves a chip of the other size
-// part way through a command, and if the flush between them did not work the
-// next attempt would be talking to a chip still counting bits from the last
-// one. Wrong answer, not visible failure, so it is tested.
+// BOTH WRONG WIDTHS ANSWER. Minish Cap proved that a narrow request to a wide
+// chip returns the wrong block. Super Mario Advance proved that a wide request
+// to a narrow chip aliases: wide blocks 0 through 63 all return narrow block
+// zero. The probe must detect that repetition instead of treating the first
+// wide answer as proof of an 8 KiB chip.
 
 `default_nettype none
 `timescale 1ns/1ps
@@ -150,29 +143,25 @@ initial begin
     repeat (4) @(posedge clk);
 
     // --- an 8 KiB chip -----------------------------------------------------
-    // Answers the first attempt, which is a 14 bit one. Try 6 bits first and
-    // this chip answers that too, with the wrong block, and the probe reports
-    // 512. These three lines are the regression.
+    // Blocks zero and one differ, so the probe can settle this after the
+    // second wide request.
     chip_addr_bits = 4'd14;
     run_probe;
     expect_eq(found, 1, "found an 8 KiB chip");
     expect_eq(size_bytes, 8192, "8 KiB size");
     expect_eq(addr_bits, 14, "8 KiB address width");
+    expect_eq(req_count, 2, "8 KiB probe stops at first different block");
 
     // --- a 512 byte chip ---------------------------------------------------
-    // Says nothing to any of the four 14 bit attempts, because each one
-    // over-runs it and the over-run aborts the read it had started. The answer
-    // comes from the 6 bit attempt after that, with a flush in between.
-    //
-    // Simulation only. No 512 byte EEPROM cartridge has been through here, so
-    // this branch rests on the model's over-run behaviour rather than on a
-    // chip, and it is the first thing to distrust if a small save comes out
-    // wrong.
+    // Every wide block from zero through 63 aliases narrow block zero. This
+    // is the hardware behaviour captured from Super Mario Advance and is the
+    // regression for its 256-fold repeated-block dump.
     chip_addr_bits = 4'd6;
     run_probe;
     expect_eq(found, 1, "found a 512 byte chip");
     expect_eq(size_bytes, 512, "512 byte size");
     expect_eq(addr_bits, 6, "512 byte address width");
+    expect_eq(req_count, 66, "512 byte probe checks all 64 aliases");
 
     // --- no chip at all ----------------------------------------------------
     // Open bus is all ones, which is also what a blank save reads. Reporting
@@ -182,6 +171,7 @@ initial begin
     run_probe;
     expect_eq(found, 0, "no chip is not found");
     expect_eq(size_bytes, 0, "no chip has no size");
+    expect_eq(req_count, 66, "an absent chip answered no requests");
     chip_present = 1'b1;
 
     // --- it recovers, and the order does not poison the next run -----------
@@ -189,6 +179,7 @@ initial begin
     run_probe;
     expect_eq(found, 1, "found again after a run with no chip");
     expect_eq(size_bytes, 8192, "8 KiB after a run with no chip");
+    expect_eq(req_count, 68, "recovered probe stops on block one");
 
     // --- cart_mode dropping mid-probe must not hang ------------------------
     @(negedge clk);
