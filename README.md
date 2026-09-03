@@ -144,9 +144,11 @@ The five projects in this set share one version number, and this core is part of
 that set. It never carried an inherited number, so nothing here is being
 renumbered; the cores it sits beside are.
 
-The set is at **0.9999**. The next release is 0.99991, then 0.99992, and so on:
-each one adds to the tail rather than climbing toward a round number. Nothing
-here reaches 1.0, because 1.0 is a claim to be finished and none of this is.
+The set is at **0.9999**, and it stays there. A release adds the short SHA of
+the commit it was cut from, so a tag reads `v0.9999.ed18b9b`: the tail grows
+rather than climbing toward a round number, and the version names the exact
+commit the bitstream came from. Nothing here reaches 1.0, because 1.0 is a
+claim to be finished and none of this is.
 
 What 1.0 would mean for this core is listed below, and it is a long way off.
 

@@ -38,11 +38,12 @@ jobs:
           echo "$GITHUB_REF_NAME is on main."
 
       # Alpha, beta and rc tags publish as prereleases. This project is at
-      # alpha: both dump paths are verified on hardware and both reproduce, but
-      # several documented gaps remain in docs/HANDOFF.md - the CGB filename
-      # bug, no save backup, whole mapper families with no cartridge to test
-      # against - and nothing has a second opinion on the SD write path. A
-      # release that did not say so would be overclaiming.
+      # alpha: both dump paths are verified on hardware, both reproduce, and
+      # save backup is verified on both platforms, but several documented gaps
+      # remain in docs/HANDOFF.md - the CGB filename bug, no restore on either
+      # platform, a save read once rather than twice, whole mapper families
+      # with no cartridge to test against - and nothing has a second opinion on
+      # the SD write path. A release that did not say so would be overclaiming.
       - name: Classify the tag
         id: kind
         run: |
@@ -84,15 +85,21 @@ jobs:
           body: |
             Analogue Pocket cartridge utility. Unzip to the root of your SD card.
 
-            **Alpha.** GB/GBC dumping is verified on twenty cartridges and
-            GBA dumping on twelve, at 4, 8 and 16 MB. Three images match
-            published records. Twelve GB/GBC cartridges and both of the first
-            two GBA cartridges dump byte for byte identically on a repeat.
-            GB/GBC save backup works and is verified the only way a save
-            can be: one cartridge's 32 KB save dumped, loaded in an emulator
-            beside its own ROM, and the game's state came back intact. It is
-            still a single read - the double read is not built - so do not
-            treat a `.sav` as a backup you would rely on.
+            **Alpha.** GB/GBC dumping is verified on twenty-six cartridges,
+            32 KB to 4 MB across five mapper families, and GBA dumping on
+            fifteen, at 4, 8 and 16 MB. All forty-one images match a published
+            No-Intro record, by CRC32 and by size. Twelve GB/GBC cartridges
+            and two GBA images dump byte for byte identically on a repeat.
+
+            Save backup works on both platforms, and is verified the only way
+            a save can be: loaded in an emulator beside its own ROM, with the
+            game's state intact. Six GB/GBC saves are backed up and five have
+            loaded that way; on GBA, 64 KiB Flash and 32 KiB SRAM both have.
+            Neither GBA save type needs a write to the cartridge. 128 KiB
+            Flash and EEPROM are refused, because both would. A save is still
+            read once - the double read is not built - so do not treat a
+            `.sav` as a backup you would rely on, and restore is not started
+            on either platform.
 
             Read `docs/STATUS.md` for what is proven and how, and
             `docs/HANDOFF.md` for what is not.

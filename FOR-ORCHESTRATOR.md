@@ -126,3 +126,14 @@ Keep that sentence.
 4. Decide stable or prerelease, and make the tag match the body.
 5. Confirm the Build workflow is green on the commit being tagged.
 6. Tag `main`. CI does the rest.
+
+## Decided, 2026-09-02
+
+1. **Version scheme: `v0.9999.<short sha>`.** The set stays at 0.9999 and a
+   release appends the commit it was cut from. `README.md` now says this.
+2. **Stable, not prerelease.** The classifier is unchanged, so a `v0.9999.*`
+   tag publishes as a stable release while the body still opens "**Alpha.**".
+   That is the state of the project, said in the text rather than in a badge,
+   and it is how `v0.9999.ed18b9b` already went out.
+3. **The release body is fixed**, to twenty-six GB/GBC, fifteen GBA, forty-one
+   matched against No-Intro, and save backup verified on both platforms.
