@@ -23,7 +23,7 @@ what was written here.
 | GB / GBC ROM dumping | **works**, twenty-six cartridges, 32 KB to 4 MB |
 | GBA ROM dumping | **works**, fifteen cartridges, 4 to 16 MB |
 | GBA ROM size detection | **works**, measured from open bus, and every size agrees with the published record |
-| CRC32 shown on the device | **works**, both platforms |
+| CRC32 shown on the device | **works**, both platforms, over a save as well as a ROM |
 | Image checked against the cartridge's own checksum | **works**, GB / GBC only |
 | Files named `.gb` / `.gbc` / `.gba` | **works** |
 | GB / GBC save backup | **works**, six cartridges backed up, five loaded in an emulator with their state intact. The sixth is refused by its own game, a dead battery |

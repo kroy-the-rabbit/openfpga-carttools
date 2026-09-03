@@ -50,6 +50,7 @@ wire        used_order;
 wire [7:0]  tries;
 wire        no_open;
 wire        sum_checked, sum_ok;
+wire        crc_checked;
 wire [15:0] sum_computed, sum_stored;
 wire [15:0] dbg_reads, dbg_struct_reads;
 wire [31:0] dbg_last_addr;
@@ -128,7 +129,7 @@ dump_engine #(
     .title (title), .cart_kind (cart_kind),
     .cart_type (cart_type), .rom_size_code (rom_size_code),
     .platform_gba (plat_gba), .gba_size_bytes (gba_size),
-    .crc32 (crc32),
+    .crc32 (crc32), .crc_checked (crc_checked),
     .busy (busy), .done (done), .failed (failed), .err (err),
     .fail_chunk (fail_chunk), .chunks_done (chunks_done),
     .chunks_total (chunks_total), .total_bytes (total_bytes),
@@ -206,6 +207,31 @@ integer   n_ram_writes = 0;
 
 function [7:0] save_content(input [12:0] off);
     save_content = off[7:0] ^ {3'd0, off[12:8]} ^ 8'hC3;
+endfunction
+
+// CRC32 over the first n bytes of the modelled save, computed here rather
+// than taken from the DUT. Reflected, polynomial 0xEDB88320, the same
+// definition zlib uses, so the two numbers below can be reproduced with
+// three lines of Python against save_content.
+//
+// tb_dump_crc32 proves the accumulator itself against zlib vectors. What is
+// missing without this is whether the accumulator is fed a save at all: the
+// engine can name the file, size it, write it and leave crc32 holding the
+// last ROM dump's number, and nothing else here would notice.
+function [31:0] save_crc32(input integer n);
+    integer i, b;
+    reg [31:0] c;
+    reg [7:0]  bb;
+    begin
+        c = 32'hFFFFFFFF;
+        for (i = 0; i < n; i = i + 1) begin
+            bb = save_content(i[12:0]);
+            c = c ^ {24'd0, bb};
+            for (b = 0; b < 8; b = b + 1)
+                c = c[0] ? ((c >> 1) ^ 32'hEDB88320) : (c >> 1);
+        end
+        save_crc32 = ~c;
+    end
 endfunction
 
 // How long a bus transaction takes. Raised for the abort test so that an
@@ -666,12 +692,37 @@ initial begin
         errors = errors + 1;
     end
 
+    // But the CRC32 is claimed, and it is claimed over the save. The two are
+    // different rows on the screen and different signals here: sum_checked is
+    // the cartridge's verdict on the image, which a save cannot have, while
+    // crc_checked says the number below describes what was just read.
+    //
+    // This is the row a second dump is compared against on hardware, which is
+    // the whole of what can be done for a save without a PC, so a stale or
+    // absent number here is a real fault and one nothing else would catch.
+    expect_eq(crc_checked, 1, "crc_checked for a save");
+    if (crc32 !== save_crc32(8192)) begin
+        $display("ERROR: save CRC32 is %08h, expected %08h",
+                 crc32, save_crc32(8192));
+        errors = errors + 1;
+    end
+
     // 2 KB is the other supported size, and the length must follow the size
     // byte rather than a constant.
     reset_model;
     run_save(8'h01);
     expect_eq(total_bytes, 2048, "2 KB save total_bytes");
     expect_eq(fsize, 2048, "2 KB save file size");
+
+    // The same content, a quarter of the length, so the CRC has to change.
+    // Asserting one value proves the accumulator ran; asserting a second over
+    // a different length proves it ran over the bytes that were actually
+    // written rather than over a fixed count.
+    if (crc32 !== save_crc32(2048)) begin
+        $display("ERROR: 2 KB save CRC32 is %08h, expected %08h",
+                 crc32, save_crc32(2048));
+        errors = errors + 1;
+    end
 
     // A ROM dump straight after a save goes back to .gb and to the ROM size.
     // The engine latches which operation it is at start; a leftover save_mode
