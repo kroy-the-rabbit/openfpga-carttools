@@ -3,6 +3,57 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## EEPROM reads a real save, with two defects, 2026-09-03
+
+**Minish Cap gave up save data.** The first GBA EEPROM this core has read, and
+the bytes are genuine: reversing each 8-byte block of the dump produces
+`ISH CAP:ZELDA 5`. The protocol, the request, the 68-bit read and the block
+walk all work against a cartridge.
+
+Two defects, both exact, neither guessed at.
+
+**1. The byte order inside a block is reversed.** `cart_save_gba_eeprom` emits
+the first byte received first. The cartridge wants it last. The whole 512-byte
+file is readable once each block is reversed and is noise until it is, so this
+is the entire difference between a save and a corrupt file.
+
+The fix is the emit order in `cart_save_gba_eeprom`. **`gba_eeprom_model` has
+to change with it**, and that is the point worth keeping: the model was written
+from the same reading of the protocol as the module, so the testbench agreed
+with the bug and every mutation still failed correctly. A model and a module
+that share an assumption test the assumption not at all. Only a cartridge could
+have found this.
+
+**2. The size probe answered 512 when the chip is 8 KiB.** The probe rests on a
+chip refusing a request of the wrong address width, which the simulation model
+does and this cartridge does not: the 6-bit attempt came back with real data
+rather than open bus, so it was accepted. The premise is wrong on hardware and
+the discriminator needs replacing, not tuning.
+
+Worth establishing first, because it decides which way to go: is the 512-byte
+file the first 512 bytes of the save, or 512 bytes of an aliased read? Compare
+it against the same region of a correct 8 KiB dump once one exists.
+
+**mGBA cannot check this file.** Minish Cap expects 8 KiB and this is 512, so
+loading it proves nothing either way. The evidence above is the string, and
+that is enough to say the read path works.
+
+**Where things are.** Branch `gba-eeprom-save`, `d0d846b`, seven commits, not
+pushed. 33 testbenches. The card carries `0.9999.d0d846b`, setup 0.864 ns,
+3,919 ALMs, and is mounted. Three earlier dumps and their saves are on it
+alongside the Minish Cap pair.
+
+**Tomorrow, in order.**
+
+1. Reverse the byte order, in the module and the model together, and say in the
+   testbench which way round the cartridge wants it and how that was
+   established.
+2. Replace the size discriminator. The one in the code is disproved.
+3. Re-dump Minish Cap and load the result in mGBA, which is the only thing that
+   proves a save.
+4. Nothing else on this branch until 1 to 3 are done. Everything after them is
+   the same work again.
+
 ## The write defect is fixed, and verified on hardware, 2026-09-02
 
 **A cartridge latches write data on the WR# rising edge.** `gba_cart_bus`
