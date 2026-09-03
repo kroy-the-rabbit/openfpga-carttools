@@ -3,6 +3,64 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## The write defect is fixed, and verified on hardware, 2026-09-02
+
+**A cartridge latches write data on the WR# rising edge.** `gba_cart_bus`
+raised WR# and released the data in the same instant, so what a cartridge
+captured was whatever the floating bus settled to, at an address the module
+had already selected. In save space that is a corrupted byte in somebody's
+save.
+
+`ST_WRITE` is the only state where this can happen: `ST_WRITE_SETUP` has not
+pulsed yet, `ST_WRITE_HOLD` has already raised WR#. A reset landing there now
+goes through `ST_WRITE_ABORT`, which raises WR# and holds the data for
+`WRITE_HOLD_CYCLES` before releasing. The write is still truncated, and must
+be, but the cartridge captures the byte that was asked for.
+
+**A `cart_mode` drop is deliberately not sequenced.** `cart_mode` is
+`cart_play & cart_power`, so a falling `cart_mode` means the slot is losing
+power, and driving pins into an unpowered cartridge is the worse fault. The
+pin gates are combinational on it for that reason. What is removed is the
+internally chosen case: `cart_mode_hold` freezes the mode request while
+`write_active` is high, so a requester changing its mind cannot tear the
+connector down under a live write. Extracted into its own module because
+nothing simulates `core_top`, and a fix left inline there would be untestable.
+
+`tb_gba_cart_async`'s KNOWN DEFECT block is now a check that the truncated
+write is attributable to save space and delivers `A3`. It said it would fail
+when the module was fixed; it did, and it was updated to the new behaviour
+rather than around it. New `tb_cart_mode_hold`. 30 testbenches.
+
+**Verified on hardware, `0102c92`.** Three cartridges, three save
+technologies, both bus engines. Every file that had a prior read came back
+byte for byte identical, `cmp` and not just a hash.
+
+| Cartridge | Path | Result |
+|---|---|---|
+| Golden Sun | GBA Flash 64 KiB | ROM and save identical to the previous read |
+| Zero Mission | GBA SRAM 32 KiB | ROM and save identical to the previous read |
+| Oracle of Ages | GB/GBC save RAM, 8 KB | ROM matches No-Intro and its own checksums; save is a first read, loaded in mGBA and confirmed |
+
+Oracle of Ages is the one that matters most here, because `cart_mode_hold`
+sits between the two engines: a GBC dump and save means the request was held,
+released and handed to the other engine, and both read correctly.
+
+**It costs timing.** A/B on the same runner, same seed, scratch wiped between,
+both builds back to back:
+
+| | Setup | ALMs |
+|---|---|---|
+| Before | 0.762 ns | 3,573 |
+| After | 0.511 ns | 3,670 |
+
+0.251 ns and 97 ALMs. It still closes, and the fit is deterministic: a repeat
+build gave the same slack and the same bitstream md5. 97 ALMs is more than a
+two-bit mux should cost, and the likely reason is that `cart_mode_req` has
+wide fanout, feeding both engines, so the mux is replicated downstream.
+Registering the held request would break the path from `write_active` into
+`gba_mode_s`, at the cost of landing a mode change a cycle later, which means
+re-reading the `cart_pins` turnaround before trusting it.
+
 ## Forty-one dumps, all externally matched, 2026-09-02
 
 **Every image this core has produced matches a published record.** Checked

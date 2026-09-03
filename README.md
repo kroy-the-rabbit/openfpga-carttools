@@ -29,6 +29,7 @@ what was written here.
 | GB / GBC save backup | **works**, six cartridges backed up, five loaded in an emulator with their state intact. The sixth is refused by its own game, a dead battery |
 | Save RAM banking, to 128 KB | **works** at 8 KB one bank and 32 KB four banks; 64 KB and 128 KB built, untested |
 | GBA save backup | **works**, two cartridges: 64 KiB Flash and 32 KiB SRAM, each loaded in an emulator with its state intact. Needs no write to the cartridge. 128 KiB Flash and EEPROM refused, both need a write |
+| A write that is cut short mid-pulse | **safe**, the cartridge captures the byte that was asked for rather than a floating bus |
 | Save restore | not started |
 | MBC3 RTC | not started |
 | MBC2, MBC3, MBC1 above 512 KB | simulation only, no cartridge to test |
