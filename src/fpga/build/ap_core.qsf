@@ -851,6 +851,8 @@ set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/cart_dump_gba.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/cart_save_gb.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/cart_save_gba.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/gba_eeprom_io.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/gba_eeprom_probe.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/cart_save_gba_eeprom.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/gba_size_probe.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/dump_crc32.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/dump_buffer.sv

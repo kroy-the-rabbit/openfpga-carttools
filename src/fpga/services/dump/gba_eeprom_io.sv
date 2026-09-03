@@ -40,7 +40,21 @@ module gba_eeprom_io #(
     input  wire        cart_mode,
 
     input  wire        start,
-    // 6 for a 512 byte chip, 14 for 8 KiB. Latched at start.
+
+    // Send zeros instead of a request, then read as usual and throw the
+    // result away. A chip that was left part way through a command, which is
+    // what a probe at the wrong address width does, is still counting bits: it
+    // does not reset when CS1# rises, because on real hardware CS1# toggles
+    // between every bit of a normal command anyway. Zeros finish whatever it
+    // was waiting for and the read that follows drains its data phase, so the
+    // next request starts against a chip at rest.
+    //
+    // Starting a chip that is already at rest with zeros is harmless: 0 0 is
+    // not a command.
+    input  wire        flush,
+
+    // 6 for a 512 byte chip, 14 for 8 KiB. Latched at start. Ignored when
+    // flush is set.
     input  wire [3:0]  addr_bits,
     // Which 8-byte block. Only the low addr_bits are sent.
     input  wire [13:0] block,
@@ -81,18 +95,22 @@ localparam [2:0] ST_DONE  = 3'd5;
 
 reg [2:0]  state;
 reg [3:0]  bits_l;
+reg        flush_l;
 reg [13:0] block_l;
 reg [6:0]  sent;        // request bits sent so far
 reg [6:0]  got;         // read bits taken so far
 
-// 2 command bits + the address + 1 terminator.
-wire [6:0] send_total = 7'd3 + {3'd0, bits_l};
+// 2 command bits + the address + 1 terminator. A flush sends more zeros than
+// the longest command needs, so no pending command can survive one.
+localparam [6:0] FLUSH_BITS = 7'd24;
+wire [6:0] send_total = flush_l ? FLUSH_BITS : 7'd3 + {3'd0, bits_l};
 wire [6:0] recv_total = 7'd68;
 
 // The request, most significant bit first: 1, 1, address, 0. Bit 0 of sent
 // selects nothing here; the position is what picks the bit.
 wire [3:0] addr_index = bits_l - 4'd1 - (sent[3:0] - 4'd2);
-wire next_bit = (sent == 7'd0) ? 1'b1 :
+wire next_bit = flush_l         ? 1'b0 :
+                (sent == 7'd0) ? 1'b1 :
                 (sent == 7'd1) ? 1'b1 :
                 (sent >= {3'd0, bits_l} + 7'd2) ? 1'b0
                                                 : block_l[addr_index];
@@ -110,6 +128,7 @@ always @(posedge clk) begin
         sent      <= 7'd0;
         got       <= 7'd0;
         bits_l    <= 4'd14;
+        flush_l   <= 1'b0;
         block_l   <= 14'd0;
     end else if (busy && !cart_mode) begin
         // The connector left GBA mode underneath us. gba_cart_bus has reset
@@ -124,6 +143,7 @@ always @(posedge clk) begin
                 if (start && cart_mode) begin
                     busy    <= 1'b1;
                     bits_l  <= addr_bits;
+                    flush_l <= flush;
                     block_l <= block;
                     sent    <= 7'd0;
                     got     <= 7'd0;

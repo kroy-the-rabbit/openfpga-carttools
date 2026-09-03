@@ -15,10 +15,11 @@
 // sees a 1 0 prefix. Nothing in this project may emit one.
 `default_nettype none
 
-module gba_eeprom_model #(
-    parameter integer ADDR_BITS = 14
-) (
+module gba_eeprom_model (
     input  wire        cart_mode,
+    // 6 for a 512 byte chip, 14 for 8 KiB. An input rather than a parameter so
+    // one testbench can be both chips in turn.
+    input  wire [3:0]  chip_addr_bits,
     input  wire [7:4]  bank0,       // {?, WR#, RD#, CS1#}
     input  wire        pin30,       // CS2#
     inout  tri  [7:0]  bank3,       // AD low byte, AD0 is the serial line
@@ -44,8 +45,6 @@ begin
 end
 endfunction
 
-localparam integer SEND_BITS = 2 + ADDR_BITS + 1;
-
 reg [6:0]  in_idx  = 7'd0;
 reg [1:0]  cmd     = 2'b00;
 reg [13:0] addr_sr = 14'd0;
@@ -70,29 +69,50 @@ always @(posedge bank0[6]) begin
     #1;
     if (selected) begin
         bit_writes = bit_writes + 32'd1;
+        // A write while the chip is returning data aborts the read. The bit
+        // becomes the first of a new command, which is how a flush drags a
+        // chip that was left mid-command back to a known state.
         if (reading) begin
-            $fatal(1, "a request bit arrived while the chip was still returning data");
-        end else if (in_idx == 7'd0) begin
-            cmd[1] = bank3[0];
+            reading = 1'b0;
+            out_idx = 7'd0;
+            in_idx  = 7'd0;
+        end
+
+        // Hunting for a start bit. A zero here is not consumed: the chip has
+        // not been addressed and stays where it is. That is what makes a run
+        // of zeros a reliable flush, because it leaves a chip at rest exactly
+        // where it was and drags a chip mid-command back to the same place,
+        // rather than leaving the result depending on how many zeros were
+        // sent.
+        if (in_idx == 7'd0) begin
+            if (bank3[0] === 1'b1) begin
+                cmd[1] = 1'b1;
+                in_idx = 7'd1;
+            end
         end else if (in_idx == 7'd1) begin
             cmd[0] = bank3[0];
-            if (cmd == 2'b10)
+            if ({cmd[1], bank3[0]} == 2'b10)
                 $fatal(1, "EEPROM WRITE COMMAND emitted (1 0). This module must never write.");
-            if (cmd !== 2'b11)
-                $fatal(1, "unknown EEPROM command %b", cmd);
-        end else if (in_idx < 7'd2 + ADDR_BITS[6:0]) begin
+            // 0 0 and 0 1 are not commands. The chip goes back to looking for
+            // a start bit, which is what makes a stream of zeros harmless to a
+            // chip that is already at rest.
+            in_idx = 7'd2;
+        end else if (in_idx < 7'd2 + {3'd0, chip_addr_bits}) begin
             addr_sr = {addr_sr[12:0], bank3[0]};
+            in_idx  = in_idx + 7'd1;
         end else begin
             if (bank3[0] !== 1'b0)
                 $fatal(1, "EEPROM request terminator was %b, expected 0", bank3[0]);
-            req_block = addr_sr;
+            // Only the low chip_addr_bits are the chip's address. A narrow
+            // chip has no more address pins than that, so anything left in
+            // the shift register from an earlier command is not part of it.
+            req_block = addr_sr & ((14'd1 << chip_addr_bits) - 14'd1);
             req_count = req_count + 32'd1;
-            out_sr    = block_content(addr_sr);
+            out_sr    = block_content(req_block);
             out_idx   = 7'd0;
             reading   = 1'b1;
+            in_idx    = 7'd0;
         end
-        if (in_idx + 7'd1 >= SEND_BITS[6:0]) in_idx = 7'd0;
-        else                                 in_idx = in_idx + 7'd1;
     end
 end
 

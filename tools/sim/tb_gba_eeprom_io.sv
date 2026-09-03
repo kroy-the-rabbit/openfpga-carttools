@@ -35,6 +35,8 @@ reg cart_mode = 1'b0;
 reg        start = 1'b0;
 reg [3:0]  addr_bits = 4'd14;
 reg [13:0] block = 14'd0;
+reg        flush = 1'b0;
+reg [3:0]  chip_addr_bits = 4'd14;
 
 wire        busy, done;
 wire [63:0] data;
@@ -73,6 +75,11 @@ wire        e_p30_out, e_p30_oe;
 wire        mode_ready;
 
 tri  [7:0] bank2, bank3, bank1;
+// An undriven AD line reads as ones, which is the open-bus signature the
+// probe uses to mean "this chip did not answer". Without it an undriven bus
+// is x in simulation and every comparison against all-ones would be false,
+// so a chip that said nothing would look like a chip that said something.
+pullup pu_ad [7:0] (bank3);
 wire       bank2_dir, bank3_dir, bank1_dir;
 tri  [7:4] bank0;
 wire       bank0_dir;
@@ -83,7 +90,7 @@ wire       pin31_dir;
 
 gba_eeprom_io dut (
     .clk (clk), .reset (reset), .cart_mode (cart_mode),
-    .start (start), .addr_bits (addr_bits), .block (block),
+    .start (start), .flush (flush), .addr_bits (addr_bits), .block (block),
     .busy (busy), .done (done), .data (data),
     .bus_req (bus_req), .bus_wr (bus_wr), .bus_addr (bus_addr),
     .bus_acc (bus_acc), .bus_wdata (bus_wdata), .bus_rdata (bus_rdata),
@@ -129,8 +136,9 @@ cart_pins pins (
 wire [13:0] req_block;
 wire [31:0] req_count, bit_writes, bit_reads;
 
-gba_eeprom_model #(.ADDR_BITS (14)) chip (
-    .cart_mode (cart_mode), .bank0 (bank0), .pin30 (pin30),
+gba_eeprom_model chip (
+    .cart_mode (cart_mode), .chip_addr_bits (chip_addr_bits),
+    .bank0 (bank0), .pin30 (pin30),
     .bank3 (bank3), .bank3_dir (bank3_dir),
     .req_block (req_block), .req_count (req_count),
     .bit_writes (bit_writes), .bit_reads (bit_reads)
