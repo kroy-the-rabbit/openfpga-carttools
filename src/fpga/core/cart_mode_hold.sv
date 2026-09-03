@@ -31,16 +31,27 @@ module cart_mode_hold (
     output wire [1:0]  req_out
 );
 
-// Tracks the request whenever it is safe to change mode, so the value frozen
-// on the cycle write_active rises is the one that was in force when the beat
-// started.
-reg [1:0] held = 2'b00;
+// Registered, not muxed. req_out feeds gb_mode_s and gba_mode_s and from
+// there the cart_mode of both engines, which is wide fanout on a path that has
+// failed timing before. A mux here put write_active in front of all of it and
+// cost 0.251 ns and 97 ALMs, measured A/B on one runner with one seed. Driving
+// it from a flop instead means the fanout starts at a register.
+//
+// The cost is that a mode change lands one cycle later. cart_pins registers
+// the mode into its own mode_q and runs a settle counter from there, and
+// mode_ready is low for the whole of it, so one more cycle in front of a
+// settle that is already tens of cycles changes nothing anyone can observe.
+//
+// Holding by not clocking, rather than by selecting, also means the value
+// frozen is the one that was in force when the beat started: on the edge
+// write_active rises this register does not load, so it keeps what it had.
+reg [1:0] req_q = 2'b00;
 
 always @(posedge clk)
     if (!write_active)
-        held <= req_in;
+        req_q <= req_in;
 
-assign req_out = write_active ? held : req_in;
+assign req_out = req_q;
 
 endmodule
 

@@ -43,13 +43,22 @@ cart_mode_hold dut (
 );
 
 initial begin
-    // --- it is a wire when nothing is in flight --------------------------
+    // --- it follows the request, one cycle behind ------------------------
+    //
+    // Registered rather than muxed, so req_out is always a cycle behind
+    // req_in. cart_pins runs a settle counter of tens of cycles behind this
+    // and holds mode_ready low across it, so the cycle is not observable
+    // downstream. It is asserted here because it is the shape of the module.
     @(negedge clk);
     req_in = 2'b01;
-    #1 expect_eq(req_out, 2'b01, "req passes through with no write");
+    #1 expect_eq(req_out, 2'b00, "req_out is a cycle behind");
+    @(negedge clk);
+    #1 expect_eq(req_out, 2'b01, "req arrives on the next edge");
+
     @(negedge clk);
     req_in = 2'b10;
-    #1 expect_eq(req_out, 2'b10, "a changed req passes through with no write");
+    @(negedge clk);
+    #1 expect_eq(req_out, 2'b10, "a changed req arrives with no write");
 
     // --- frozen for the length of a beat ---------------------------------
     //
@@ -58,8 +67,8 @@ initial begin
     @(negedge clk);
     req_in = 2'b01;
     @(negedge clk);
+    #1 expect_eq(req_out, 2'b01, "req in force when the beat starts");
     write_active = 1'b1;
-    #1 expect_eq(req_out, 2'b01, "req at the start of a beat");
 
     @(negedge clk);
     req_in = 2'b10;
@@ -78,23 +87,22 @@ initial begin
     // --- released when the beat is over ----------------------------------
     @(negedge clk);
     write_active = 1'b0;
-    #1 expect_eq(req_out, 2'b00, "req follows again once the beat is over");
-
+    #1 expect_eq(req_out, 2'b01, "still held on the cycle the beat ends");
     @(negedge clk);
-    req_in = 2'b10;
-    #1 expect_eq(req_out, 2'b10, "req follows after the hold");
+    #1 expect_eq(req_out, 2'b00, "follows again on the next edge");
 
     // --- a beat that starts on the same edge the request changes ---------
     //
     // The engine raises write_active because it accepted a request; the value
-    // frozen has to be the one that beat was started under. Sampling req_in
-    // on the same edge write_active rises would freeze the new one.
+    // held has to be the one that beat was started under. A register that
+    // loads on the edge write_active rises would take the new one instead.
     @(negedge clk);
     req_in = 2'b01;
-    write_active = 1'b0;
     @(negedge clk);
+    #1 expect_eq(req_out, 2'b01, "settled before the beat");
     write_active = 1'b1;
     req_in = 2'b10;
+    @(negedge clk);
     #1 expect_eq(req_out, 2'b01, "the beat's own mode, not the one arriving with it");
 
     @(negedge clk);
