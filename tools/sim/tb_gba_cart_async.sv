@@ -182,6 +182,26 @@ begin
 end
 endtask
 
+// A reset inside WR# low is now sequenced: the module raises WR#, holds the
+// data for WRITE_HOLD_CYCLES so the cartridge latches what was asked for, and
+// only then releases. So the parked state arrives a few cycles after the
+// reset edge rather than on it, and busy stays high across the hold, which is
+// correct: the bus is still driving a cartridge and no master may start.
+task settle_and_check(input [511:0] why);
+    integer guard;
+begin
+    guard = 0;
+    while (busy === 1'b1 && guard < 64) begin
+        @(posedge clk);
+        #1;
+        guard = guard + 1;
+    end
+    if (guard >= 64)
+        $fatal(1, "%0s: busy never fell after reset", why);
+    check_safe_in_cart_mode(why);
+end
+endtask
+
 // Out of cart_mode the pins must fall all the way back to the idle of
 // docs/HARDWARE-NOTES.md section 3: banks released, strobes parked at 4'hf,
 // pin30 at 0 with its translator an input and the clamp still asserted.
@@ -270,7 +290,7 @@ initial begin
         @(posedge clk);
         #1;
         no_more_wr = 1'b1;
-        check_safe_in_cart_mode("reset during a 32-bit save write");
+        settle_and_check("reset during a 32-bit save write");
         reset <= 1'b0;
         repeat (2) @(posedge clk);
         no_more_wr = 1'b0;
@@ -284,7 +304,7 @@ initial begin
         @(posedge clk);
         #1;
         no_more_wr = 1'b1;
-        check_safe_in_cart_mode("reset during a 32-bit ROM read");
+        settle_and_check("reset during a 32-bit ROM read");
         reset <= 1'b0;
         repeat (2) @(posedge clk);
         no_more_wr = 1'b0;
@@ -418,7 +438,7 @@ initial begin
     #1;
     if (bank0[4] !== 1'b1)
         $fatal(1, "reset did not release the held EEPROM CS1#");
-    check_safe_in_cart_mode("reset with EEPROM CS1# held");
+    settle_and_check("reset with EEPROM CS1# held");
     reset <= 1'b0;
     repeat (2) @(posedge clk);
 
@@ -435,21 +455,24 @@ initial begin
     repeat (2) @(posedge clk);
     check_recovery;
 
-    // --- KNOWN DEFECT: aborting inside ST_WRITE ---------------------------
-    // Reported, not fixed: gba_cart_bus.sv is not modified by this testbench.
+    // --- aborting inside ST_WRITE ----------------------------------------
+    // A cartridge latches write data on the WR# rising edge. Raising WR# and
+    // releasing the data together therefore hands it whatever the floating
+    // bus settles to, at an address this module has already selected, which
+    // in save space is a corrupted byte in somebody's save file.
     //
-    // A reset or a cart_mode drop inside ST_WRITE raises WR# and removes the
-    // write data on the same instant. A cartridge latches write data on the
-    // WR# rising edge, so what it captures is whatever the released bus
-    // settles to, at the address the module already selected. In save space
-    // that is a corrupted byte in the player's save file, and it happens
-    // exactly in the hot-unplug and mode-change cases this file exists for.
+    // A reset landing there is now sequenced: WR# rises, the data is held for
+    // WRITE_HOLD_CYCLES, and only then is the bus released. The write is
+    // still truncated, and it must be, but what the cartridge captures is the
+    // byte that was asked for rather than a floating bus.
     //
-    // The checks below assert what the module does today, so this stays a
-    // passing description of the defect rather than a red suite. If the module
-    // is ever changed to hold data for a cycle after WR# rises, or to refuse
-    // to start a beat it cannot finish, these two checks fail and should be
-    // updated to the new behaviour.
+    // A cart_mode drop is not sequenced and must not be. cart_mode is
+    // cart_play & cart_power, so when it falls the slot is losing power, and
+    // driving pins into an unpowered cartridge is the worse fault. The second
+    // block below asserts that unsafety deliberately. What removes the
+    // exposure is upstream: core_top holds the mode request still while
+    // write_active is high, so an internally chosen mode change cannot land
+    // here.
 
     // Baseline first: an uninterrupted save write is 12 clocks of WR# low and
     // the cart captures the byte that was asked for.
@@ -477,24 +500,29 @@ initial begin
     @(posedge clk);
     #1;
     no_more_wr = 1'b1;
-    check_safe_in_cart_mode("reset two cycles into WR# low");
+    settle_and_check("reset two cycles into WR# low");
     reset <= 1'b0;
     repeat (4) @(posedge clk);
     no_more_wr = 1'b0;
-    if (wr_low_width !== 3)
-        $fatal(1, "reset inside ST_WRITE gave a %0d clk WR# pulse, expected the 3 clk runt",
+    // The pulse is still cut short. That is inherent: the reset is real and
+    // the beat does not get to finish.
+    if (wr_low_width >= 12)
+        $fatal(1, "reset inside ST_WRITE gave a %0d clk WR# pulse, expected it truncated",
                wr_low_width);
     if (wr_pulse_count !== 32'd1)
         $fatal(1, "the truncated write made %0d WR# pulses, expected 1",
                wr_pulse_count);
-    // The model cannot attribute this pulse to save space, because CS2# rose
-    // on the very same edge as WR#. That is the point: the cartridge is left
-    // to decide what a simultaneous WR# and CS2# release means, with the data
-    // bus already let go.
-    if (save_wr_count !== 32'd0)
-        $fatal(1, "the truncated write was still attributable to save space (%0d)",
+    // The fix, and the whole point of it. CS2# and the data outlive the WR#
+    // rising edge now, so the model can attribute the pulse to save space and
+    // can say what the cartridge captured. Before the fix this was
+    // unattributable and the captured byte was whatever the bus settled to.
+    if (save_wr_count !== 32'd1)
+        $fatal(1, "the truncated write was not attributable to save space (%0d)",
                save_wr_count);
-    $display("note: reset inside ST_WRITE cut WR# to a %0d clk pulse and released CS2# and bank1 on the same edge",
+    if (last_save_wr_data !== 8'hA3)
+        $fatal(1, "the truncated write delivered %h, expected the A3 that was asked for",
+               last_save_wr_data);
+    $display("note: reset inside ST_WRITE cut WR# to a %0d clk pulse and the cartridge still captured A3",
              wr_low_width);
 
     // The same through a cart_mode drop, which is worse: no clock edge is

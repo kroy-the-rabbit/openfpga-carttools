@@ -21,6 +21,13 @@ module gba_cart_bus #(
     output reg         done,
     output wire        busy,
 
+    // High while a write beat is electrically live: data is on the bus and
+    // WR# is about to fall, is low, or has just risen and the data is still
+    // being held. A mode teardown that lands in this window cuts the beat,
+    // so whoever sequences cart_mode has to wait for this to clear. See the
+    // comment on ST_WRITE_ABORT below for the case that cannot be waited on.
+    output wire        write_active,
+
     // Engine interface to cart_pins.sv, which owns the connector pins.
     output wire [15:0] e_ad_out,
     output wire        e_ad_oe,
@@ -46,6 +53,7 @@ localparam [3:0] ST_WRITE_HOLD = 4'd6;
 localparam [3:0] ST_DONE       = 4'd7;
 localparam [3:0] ST_READ_SEQ   = 4'd8;
 localparam [3:0] ST_WRITE_SETUP = 4'd9;
+localparam [3:0] ST_WRITE_ABORT = 4'd10;
 
 localparam [7:0] ADDR_HOLD_COUNT   = ADDR_HOLD_CYCLES % 256;
 localparam [7:0] ADDR_LATCH_COUNT  = ADDR_LATCH_CYCLES % 256;
@@ -86,6 +94,16 @@ wire gpio_space = latched_addr[27:24] == 4'h8 &&
                   latched_addr[23:0] <= 24'h0000C8;
 wire cart_write_enable = latched_wr && (eeprom_space || save_space || gpio_space);
 wire wr_n_pin = (state == ST_WRITE && cart_write_enable) ? wr_n : 1'b1;
+
+// ST_WRITE is the only state where releasing the bus can corrupt a
+// cartridge, because it is the only one where WR# is low. ST_WRITE_SETUP has
+// not pulsed yet and ST_WRITE_HOLD has already raised WR#, so a release in
+// either of those is a write that did not happen rather than a wrong one.
+wire in_write_pulse = state == ST_WRITE;
+
+assign write_active = latched_wr &&
+                      (state == ST_WRITE_SETUP || state == ST_WRITE ||
+                       state == ST_WRITE_HOLD  || state == ST_WRITE_ABORT);
 wire need_second_beat = latched_acc != ACCESS_8BIT && latched_acc != ACCESS_16BIT;
 wire transaction_active = state != ST_IDLE && state != ST_DONE;
 wire a_hi_drive = cart_mode && transaction_active && (!save_space || latched_wr);
@@ -126,10 +144,28 @@ always @(posedge clk) begin
     end
 end
 
+// A reset landing inside WR# low is sequenced rather than taken immediately:
+// WR# rises on the way into ST_WRITE_ABORT, because wr_n_pin is gated on
+// ST_WRITE, and the data stays on the bus for the usual hold before it is
+// released. A cartridge latches on the WR# rising edge, so releasing both at
+// once hands it whatever the floating bus settles to, at an address this
+// module has already selected.
+//
+// A cart_mode drop is NOT sequenced, and deliberately. cart_mode is
+// cart_play & cart_power: when it falls the slot is losing power, and driving
+// pins into an unpowered cartridge is worse than a truncated write. The pin
+// gates below are combinational on cart_mode for that reason. What can be
+// avoided is an internally chosen mode change landing here, which is what
+// write_active is for.
+wire abort_write_pulse = reset && cart_mode && in_write_pulse;
+
 always @(posedge clk) begin
     done <= 1'b0;
 
-    if (reset || !cart_mode) begin
+    if (abort_write_pulse) begin
+        wait_count <= WRITE_HOLD_COUNT;
+        state <= ST_WRITE_ABORT;
+    end else if ((reset && state != ST_WRITE_ABORT) || !cart_mode) begin
         state <= ST_IDLE;
         wait_count <= 8'd0;
         latched_wr <= 1'b0;
@@ -314,6 +350,25 @@ always @(posedge clk) begin
                     end else begin
                         state <= ST_DONE;
                     end
+                end else begin
+                    wait_count <= wait_count - 8'd1;
+                end
+            end
+
+            // WR# is already high here: the pin is gated on ST_WRITE. All
+            // this state does is keep the data where it was for the hold, so
+            // the cartridge sees a normal rising edge with valid data, then
+            // let it go.
+            ST_WRITE_ABORT: begin
+                rd_n <= 1'b1;
+                wr_n <= 1'b1;
+                if (wait_count == 8'd0) begin
+                    ad_drive <= 1'b0;
+                    ad_out <= 16'hFFFF;
+                    cs1_n <= 1'b1;
+                    cs2_n <= 1'b1;
+                    eeprom_selected <= 1'b0;
+                    state <= ST_IDLE;
                 end else begin
                     wait_count <= wait_count - 8'd1;
                 end

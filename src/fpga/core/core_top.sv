@@ -647,6 +647,10 @@ wire [27:0] gba_addr_mux  = dump_busy ? gdmp_addr  : save_scan_busy ? scn_addr  
 wire [1:0]  gba_acc_mux   = dump_busy ? gdmp_acc   : save_scan_busy ? scn_acc   : probe_sizing ? sz_acc   : id_acc;
 wire [31:0] gba_wdata_mux = dump_busy ? gdmp_wdata : save_scan_busy ? scn_wdata : probe_sizing ? sz_wdata : id_wdata;
 
+// High while a write beat is live on the GBA bus. Used to hold the mode
+// request still, below.
+wire        gba_write_active;
+
 gba_cart_bus cart_bus (
     .clk                    ( clk_sys ),
     .reset                  ( ~pll_core_locked ),
@@ -662,6 +666,7 @@ gba_cart_bus cart_bus (
     .rdata                  ( cart_bus_rdata ),
     .done                   ( cart_bus_done ),
     .busy                   ( cart_bus_busy ),
+    .write_active           ( gba_write_active ),
 
     .e_ad_out               ( gba_ad_out ),
     .e_ad_oe                ( gba_ad_oe ),
@@ -713,10 +718,23 @@ wire        save_scan_want_gba;
 // it raises done, and the scan raises its own a cycle after that, so without
 // this the request falls back to parked idle for exactly one cycle and
 // cart_pins begins a turnaround nobody wanted.
-wire [1:0]  cart_mode_req = (dump_want_mode != 2'b00) ? dump_want_mode :
-                            (sz_want_gba | save_scan_want_gba |
-                             save_scan_start)          ? 2'b01
-                                                       : probe_mode;
+wire [1:0]  cart_mode_req_raw = (dump_want_mode != 2'b00) ? dump_want_mode :
+                                (sz_want_gba | save_scan_want_gba |
+                                 save_scan_start)          ? 2'b01
+                                                           : probe_mode;
+
+// A mode change tears the pins down, and gb_mode_s and gba_mode_s below are
+// combinational in this request, so a requester that changes its mind while
+// WR# is low cuts the write beat. cart_mode_hold.sv carries the reasoning and
+// tb_cart_mode_hold the proof.
+wire [1:0]  cart_mode_req;
+
+cart_mode_hold mode_hold (
+    .clk          ( clk_sys ),
+    .req_in       ( cart_mode_req_raw ),
+    .write_active ( gba_write_active ),
+    .req_out      ( cart_mode_req )
+);
 
 wire        gb_mode_s  = cart_mode_s && (cart_mode_req == 2'b10) && cart_mode_ready;
 wire        gba_mode_s = cart_mode_s && (cart_mode_req == 2'b01) && cart_mode_ready;

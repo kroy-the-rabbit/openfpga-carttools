@@ -839,6 +839,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE ../core/video_adapter.sv
 # Phase 5: Cart Saves, Save Type Detection & RTC
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/cart_pins.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/gba_cart_bus.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../core/cart_mode_hold.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/identify/cart_identify_gba.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/identify/gba_save_scan.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/identify/cart_identify_gb.sv
