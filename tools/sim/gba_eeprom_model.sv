@@ -118,8 +118,30 @@ end
 
 // One returned bit per RD# pulse. Advanced when RD# rises, so the value is
 // stable for the whole window the host samples in.
+//
+// AN UNDER-RUN ANSWERS. A host that stops sending address bits part way
+// through and starts reading does not get silence. The first dump off Minish
+// Cap, an 8 KiB chip given a 6 bit request, came back with real save data,
+// just not the block that was asked for. This model used to stay silent
+// there, the size probe rested on that silence, and the two agreed with each
+// other all the way onto a cartridge.
+//
+// No mechanism is known for the particular block the cartridge returned, and
+// nothing may depend on the +2 below. What is being modelled is only the part
+// that hardware settled: an under-run answers, and answers with the wrong
+// block. A wide request to a narrow chip is the opposite case and really is
+// silent, because the over-run bits abort the read; that is the asymmetry the
+// probe now uses.
 always @(posedge bank0[5]) begin
     #1;
+    if (selected && !reading && in_idx >= 7'd2) begin
+        req_block = ((addr_sr + 14'd2) & ((14'd1 << chip_addr_bits) - 14'd1));
+        req_count = req_count + 32'd1;
+        out_sr    = block_content(req_block);
+        out_idx   = 7'd0;
+        reading   = 1'b1;
+        in_idx    = 7'd0;
+    end
     if (reading && selected) begin
         bit_reads = bit_reads + 32'd1;
         if (out_idx >= 7'd4) out_sr = {out_sr[62:0], 1'b0};

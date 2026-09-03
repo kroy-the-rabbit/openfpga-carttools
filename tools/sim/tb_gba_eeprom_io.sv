@@ -18,8 +18,11 @@
 //
 //   The block is returned most significant bit first.
 //
-//   Six-bit addressing works as well as fourteen, because a 512 byte chip and
-//   an 8 KiB one are told apart by which one answers.
+//   The two widths fail in OPPOSITE directions, which is the whole of the size
+//   probe. A short request to a wide chip answers, with the wrong block. A
+//   wide request to a narrow chip answers nothing at all. Both are asserted
+//   here, because the probe used to rest on the first one being silent and
+//   that cost a cartridge dump.
 
 `default_nettype none
 `timescale 1ns/1ps
@@ -215,21 +218,49 @@ initial begin
     expect_eq64(data, want_block(14'd682), "block 682");
     expect_eq(req_block, 682, "block 682 reached the chip");
 
-    // --- a short request to a wide chip is ignored, which is the probe ----
+    // --- a short request to a wide chip ANSWERS, with the wrong block -----
     //
     // Nothing in a cartridge says whether its EEPROM is 512 bytes or 8 KiB.
     // The SDK string is EEPROM_V either way, and the emulator that inspired
     // the bit counts here tells them apart by watching the game's DMA length,
-    // which a dumper does not have.
+    // which a dumper does not have. So the chip has to be asked, and what it
+    // does with the wrong width is the whole answer.
     //
-    // What is left is that the chip itself knows. A 14 bit chip given a 9 bit
-    // request is still waiting for address bits and never answers, so it never
-    // reaches its data phase. That asymmetry is the whole of the size probe,
-    // and it is asserted here rather than assumed.
+    // This case used to assert silence. It was wrong. An 8 KiB chip given a 9
+    // bit request is still counting address bits, but on a cartridge it
+    // answers anyway, with data from a block nobody asked for. Minish Cap came
+    // off as 512 bytes of the wrong blocks because the chip model here shared
+    // the module's assumption instead of contradicting it.
     read_block(14'd63, 4'd6);
     expect_eq(bit_writes, 17 + 17 + 17 + 17 + 9, "request bits with 6 bit addressing");
-    expect_eq(req_count, 4, "a 9 bit request must not complete on a 14 bit chip");
-    expect_eq(req_block, 682, "the chip never accepted the short request");
+    expect_eq(req_count, 5, "a wide chip answers a short request");
+    if (data === 64'hFFFF_FFFF_FFFF_FFFF) begin
+        $display("ERROR: a wide chip answered a short request with open bus");
+        errors = errors + 1;
+    end
+    if (req_block === 14'd63) begin
+        $display("ERROR: an under-run returned the block that was asked for");
+        errors = errors + 1;
+    end
+
+    // --- a wide request to a narrow chip is silent, and THAT is the probe --
+    //
+    // The other direction does discriminate. A 512 byte chip takes six address
+    // bits, reads the seventh as its terminator and starts its data phase, and
+    // the address bits still coming abort it. Nothing is left driving AD0, so
+    // the read returns open bus. gba_eeprom_probe tries 14 bits first for
+    // exactly this reason.
+    //
+    // The address has its low eight bits clear so the over-run is all zeros. An
+    // over-run beginning 1 0 is a write command aimed at somebody's save; the
+    // model kills the run if this module ever emits one.
+    chip_addr_bits = 4'd6;
+    read_block(14'd21, 4'd6);
+    expect_eq64(data, want_block(14'd21), "a narrow chip answers its own width");
+    read_block(14'h0100, 4'd14);
+    expect_eq64(data, 64'hFFFF_FFFF_FFFF_FFFF,
+                "a narrow chip does not answer a 14 bit request");
+    chip_addr_bits = 4'd14;
 
     // --- cart_mode dropping mid-transfer must not hang --------------------
     @(negedge clk);

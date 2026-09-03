@@ -3,15 +3,20 @@
 // tb_gba_eeprom_probe.sv - 512 bytes or 8 KiB, settled by asking the chip
 //
 // Nothing in a cartridge says which. The SDK string is EEPROM_V for both and
-// the header has no save field, so the only source of truth is the chip's own
-// refusal to answer a request of the wrong width.
+// the header has no save field, so the only source of truth is the chip.
 //
-// The case that matters most here is the second one. Probing is two attempts,
-// and the first leaves a wide chip part way through a command. If the flush
-// between them did not work, the 14 bit attempt would be talking to a chip
-// that is still counting bits from the 6 bit attempt, and the probe would
-// report no EEPROM on a cartridge that has one. That is a silent wrong answer,
-// not a visible failure, which is why it is tested rather than reasoned about.
+// ONLY ONE DIRECTION DISCRIMINATES. A narrow request to a wide chip answers,
+// with the wrong block; a wide request to a narrow chip answers nothing. So
+// the wide attempt goes first, and the first case below is what holds it
+// there: with the model returning data for an under-run, as a cartridge does,
+// a probe that tried 6 bits first would call an 8 KiB chip 512 bytes. That is
+// the bug Minish Cap was dumped with, and it is now a failing assertion rather
+// than a paragraph.
+//
+// The third case is the flush. Each attempt leaves a chip of the other size
+// part way through a command, and if the flush between them did not work the
+// next attempt would be talking to a chip still counting bits from the last
+// one. Wrong answer, not visible failure, so it is tested.
 
 `default_nettype none
 `timescale 1ns/1ps
@@ -145,9 +150,9 @@ initial begin
     repeat (4) @(posedge clk);
 
     // --- an 8 KiB chip -----------------------------------------------------
-    // The 6 bit attempt goes first and this chip ignores it, so the answer
-    // comes from the 14 bit attempt, after a flush has cleared the half
-    // command the first attempt left behind.
+    // Answers the first attempt, which is a 14 bit one. Try 6 bits first and
+    // this chip answers that too, with the wrong block, and the probe reports
+    // 512. These three lines are the regression.
     chip_addr_bits = 4'd14;
     run_probe;
     expect_eq(found, 1, "found an 8 KiB chip");
@@ -155,7 +160,14 @@ initial begin
     expect_eq(addr_bits, 14, "8 KiB address width");
 
     // --- a 512 byte chip ---------------------------------------------------
-    // Answers the first attempt, so the 14 bit attempt never runs.
+    // Says nothing to any of the four 14 bit attempts, because each one
+    // over-runs it and the over-run aborts the read it had started. The answer
+    // comes from the 6 bit attempt after that, with a flush in between.
+    //
+    // Simulation only. No 512 byte EEPROM cartridge has been through here, so
+    // this branch rests on the model's over-run behaviour rather than on a
+    // chip, and it is the first thing to distrust if a small save comes out
+    // wrong.
     chip_addr_bits = 4'd6;
     run_probe;
     expect_eq(found, 1, "found a 512 byte chip");

@@ -16,8 +16,17 @@
 //
 // SIZE COMES FROM THE PROBE, not from the ROM. gba_eeprom_probe settles 512
 // against 8 KiB by asking the chip; nothing in the cartridge says. addr_bits
-// has to be the width the probe found, because a chip given the wrong one does
-// not answer.
+// has to be the width the probe found, and getting it wrong is not a visible
+// failure: an 8 KiB chip given a 6 bit request answers, with a block that is
+// not the one asked for. Minish Cap is where that was found out.
+//
+// BYTE ORDER. The 64 bits arrive most significant first, and the byte that
+// arrives FIRST is the LAST byte of the block in the save file. The first
+// hardware dump settled it. Minish Cap keeps the string
+// "AGBZELDA:THE MINISH CAP:ZELDA 5" at the start of its save, and it came off
+// the chip reversed inside every group of eight; reversed back, it reads.
+// Emitting in arrival order gives a file that is complete, correct in length,
+// and unreadable to every emulator, which is the worst kind of wrong.
 module cart_save_gba_eeprom (
     input  wire        clk,
     input  wire        reset,
@@ -139,14 +148,14 @@ always @(posedge clk) begin
                 if (io_done) begin
                     blk       <= io_data;
                     byte_idx  <= 3'd0;
-                    out_data  <= io_data[63:56];
+                    out_data  <= io_data[7:0];
                     out_valid <= 1'b1;
                     state     <= ST_EMIT;
                 end
             end
 
-            // Most significant byte of the block first, which is the order the
-            // bits came off the chip.
+            // Least significant byte of the 64 bits first, which is the byte
+            // the chip sent last. See the note on byte order above.
             ST_EMIT: begin
                 if (out_valid && out_ready) begin
                     // Evidence, taken on the byte actually handed over.
@@ -167,8 +176,8 @@ always @(posedge clk) begin
                     end else begin
                         emitted  <= next_emitted;
                         byte_idx <= byte_idx + 3'd1;
-                        blk      <= {blk[55:0], 8'd0};
-                        out_data <= blk[55:48];
+                        blk      <= {8'd0, blk[63:8]};
+                        out_data <= blk[15:8];
                     end
                 end
             end
