@@ -59,7 +59,7 @@ Should be very easy
 ### Prerequisites
 
 - Docker
-- `raetro/quartus:21.1` Docker image
+- A local `localhost/pocket-quartus:25.1std` image containing Quartus Prime Lite 25.1
 
 ### Build
 

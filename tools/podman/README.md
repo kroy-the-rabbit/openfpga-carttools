@@ -1,8 +1,12 @@
 # Containerised Quartus build
 
 Quartus never gets installed on the host. `make cart` runs upstream's own
-`generate.tcl` inside `docker.io/raetro/quartus:21.1` against a copy of the
-tree, then packages an SD-ready folder and gates the result on timing.
+`generate.tcl` inside Quartus Prime Lite 25.1 against a copy of the tree,
+then packages an SD-ready folder and gates the result on timing. Quartus is
+kept in a local image because Altera's license does not permit redistributing
+the Lite installation publicly:
+
+    localhost/pocket-quartus:25.1std
 
     make cart                  build -> build/cart/
     make cart SEED=2           re-run the fitter with another placement seed
@@ -24,11 +28,12 @@ Outputs land in `build/cart/`:
 
 ## Why it is built this way
 
-- **Quartus 21.1, not 25.1.** Upstream tunes constraints, seeds and its custom
-  STA reports against 21.1, and this design closes setup by 0.102 ns on
-  `clk_sys` in upstream's own CI build. A toolchain bump is a change to the
-  result, not a neutral upgrade. The sibling GBC fork uses 25.1; keep them
-  apart.
+- **Quartus 25.1 Lite is distributed privately.** The local image contains
+  version 25.1std build 1129 and has image ID
+  `1b2a15f0b63cd1753aabdac8b2968e8ca0e4a208cb16ff0ba7f3647a3a5a9de6`.
+  `project_open -force` migrates the older project metadata only in the
+  disposable build copy. The private orchestrator handoff records the archive,
+  checksum, and runner load procedure.
 - **The build runs against a copy.** `build/cart/work` is what Quartus writes to,
   so the checked-in tree stays clean and the harness can patch fitter settings
   (processor count, seed) without touching files that CI and upstream share.
@@ -110,16 +115,12 @@ It cannot prove a save is correct and says so. A length check and a
 looks-like-real-data check both passed on the first save this project took,
 and neither would have caught a subtly wrong read.
 
-## If the image will not pull
+## If the image is missing
 
-`podman pull docker.io/raetro/quartus:21.1` can fail with
+The Lite image is deliberately not published to a container registry. If the
+runtime reports
 
-    unable to retrieve auth token: invalid username/password
+    localhost/pocket-quartus:25.1std: image not known
 
-when `~/.docker/config.json` holds a stale docker.io login. The image is public,
-so pull anonymously instead:
-
-    printf '{"auths":{}}' > /tmp/anon-auth.json
-    podman pull --authfile /tmp/anon-auth.json docker.io/raetro/quartus:21.1
-
-Nothing else in the harness needs credentials once the image is local.
+load the archived image from the private `pocket-dev` orchestrator repository.
+The path and SHA-256 are intentionally kept out of this public repository.

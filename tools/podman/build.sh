@@ -17,7 +17,7 @@ BDIR="$REPO/build/cart"
 WORK="$BDIR/work"
 
 PODMAN=${PODMAN:-podman}
-IMAGE=${IMAGE:-docker.io/raetro/quartus:21.1}
+IMAGE=${IMAGE:-localhost/pocket-quartus:25.1std}
 
 CORE_DIR=$(ls -d "$REPO/pkg/Cores"/*/ | head -1)
 CORE_NAME=$(basename "$CORE_DIR")

@@ -19,7 +19,7 @@
 #   make clean       remove build/
 
 PODMAN   ?= podman
-IMAGE    ?= docker.io/raetro/quartus:21.1
+IMAGE    ?= localhost/pocket-quartus:25.1std
 SIMIMAGE ?= localhost/carttools-sim:1
 HARNESS  := tools/podman
 

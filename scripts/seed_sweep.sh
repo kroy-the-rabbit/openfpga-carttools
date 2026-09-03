@@ -10,6 +10,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+IMAGE=${IMAGE:-localhost/pocket-quartus:25.1std}
 
 START_SEED=${1:-1}
 END_SEED=${2:-10}
@@ -37,7 +38,7 @@ for seed in $(seq "$START_SEED" "$END_SEED"); do
     docker run --rm \
       -v "$PROJECT_DIR":/build \
       -w /build \
-      raetro/quartus:21.1 \
+      "$IMAGE" \
       quartus_sh -t scripts/seed_sweep_build.tcl "$seed" 2>&1 | tail -20
 
     # Parse timing from sta.summary - extract setup slack and TNS per slow corner
