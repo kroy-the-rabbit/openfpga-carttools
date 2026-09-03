@@ -166,11 +166,10 @@ function [7:0] want_byte(input integer off);
     integer sh;
 begin
     v = want_block(off[16:3]);
-    // The chip sends the most significant of the 64 bits first, and that
-    // first byte is the LAST byte of the block in the file. Established on a
-    // cartridge, not reasoned about: Minish Cap's save signature came off the
-    // chip reversed inside every group of eight and reads only this way round.
-    sh = 8 * (off % 8);
+    // A raw EEPROM .sav preserves the order on the serial wire. The chip sends
+    // the most significant byte first, even when reversing each 8-byte block
+    // would make text in the game's data structure human-readable.
+    sh = 8 * (7 - (off % 8));
     want_byte = v >> sh;
 end
 endfunction
