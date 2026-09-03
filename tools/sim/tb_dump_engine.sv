@@ -1,4 +1,4 @@
-// SOURCES: src/fpga/services/dump/dump_engine.sv src/fpga/services/dump/dump_buffer.sv src/fpga/services/dump/dump_path_gen.sv src/fpga/services/dump/dump_chunk_src.sv src/fpga/services/dump/dump_checksum.sv src/fpga/services/dump/apf_file_writer.sv src/fpga/services/dump/cart_dump_gb.sv src/fpga/services/dump/cart_dump_gba.sv src/fpga/services/dump/cart_save_gb.sv src/fpga/services/dump/cart_save_gba.sv src/fpga/services/dump/dump_crc32.sv src/fpga/apf/common.v
+// SOURCES: src/fpga/services/dump/dump_engine.sv src/fpga/services/dump/dump_buffer.sv src/fpga/services/dump/dump_path_gen.sv src/fpga/services/dump/dump_chunk_src.sv src/fpga/services/dump/dump_checksum.sv src/fpga/services/dump/apf_file_writer.sv src/fpga/services/dump/cart_dump_gb.sv src/fpga/services/dump/cart_dump_gba.sv src/fpga/services/dump/cart_save_gb.sv src/fpga/services/dump/cart_save_gba.sv src/fpga/services/dump/cart_save_gba_eeprom.sv src/fpga/services/dump/gba_eeprom_io.sv src/fpga/services/dump/dump_crc32.sv src/fpga/apf/common.v
 //
 // tb_dump_engine.sv - a whole file, end to end, through both clock domains
 //
@@ -129,6 +129,11 @@ dump_engine #(
     .title (title), .cart_kind (cart_kind),
     .cart_type (cart_type), .rom_size_code (rom_size_code),
     .platform_gba (plat_gba), .gba_size_bytes (gba_size),
+    // EEPROM is not exercised here: tb_cart_save_gba_eeprom covers the reader
+    // and tb_gba_eeprom_probe the width. What matters at this level is that
+    // the engine still picks the SRAM reader when the save is not EEPROM.
+    .gba_save_is_eeprom (1'b0), .gba_save_addr_bits (4'd14),
+    .cart_mode (1'b1),
     .crc32 (crc32), .crc_checked (crc_checked),
     .busy (busy), .done (done), .failed (failed), .err (err),
     .fail_chunk (fail_chunk), .chunks_done (chunks_done),

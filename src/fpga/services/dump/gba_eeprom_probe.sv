@@ -28,6 +28,12 @@ module gba_eeprom_probe (
 
     input  wire        start,
 
+    // A dump takes the GBA bus away through core_top's mux, so a probe running
+    // underneath one would wait on a bus_done that never comes and sit busy
+    // for ever. Same abort as gba_save_scan, and for the same reason: this is
+    // exactly how the save scan froze the core twice.
+    input  wire        abort,
+
     output reg         busy,
     output reg         done,
 
@@ -91,6 +97,15 @@ always @(posedge clk) begin
         found      <= 1'b0;
         io_flush   <= 1'b0;
         io_bits    <= 4'd6;
+    end else if (busy && abort) begin
+        // Stops without clearing a result, because abort only fires while
+        // busy and busy means there is no result yet. Resetting on a dump is
+        // what threw away a finished save scan and made the save button
+        // vanish after every ROM dump.
+        state   <= ST_IDLE;
+        busy    <= 1'b0;
+        waiting <= 1'b0;
+        found   <= 1'b0;
     end else if (busy && !cart_mode) begin
         // The connector left GBA mode. gba_cart_bus has reset itself and will
         // never raise done, so stop rather than hang.

@@ -49,7 +49,7 @@ endtask
 
 gba_eeprom_probe dut (
     .clk (clk), .reset (reset), .cart_mode (cart_mode),
-    .start (start),
+    .start (start), .abort (1'b0),
     .busy (busy), .done (done),
     .size_bytes (size_bytes), .addr_bits (addr_bits), .found (found),
     .bus_req (bus_req), .bus_wr (bus_wr), .bus_addr (bus_addr),

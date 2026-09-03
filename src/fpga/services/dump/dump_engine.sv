@@ -104,6 +104,20 @@ module dump_engine #(
     // Latched at start for the same reason gba_size_bytes is.
     input  wire [31:0] gba_save_size_bytes,
 
+    // EEPROM is a different reader, not a different size. It is serial, it
+    // lives in its own space rather than the save window, and it is addressed
+    // by writing the block number in a bit at a time. Both come from
+    // gba_eeprom_probe, because nothing in a cartridge says which width the
+    // chip has. Latched at start with everything else.
+    input  wire        gba_save_is_eeprom,
+    input  wire [3:0]  gba_save_addr_bits,
+
+    // The connector's actual state, for the EEPROM reader's abandon guard.
+    // The other readers do not need it: they are held in reset by an abort,
+    // and an abort is what a mode loss produces. The EEPROM reader waits on a
+    // chip through a bus that stops answering, so it checks for itself.
+    input  wire        cart_mode,
+
     output reg         busy,
     output reg         done,              // one cycle
     output reg         failed,
@@ -325,11 +339,13 @@ reg         gba_l;          // which reader this dump is using, latched
 reg [1:0]   kind_l;         // which system, for the extension, latched
 reg  [31:0] gsize_l;        // the probed size, latched
 reg  [31:0] gssize_l;       // the GBA save size, latched
+reg         eeprom_l;       // this save is EEPROM, latched
+reg  [3:0]  eebits_l;       // its address width, latched
 
 // Three sources, one number, and everything downstream - the chunk count, the
 // progress bar, the length in the APF open struct - reads only this one.
 assign total_bytes = sel_l            ? SELFTEST_BYTES :
-                     (gba_l & save_l) ? gsv_bytes :
+                     (gba_l & save_l) ? (eeprom_l ? gee_bytes : gsv_bytes) :
                      save_l           ? save_bytes :
                      gba_l            ? gsize_l : rom_bytes;
 
@@ -455,6 +471,8 @@ always @(posedge clk_sys) begin
         kind_l     <= 2'd0;
         gsize_l    <= 32'd0;
         gssize_l   <= 32'd0;
+        eeprom_l   <= 1'b0;
+        eebits_l   <= 4'd14;
         go_toggle  <= 1'b0;
         hold       <= 5'd0;
         wake       <= 32'd0;
@@ -501,6 +519,8 @@ always @(posedge clk_sys) begin
                     kind_l     <= cart_kind;
                     gsize_l    <= gba_size_bytes;
                     gssize_l   <= gba_save_size_bytes;
+                    eeprom_l   <= gba_save_is_eeprom;
+                    eebits_l   <= gba_save_addr_bits;
                     arm        <= 1'b1;
                     if (selftest) begin
                         ss <= SS_PATH;
@@ -656,8 +676,8 @@ wire [7:0] src_data;
 wire       src_valid;
 wire       src_ready;
 wire       rd_busy, rd_done;
-wire [7:0] gb_data, gba_data, gsv_data;
-wire       gb_valid, gba_valid, gsv_valid;
+wire [7:0] gb_data, gba_data, gsv_data, gee_data;
+wire       gb_valid, gba_valid, gsv_valid, gee_valid;
 wire       gb_busy, gb_done, gba_rd_busy, gba_rd_done;
 wire       gsv_busy, gsv_done;
 wire [31:0] gsv_bytes;
@@ -670,6 +690,15 @@ wire        gdmp_req, gdmp_wr;
 wire [27:0] gdmp_addr;
 wire [1:0]  gdmp_acc;
 wire [31:0] gdmp_wdata;
+wire        gee_busy, gee_done;
+wire [31:0] gee_bytes;
+wire        gee_responded, gee_blank_ff, gee_blank_00;
+wire [31:0] gee_first;
+wire        gee_req, gee_wr;
+wire [27:0] gee_addr;
+wire [1:0]  gee_acc;
+wire [31:0] gee_wdata;
+
 wire        gsv_req, gsv_wr;
 wire [27:0] gsv_addr;
 wire [1:0]  gsv_acc;
@@ -698,7 +727,8 @@ wire [31:0] save_bytes;
 wire rd_start_gb     = rd_start & ~gba_l & ~save_l;
 wire rd_start_gba    = rd_start &  gba_l & ~save_l;
 wire rd_start_sv     = rd_start & ~gba_l &  save_l;
-wire rd_start_gba_sv = rd_start &  gba_l &  save_l;
+wire rd_start_gba_sv = rd_start &  gba_l &  save_l & ~eeprom_l;
+wire rd_start_gba_ee = rd_start &  gba_l &  save_l &  eeprom_l;
 
 // Held in reset by an abort rather than given an abort input of its own: it
 // is stalled waiting for a bus_done that is not coming, and a reset is the
@@ -818,31 +848,65 @@ cart_save_gba reader_gba_save (
     .out_ready   ( src_ready )
 );
 
-// Two masters on the GBA bus, one of them ever started, so this is a mux
+// The EEPROM save reader. It writes to the cartridge and the other two do
+// not, which is the protocol rather than a relaxation: the block number is
+// clocked in a bit at a time and there is no other way to ask for one.
+// gba_eeprom_io underneath it cannot express a write command.
+cart_save_gba_eeprom reader_gba_eeprom (
+    .clk         ( clk_sys ),
+    .reset       ( reset_sys | abort_l ),
+    .cart_mode   ( cart_mode ),
+    .start       ( rd_start_gba_ee ),
+    .size_bytes  ( gssize_l ),
+    .addr_bits   ( eebits_l ),
+    .busy        ( gee_busy ),
+    .done        ( gee_done ),
+    .total_bytes ( gee_bytes ),
+    .responded   ( gee_responded ),
+    .blank_ff    ( gee_blank_ff ),
+    .blank_00    ( gee_blank_00 ),
+    .first_word  ( gee_first ),
+    .bus_req     ( gee_req ),
+    .bus_wr      ( gee_wr ),
+    .bus_addr    ( gee_addr ),
+    .bus_acc     ( gee_acc ),
+    .bus_wdata   ( gee_wdata ),
+    .bus_rdata   ( gba_rdata ),
+    .bus_done    ( gba_done ),
+    .bus_busy    ( gba_busy ),
+    .out_data    ( gee_data ),
+    .out_valid   ( gee_valid ),
+    .out_ready   ( src_ready )
+);
+
+// Three masters on the GBA bus, one of them ever started, so this is a mux
 // rather than an arbiter, the same as the GB side above.
-assign gba_req   = save_l ? gsv_req   : gdmp_req;
-assign gba_wr    = save_l ? gsv_wr    : gdmp_wr;
-assign gba_addr  = save_l ? gsv_addr  : gdmp_addr;
-assign gba_acc   = save_l ? gsv_acc   : gdmp_acc;
-assign gba_wdata = save_l ? gsv_wdata : gdmp_wdata;
+wire gba_ee_l = save_l & eeprom_l;
+assign gba_req   = gba_ee_l ? gee_req   : save_l ? gsv_req   : gdmp_req;
+assign gba_wr    = gba_ee_l ? gee_wr    : save_l ? gsv_wr    : gdmp_wr;
+assign gba_addr  = gba_ee_l ? gee_addr  : save_l ? gsv_addr  : gdmp_addr;
+assign gba_acc   = gba_ee_l ? gee_acc   : save_l ? gsv_acc   : gdmp_acc;
+assign gba_wdata = gba_ee_l ? gee_wdata : save_l ? gsv_wdata : gdmp_wdata;
 
 // The stream below here has never cared which platform it came from, and
 // still does not: one byte, one valid, one ready.
 wire gba_sv_l = gba_l & save_l;
-assign src_data  = gba_sv_l ? gsv_data : gba_l ? gba_data    : save_l ? sv_data  : gb_data;
-assign src_valid = gba_sv_l ? gsv_valid: gba_l ? gba_valid   : save_l ? sv_valid : gb_valid;
-assign rd_busy   = gba_sv_l ? gsv_busy : gba_l ? gba_rd_busy : save_l ? sv_busy  : gb_busy;
-assign rd_done   = gba_sv_l ? gsv_done : gba_l ? gba_rd_done : save_l ? sv_done  : gb_done;
+wire gba_ee    = gba_sv_l &  eeprom_l;
+wire gba_ram   = gba_sv_l & ~eeprom_l;
+assign src_data  = gba_ee ? gee_data : gba_ram ? gsv_data : gba_l ? gba_data    : save_l ? sv_data  : gb_data;
+assign src_valid = gba_ee ? gee_valid: gba_ram ? gsv_valid: gba_l ? gba_valid   : save_l ? sv_valid : gb_valid;
+assign rd_busy   = gba_ee ? gee_busy : gba_ram ? gsv_busy : gba_l ? gba_rd_busy : save_l ? sv_busy  : gb_busy;
+assign rd_done   = gba_ee ? gee_done : gba_ram ? gsv_done : gba_l ? gba_rd_done : save_l ? sv_done  : gb_done;
 
 // The evidence follows whichever reader ran, for the same reason the stream
 // does. These were wired straight from the GB reader once, and the screen
 // reported SAVE RAM DID NOT ANSWER over a Golden Sun Flash backup that had
 // worked, because cart_save_gb had never run and was still holding its idle
 // values.
-assign save_responded = gba_sv_l ? gsv_responded : sv_responded;
-assign save_blank_ff  = gba_sv_l ? gsv_blank_ff  : sv_blank_ff;
-assign save_blank_00  = gba_sv_l ? gsv_blank_00  : sv_blank_00;
-assign save_first     = gba_sv_l ? gsv_first     : sv_first;
+assign save_responded = gba_ee ? gee_responded : gba_sv_l ? gsv_responded : sv_responded;
+assign save_blank_ff  = gba_ee ? gee_blank_ff  : gba_sv_l ? gsv_blank_ff  : sv_blank_ff;
+assign save_blank_00  = gba_ee ? gee_blank_00  : gba_sv_l ? gsv_blank_00  : sv_blank_00;
+assign save_first     = gba_ee ? gee_first     : gba_sv_l ? gsv_first     : sv_first;
 
 // Which bus SS_END has to see go idle before it drops the mode.
 wire dump_bus_busy = gba_l ? gba_busy : bus_busy;

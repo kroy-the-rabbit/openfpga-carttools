@@ -632,6 +632,11 @@ wire        save_scan_busy;
 // cart_engine_busy needs it and that has to sit next to cart_probe, the same
 // reason sz_start is declared up here.
 wire        save_scan_start;
+wire        ee_probe_busy, ee_probe_start;
+wire        ee_req, ee_wr;
+wire [27:0] ee_addr;
+wire [1:0]  ee_acc;
+wire [31:0] ee_wdata;
 wire        scn_req, scn_wr;
 wire [27:0] scn_addr;
 wire [1:0]  scn_acc;
@@ -641,11 +646,11 @@ wire [31:0] scn_wdata;
 // then the save scan, then the size probe, then identification. The save scan
 // is started by the size probe finishing, so those two are never both busy
 // and the order between them states intent rather than arbitrating.
-wire        gba_req_mux   = dump_busy ? gdmp_req   : save_scan_busy ? scn_req   : probe_sizing ? sz_req   : id_req;
-wire        gba_wr_mux    = dump_busy ? gdmp_wr    : save_scan_busy ? scn_wr    : probe_sizing ? sz_wr    : id_wr;
-wire [27:0] gba_addr_mux  = dump_busy ? gdmp_addr  : save_scan_busy ? scn_addr  : probe_sizing ? sz_addr  : id_addr;
-wire [1:0]  gba_acc_mux   = dump_busy ? gdmp_acc   : save_scan_busy ? scn_acc   : probe_sizing ? sz_acc   : id_acc;
-wire [31:0] gba_wdata_mux = dump_busy ? gdmp_wdata : save_scan_busy ? scn_wdata : probe_sizing ? sz_wdata : id_wdata;
+wire        gba_req_mux   = dump_busy ? gdmp_req   : ee_probe_busy ? ee_req   : save_scan_busy ? scn_req   : probe_sizing ? sz_req   : id_req;
+wire        gba_wr_mux    = dump_busy ? gdmp_wr    : ee_probe_busy ? ee_wr    : save_scan_busy ? scn_wr    : probe_sizing ? sz_wr    : id_wr;
+wire [27:0] gba_addr_mux  = dump_busy ? gdmp_addr  : ee_probe_busy ? ee_addr  : save_scan_busy ? scn_addr  : probe_sizing ? sz_addr  : id_addr;
+wire [1:0]  gba_acc_mux   = dump_busy ? gdmp_acc   : ee_probe_busy ? ee_acc   : save_scan_busy ? scn_acc   : probe_sizing ? sz_acc   : id_acc;
+wire [31:0] gba_wdata_mux = dump_busy ? gdmp_wdata : ee_probe_busy ? ee_wdata : save_scan_busy ? scn_wdata : probe_sizing ? sz_wdata : id_wdata;
 
 // High while a write beat is live on the GBA bus. Used to hold the mode
 // request still, below.
@@ -720,7 +725,8 @@ wire        save_scan_want_gba;
 // cart_pins begins a turnaround nobody wanted.
 wire [1:0]  cart_mode_req_raw = (dump_want_mode != 2'b00) ? dump_want_mode :
                                 (sz_want_gba | save_scan_want_gba |
-                                 save_scan_start)          ? 2'b01
+                                 save_scan_start |
+                                 ee_probe_busy | ee_probe_start) ? 2'b01
                                                            : probe_mode;
 
 // A mode change tears the pins down, and gb_mode_s and gba_mode_s below are
@@ -1217,6 +1223,37 @@ gba_save_scan save_scanner (
 // currently in the slot. Cleared when cart_probe starts, which is what the A
 // button does, so a result can never outlive the cartridge it describes. That
 // is the same rule the dump result on screen already follows.
+// EEPROM needs a second question the scan cannot answer: 512 B or 8 KiB. Ask
+// the chip, once, on the edge the scan finishes having found EEPROM. Held off
+// an ambiguous cartridge for the same reason the accept condition is: a
+// cartridge carrying two families of string is refused, not guessed at.
+assign ee_probe_start = save_scan_done && svs_eeprom && !svs_ambiguous;
+
+wire [31:0] ee_size_bytes;
+wire [3:0]  ee_addr_bits;
+wire        ee_found;
+
+gba_eeprom_probe ee_probe (
+    .clk        ( clk_sys ),
+    .reset      ( ~pll_core_locked | scan_start ),
+    .cart_mode  ( gba_mode_s ),
+    .start      ( ee_probe_start ),
+    .abort      ( dump_busy ),
+    .busy       ( ee_probe_busy ),
+    .done       (  ),
+    .size_bytes ( ee_size_bytes ),
+    .addr_bits  ( ee_addr_bits ),
+    .found      ( ee_found ),
+    .bus_req    ( ee_req ),
+    .bus_wr     ( ee_wr ),
+    .bus_addr   ( ee_addr ),
+    .bus_acc    ( ee_acc ),
+    .bus_wdata  ( ee_wdata ),
+    .bus_rdata  ( cart_bus_rdata ),
+    .bus_done   ( cart_bus_done ),
+    .bus_busy   ( cart_bus_busy )
+);
+
 reg save_scan_valid;
 always @(posedge clk_sys) begin
     if (~pll_core_locked)        save_scan_valid <= 1'b0;
@@ -1243,18 +1280,25 @@ end
 //   FLASH1M_V   its first 64 KiB would read fine, but the second bank needs
 //               0xB0 then a bank number written to 0x0E000000. Half a save is
 //               worse than none, so the whole thing waits.
-//   EEPROM_V    the address is clocked into the chip a bit at a time, so
-//               reading it starts with writing to it. It also does not say
-//               whether it is 512 B or 8 KiB.
+// EEPROM_V is accepted now. Reading it does start with writing to it, because
+// the block number is clocked in a bit at a time and there is no other way to
+// ask for one, but what is written is only ever a read request and
+// gba_eeprom_io cannot express a write command. The size the string does not
+// give comes from gba_eeprom_probe asking the chip.
 //
 // A cartridge carrying two families of string is refused rather than guessed
 // at, as before.
-wire gba_sram_ok  = svs_sram  | svs_sram_f;
-wire gba_flash_ok = svs_flash | svs_flash512;
+wire gba_sram_ok   = svs_sram  | svs_sram_f;
+wire gba_flash_ok  = svs_flash | svs_flash512;
+// The probe having found a chip is part of the condition, not just the string:
+// an EEPROM_V cartridge whose chip does not answer either width has no size,
+// and a save file of a size nobody established is worse than no save file.
+wire gba_eeprom_ok = svs_eeprom && ee_found;
 wire gba_save_ok  = save_scan_valid && !svs_ambiguous &&
-                    (gba_sram_ok || gba_flash_ok);
-wire [31:0] gba_save_size = !gba_save_ok ? 32'd0 :
-                            gba_flash_ok ? 32'd65536 : 32'd32768;
+                    (gba_sram_ok || gba_flash_ok || gba_eeprom_ok);
+wire [31:0] gba_save_size = !gba_save_ok  ? 32'd0 :
+                            gba_eeprom_ok ? ee_size_bytes :
+                            gba_flash_ok  ? 32'd65536 : 32'd32768;
 
 // A GBA cartridge that has a save this core will not read. It drives the same
 // screen row a refused GB save does, so nothing new reaches ui_screen, whose
@@ -1467,6 +1511,9 @@ dump_engine dump (
     .cart_kind     ( cart_kind ),
     .gba_size_bytes( sz_size_bytes ),
     .gba_save_size_bytes( gba_save_size ),
+    .gba_save_is_eeprom ( gba_eeprom_ok ),
+    .gba_save_addr_bits ( ee_addr_bits ),
+    .cart_mode          ( gba_mode_s ),
     .crc32         ( dump_crc32 ),
 
     .busy          ( dump_busy ),

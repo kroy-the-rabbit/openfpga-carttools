@@ -105,6 +105,27 @@ Keep that sentence.
 2. **The picker knows nothing about GBA `.sav` files**, which now exist beside
    `.gba` files at 32 KiB and 64 KiB.
 
+## Quartus, when somebody wants it
+
+The toolchain is `docker.io/raetro/quartus:21.1`, four years old. kira's
+build runner already has a locally built Quartus Prime Lite 25.1std.0, and
+`build.sh` has no hardcoded install paths, so the image swaps with an `IMAGE=`
+override and nothing else.
+
+It fails on one thing, tried 2026-09-03:
+
+    ERROR: Can't open revision: ap_core ... The revision is not compatible
+    with the installed version of the Quartus Prime software.
+
+`generate.tcl` needs `project_open -force`, which rewrites the project to the
+new version. The project files still say `QUARTUS_VERSION = "21.1"` and
+`ORIGINAL_QUARTUS_VERSION 18.1.1`.
+
+The harder problem is not that. CI pulls `raetro/quartus:21.1` from Docker Hub;
+the 25.1 image is local to kira and 10.6 GB. Moving the toolchain means CI
+needs a registry it can reach, or the release bitstream stops matching what is
+tested locally. Decide that before touching `generate.tcl`.
+
 ## Open here, not for the orchestrator
 
 - `scripts/verify_dump.py` checks a `.sav` against `0x0149` of the ROM beside
