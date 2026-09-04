@@ -227,10 +227,10 @@ module dump_engine #(
     output wire [4:0]   out_name_len,
     output wire [31:0]  out_ext,
     output wire [2:0]   out_ext_len,
-    // Changes after dump_path_gen has made the displayed name valid. The UI
-    // uses this as a one-bit repaint sequence instead of comparing 192 bits
-    // of text on its timing-sensitive repaint path.
-    output reg          out_name_seq,
+    // False from the instant a new dump starts until dump_path_gen has made
+    // this dump's name valid. The previous path remains in the generator's
+    // registers during mode and wake waits, so the UI must not expose it.
+    output reg          out_name_valid,
 
     // cart_pins must be held in the right mode for the whole dump, and
     // cart_probe must not be allowed to move it. Two bits rather than one
@@ -496,7 +496,7 @@ always @(posedge clk_sys) begin
         user_last  <= 6'd0;
         type_l     <= 8'd0;
         size_l     <= 8'd0;
-        out_name_seq <= 1'b0;
+        out_name_valid <= 1'b0;
     end else begin
         user_last <= user_combo;
         if (user_combo != user_last) known <= 1'b0;
@@ -513,6 +513,7 @@ always @(posedge clk_sys) begin
                     no_open    <= 1'b0;
                     skip_open  <= 1'b0;
                     stall_at   <= 2'd0;
+                    out_name_valid <= 1'b0;
                     sel_l      <= selftest;
                     save_l     <= save_mode;
                     tries      <= 8'd0;
@@ -571,8 +572,8 @@ always @(posedge clk_sys) begin
             // start toggle takes to cross. Both are covered by waiting here.
             SS_HOLD: begin
                 if (path_done) begin
-                    hold         <= 5'd31;
-                    out_name_seq <= ~out_name_seq;
+                    hold           <= 5'd31;
+                    out_name_valid <= 1'b1;
                 end
                 else if (hold != 5'd0) hold <= hold - 5'd1;
                 if (hold == 5'd1) ss <= SS_GO;

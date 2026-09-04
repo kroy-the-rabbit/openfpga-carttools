@@ -124,7 +124,7 @@ module ui_screen #(
     input  wire [4:0]   out_name_len,
     input  wire [31:0]  out_ext,
     input  wire [2:0]   out_ext_len,
-    input  wire         out_name_seq,    // changes when the name becomes valid
+    input  wire         out_name_valid,  // belongs to the current dump
 
 
     // Text buffer write port
@@ -317,8 +317,8 @@ endfunction
 // is not: they are latched at the start of a save and read at the end of it,
 // so they cannot move without dump_state moving with them. out_name and
 // out_ext are the exception: path generation finishes after dump_state enters
-// RUN, so out_name_seq repaints once those fields are valid without putting
-// their 192 bits here.
+// RUN, so out_name_valid repaints once those fields belong to this dump
+// without putting their 192 bits here.
 wire [39:0] snapshot = {valid, scanning, platform, id_seq,
                         save_ready, save_shown, save_refused,
                         // The probed size, as a code. Four bits, and they are
@@ -330,7 +330,7 @@ wire [39:0] snapshot = {valid, scanning, platform, id_seq,
                         sum_checked, sum_ok, sum_computed[7:0],
                         // Four bits, because the bar has sixteen cells and
                         // changes only when they do.
-                        dump_progress[7:4], dump_err, out_name_seq};
+                        dump_progress[7:4], dump_err, out_name_valid};
 
 reg [39:0] shown;
 reg         painting;
@@ -652,7 +652,8 @@ reg       field_hit_r;
 always @(row or col or details or details_gb or title or game_code or
          maker_code or sw_version or gb_title or gb_cart_type or
          rom_txt or ram_txt or map_txt or dump_state or
-         out_name or out_name_len or out_ext or out_ext_len) begin
+         out_name or out_name_len or out_ext or out_ext_len or
+         out_name_valid) begin
     field_char_r = 8'h20;
     field_hit_r  = 1'b0;
 
@@ -662,7 +663,8 @@ always @(row or col or details or details_gb or title or game_code or
     if (row == R_TITLE && col >= 5'd26) begin
         field_hit_r  = 1'b1;
         field_char_r = hex_digit(BUILD_STAMP[4*(5'd29 - col) +: 4]);
-    end else if (row == R_FILE && dump_state != 2'd0 && dump_state != 2'd3) begin
+    end else if (row == R_FILE && out_name_valid &&
+                 dump_state != 2'd0 && dump_state != 2'd3) begin
         // The name of the file being written, or that was written. A dump
         // that says COMPLETE without naming the file leaves the reader
         // hunting the card for it.

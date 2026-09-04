@@ -1402,7 +1402,7 @@ wire [127:0] dump_out_name;
 wire [4:0]   dump_out_name_len;
 wire [31:0]  dump_out_ext;
 wire [2:0]   dump_out_ext_len;
-wire         dump_out_name_seq;
+wire         dump_out_name_valid;
 wire [31:0]  dump_crc32;
 wire         dump_save_supported;
 wire         dump_save_responded;
@@ -1623,7 +1623,7 @@ dump_engine dump (
     .out_name_len     ( dump_out_name_len ),
     .out_ext          ( dump_out_ext ),
     .out_ext_len      ( dump_out_ext_len ),
-    .out_name_seq     ( dump_out_name_seq ),
+    .out_name_valid   ( dump_out_name_valid ),
 
     .want_mode     ( dump_want_mode ),
     .mode_ready    ( cart_mode_ready ),
@@ -1719,7 +1719,7 @@ ui_screen screen (
     .out_name_len    ( dump_out_name_len ),
     .out_ext         ( dump_out_ext ),
     .out_ext_len     ( dump_out_ext_len ),
-    .out_name_seq    ( dump_out_name_seq ),
+    .out_name_valid  ( dump_out_name_valid ),
     .dump_err        ( dump_err ),
     .dump_fail_chunk ( dump_fail_chunk ),
     .no_open         ( dump_no_open ),
