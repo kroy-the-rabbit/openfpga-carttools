@@ -69,3 +69,30 @@ corpus identity.
 The older categorized `Tetris Worlds (USA).sav` is 65,536 bytes of `FF` only.
 It is an empty emulator allocation and is not evidence that the physical
 cartridge contains save hardware.
+
+## Batch 2, 2026-09-03
+
+Core commit: `ff8c8f0`
+
+Local evidence: `build/corpus/batch-02/`
+
+Collection stopped after two cartridges because the core exposed a visible UI
+defect and a behavioral defect. Both collected ROMs pass their platform header
+checks and match No-Intro on CRC32 and byte length. Both cartridges produced
+nonblank saves of the sizes required by their cartridge headers. Both saves
+pass verification. Batch 2 closes at two of two cartridges passing, with no
+missing-save exceptions.
+
+### ROMs
+
+| Result | Dump | No-Intro identity | Hardware identity | Bytes | CRC32 | SHA-256 |
+|---|---|---|---|---:|---|---|
+| PASS | `ZELDA.gbc` | Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 1) (SGB Enhanced) (GB Compatible) | GBC, MBC5+RAM+BAT type `1B`, RAM code `03` | 1,048,576 | `B38EB9DE` | `6285ba6201f17bc8595c600ebc2477d52561f0aff29b11f7fc3343bacb2e230b` |
+| PASS | `ZELDA_DIN__AZ7E.gbc` | Legend of Zelda, The - Oracle of Seasons (USA, Australia) | GBC, MBC5+RAM+BAT type `1B`, RAM code `02` | 1,048,576 | `D7E9F5D7` | `862a51368fb30539279d336b3fe193b43876d2cb15c87a36f5da517804ab3971` |
+
+### Save verification
+
+| Dump | Technology | Bytes | CRC32 | SHA-256 | Result |
+|---|---|---:|---|---|---|
+| `ZELDA.sav` | MBC5 RAM, four 8 KiB banks | 32,768 | `E8BBE64B` | `a172e041e2a6f158aa79a603b88fb1860ae5fc25ce80bd23700d346543e0958c` | PASS |
+| `ZELDA_DIN__AZ7E.sav` | MBC5 RAM, one 8 KiB bank | 8,192 | `57193E99` | `71f20fe37dc84600733db4ad56a30e629332d337a07d09bd0e0311a4f027fea7` | PASS |
