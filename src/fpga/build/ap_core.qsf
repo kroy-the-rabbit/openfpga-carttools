@@ -827,6 +827,7 @@ set_global_assignment -name QIP_FILE ../apf/apf.qip
 
 # Core integration
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/core_top.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../core/cart_action_guard.sv
 set_global_assignment -name VERILOG_FILE ../core/core_bridge_cmd.v
 set_global_assignment -name SDC_FILE ../core/core_constraints.sdc
 set_global_assignment -name QIP_FILE ../core/mf_pllbase.qip

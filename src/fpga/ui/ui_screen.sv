@@ -124,6 +124,7 @@ module ui_screen #(
     input  wire [4:0]   out_name_len,
     input  wire [31:0]  out_ext,
     input  wire [2:0]   out_ext_len,
+    input  wire         out_name_seq,    // changes when the name becomes valid
 
 
     // Text buffer write port
@@ -302,7 +303,7 @@ endfunction
 //
 // Every header field, on both platforms, changes only when a probe completes
 // and id_seq counts those, so none of them are compared here. A 320 bit
-// comparator made this the critical path of the core; 39 bits does not.
+// comparator made this the critical path of the core; 40 bits does not.
 //
 // The dump fields are here for the reason the identification fields are not:
 // they change without a probe completing, so id_seq does not cover them.
@@ -314,8 +315,11 @@ endfunction
 // with no dump running. save_shown is here because it changes which verdict
 // row 13 carries. The rest of the save fields are not, for the reason crc32
 // is not: they are latched at the start of a save and read at the end of it,
-// so they cannot move without dump_state moving with them.
-wire [38:0] snapshot = {valid, scanning, platform, id_seq,
+// so they cannot move without dump_state moving with them. out_name and
+// out_ext are the exception: path generation finishes after dump_state enters
+// RUN, so out_name_seq repaints once those fields are valid without putting
+// their 192 bits here.
+wire [39:0] snapshot = {valid, scanning, platform, id_seq,
                         save_ready, save_shown, save_refused,
                         // The probed size, as a code. Four bits, and they are
                         // needed: the size arrives after the probe that
@@ -326,9 +330,9 @@ wire [38:0] snapshot = {valid, scanning, platform, id_seq,
                         sum_checked, sum_ok, sum_computed[7:0],
                         // Four bits, because the bar has sixteen cells and
                         // changes only when they do.
-                        dump_progress[7:4], dump_err};
+                        dump_progress[7:4], dump_err, out_name_seq};
 
-reg [38:0] shown;
+reg [39:0] shown;
 reg         painting;
 
 // ---- Where the painter is -------------------------------------------------
@@ -818,7 +822,7 @@ always @(posedge clk) begin
         col_c    <= 5'd0;
         addr_c   <= 10'd0;
         paint_r  <= 1'b0;
-        shown    <= {39{1'b1}};   // deliberately not a reachable snapshot
+        shown    <= {40{1'b1}};   // deliberately not a reachable snapshot
         tb_we    <= 1'b0;
     end else begin
         tb_we <= 1'b0;

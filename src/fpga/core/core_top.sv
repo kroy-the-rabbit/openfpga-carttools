@@ -987,11 +987,25 @@ wire        probe_done;
 // user wait for it.
 wire        cart_engine_busy = probe_busy | probe_sizing | sz_start;
 
+// A file action is accepted from the current screen state, but it first
+// requests a new probe. The guard holds the action until the newly read
+// cartridge has completed every identification step that action needs.
+wire action_scan_start;
+wire action_dump_start;
+wire action_save_mode;
+wire action_pending;
+wire action_validation_complete;
+wire action_rom_available;
+wire action_save_available;
+wire action_validated_rom_available;
+wire action_validated_save_available;
+
 // A scan is about to run: the cartridge woke, the slot changed, or A was
 // pressed. Named rather than left inline in cart_probe's instantiation
 // because the dump display has to clear on exactly the same event, and two
 // copies of this expression would drift.
-wire        scan_start = (cart_wake_pulse | cart_mode_fell | key_a_edge) &
+wire        scan_start = (cart_wake_pulse | cart_mode_fell | key_a_edge |
+                          action_scan_start) &
                          ~dump_busy & ~probe_sizing & ~sz_start;
 wire [2:0]  platform;
 wire        gb_start, gba_start;
@@ -1232,6 +1246,7 @@ assign ee_probe_start = save_scan_done && svs_eeprom && !svs_ambiguous;
 wire [31:0] ee_size_bytes;
 wire [3:0]  ee_addr_bits;
 wire        ee_found;
+wire        ee_probe_done;
 
 gba_eeprom_probe ee_probe (
     .clk        ( clk_sys ),
@@ -1240,7 +1255,7 @@ gba_eeprom_probe ee_probe (
     .start      ( ee_probe_start ),
     .abort      ( dump_busy ),
     .busy       ( ee_probe_busy ),
-    .done       (  ),
+    .done       ( ee_probe_done ),
     .size_bytes ( ee_size_bytes ),
     .addr_bits  ( ee_addr_bits ),
     .found      ( ee_found ),
@@ -1387,6 +1402,7 @@ wire [127:0] dump_out_name;
 wire [4:0]   dump_out_name_len;
 wire [31:0]  dump_out_ext;
 wire [2:0]   dump_out_ext_len;
+wire         dump_out_name_seq;
 wire [31:0]  dump_crc32;
 wire         dump_save_supported;
 wire         dump_save_responded;
@@ -1405,15 +1421,19 @@ wire [31:0]  dump_save_first;
 // GBA cartridge are both ordinary, so a file named only after its length
 // tells a reader nothing.
 wire [1:0] cart_kind =
-    want_save                                                   ? 2'd3 :
+    action_save_mode                                            ? 2'd3 :
     (platform == 3'd1)                                          ? 2'd2 :
     (gbid_cgb_flag == 8'h80 || gbid_cgb_flag == 8'hC0)          ? 2'd1 : 2'd0;
 
-wire dump_ready = id_valid && !cart_engine_busy &&
-                  ((platform == 3'd2) ||
-                   ((platform == 3'd1) && sz_size_valid));
+assign action_rom_available = id_valid &&
+                              ((platform == 3'd2) ||
+                               ((platform == 3'd1) && sz_size_valid));
 
-wire want_rom_dump = key_x_edge && dump_ready && !dump_busy;
+// Hide both actions while one is being revalidated. The displayed readiness
+// is for accepting a new press; the guard separately receives the raw result
+// of the fresh scan when deciding whether the queued action is allowed.
+wire dump_ready = action_rom_available && !cart_engine_busy &&
+                  !dump_busy && !action_pending;
 
 // Y only when this cartridge has a save this core can actually read, which is
 // a stricter condition than dump_ready and false for most cartridges: GB or
@@ -1425,9 +1445,11 @@ wire want_rom_dump = key_x_edge && dump_ready && !dump_busy;
 // cartridge. dump_save_supported is live off the GB header; gba_save_ok comes
 // from the ROM scan and is false until that scan has finished, so Y is absent
 // rather than inert during the scan.
-wire save_ready = dump_ready &&
-                  (((platform == 3'd2) && dump_save_supported) ||
-                   ((platform == 3'd1) && gba_save_ok));
+assign action_save_available = action_rom_available &&
+                               (((platform == 3'd2) && dump_save_supported) ||
+                                ((platform == 3'd1) && gba_save_ok));
+wire save_ready = action_save_available && !cart_engine_busy &&
+                  !dump_busy && !action_pending;
 
 // A cartridge that has a save and is refused anyway. MBC2's RAM lives inside
 // the mapper and reports 0x00 at 0x0149, so the type has to be asked as well
@@ -1437,9 +1459,50 @@ wire gb_has_ram = (gbid_ram_size != 8'd0) ||
                   ((gbid_cart_type >= 8'h05) && (gbid_cart_type <= 8'h06));
 wire save_refused = (id_valid && (platform == 3'd2) && gb_has_ram &&
                      !dump_save_supported) || gba_save_refused;
-wire want_save  = key_y_edge && save_ready && !dump_busy;
 
-wire dump_start = want_rom_dump | want_save;
+// A GB action is decided by the new header probe. A GBA ROM also needs its
+// measured size. A GBA save continues through the save signature scan and,
+// when that scan finds EEPROM alone, through the EEPROM width probe. Every
+// terminal refusal completes validation without starting dump_engine.
+assign action_validation_complete = action_pending &&
+    ((platform != 3'd1) ? probe_done :
+     (!action_save_mode ? sz_done :
+      ((sz_done && !sz_size_valid) ||
+       (save_scan_done && (!svs_eeprom || svs_ambiguous || !svs_complete)) ||
+       ee_probe_done)));
+
+// These are sampled on the same edge as a completion pulse. Do not use the
+// display-valid registers here: save_scan_valid is intentionally updated from
+// save_scan_done on that edge and would still have its old value when the
+// guard samples it. The producer results themselves are already stable while
+// their done pulse is high.
+assign action_validated_rom_available =
+    (platform == 3'd2) || ((platform == 3'd1) && sz_size_valid);
+assign action_validated_save_available = action_validated_rom_available &&
+    (((platform == 3'd2) && dump_save_supported) ||
+     ((platform == 3'd1) &&
+      ((save_scan_done && svs_complete && !svs_ambiguous &&
+        !svs_eeprom && (gba_sram_ok || gba_flash_ok)) ||
+       (ee_probe_done && gba_save_ok))));
+
+cart_action_guard action_guard (
+    .clk                      ( clk_sys ),
+    .reset                    ( ~pll_core_locked ),
+    .cancel                   ( cart_mode_change | key_a_edge ),
+    .request_rom              ( key_x_edge ),
+    .request_save             ( key_y_edge ),
+    .rom_available            ( dump_ready ),
+    .save_available           ( save_ready ),
+    .validation_complete      ( action_validation_complete ),
+    .validated_rom_available  ( action_validated_rom_available ),
+    .validated_save_available ( action_validated_save_available ),
+    .scan_start               ( action_scan_start ),
+    .dump_start               ( action_dump_start ),
+    .save_mode                ( action_save_mode ),
+    .pending                  ( action_pending )
+);
+
+wire dump_start = action_dump_start;
 
 // What the screen says. Kept here rather than derived from busy and failed so
 // that the result of the last dump stays on the display after it finishes.
@@ -1468,7 +1531,7 @@ localparam [1:0] D_FAIL = 2'd3;
 reg dump_was_save;
 always @(posedge clk_sys) begin
     if (~pll_core_locked)  dump_was_save <= 1'b0;
-    else if (dump_start)   dump_was_save <= want_save;
+    else if (dump_start)   dump_was_save <= action_save_mode;
 end
 
 reg [1:0] dump_state;
@@ -1493,7 +1556,7 @@ dump_engine dump (
     // tied off here, Quartus folds it and everything it reaches out of the
     // bitstream, which is what removing the Y self test means in hardware.
     .selftest      ( 1'b0 ),
-    .save_mode     ( want_save ),
+    .save_mode     ( action_save_mode ),
     .byte_order    ( byte_order ),
     .path_style    ( path_style ),
     // dump_path_gen takes fifteen title bytes because that is what a GB
@@ -1560,6 +1623,7 @@ dump_engine dump (
     .out_name_len     ( dump_out_name_len ),
     .out_ext          ( dump_out_ext ),
     .out_ext_len      ( dump_out_ext_len ),
+    .out_name_seq     ( dump_out_name_seq ),
 
     .want_mode     ( dump_want_mode ),
     .mode_ready    ( cart_mode_ready ),
@@ -1655,6 +1719,7 @@ ui_screen screen (
     .out_name_len    ( dump_out_name_len ),
     .out_ext         ( dump_out_ext ),
     .out_ext_len     ( dump_out_ext_len ),
+    .out_name_seq    ( dump_out_name_seq ),
     .dump_err        ( dump_err ),
     .dump_fail_chunk ( dump_fail_chunk ),
     .no_open         ( dump_no_open ),

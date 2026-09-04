@@ -63,6 +63,7 @@ reg  [127:0] out_name = 128'd0;
 reg  [4:0]   out_name_len = 5'd0;
 reg  [31:0]  out_ext = 32'd0;
 reg  [2:0]   out_ext_len = 3'd0;
+reg          out_name_seq = 1'b0;
 reg  [3:0]   gba_size_code = 4'd0;
 reg  [31:0]  crc32 = 32'd0;
 
@@ -122,6 +123,7 @@ ui_screen dut (
     .out_name_len    ( out_name_len ),
     .out_ext         ( out_ext ),
     .out_ext_len     ( out_ext_len ),
+    .out_name_seq    ( out_name_seq ),
     .tb_addr    ( tb_addr ),
     .tb_char    ( tb_char ),
     .tb_attr    ( tb_attr ),
@@ -370,6 +372,23 @@ initial begin
     // Named while it is being written, not only afterwards. A dump that says
     // COMPLETE without naming the file leaves the reader hunting the card.
     expect_row("dumping", 12, "ZELDA.gb                      ");
+
+    // Path generation completes after dump_state enters RUN. The extension
+    // can therefore be the previous operation's value at the first repaint.
+    // A name sequence change must repaint even when no other display input
+    // changes.
+    out_ext      = ".sav";
+    out_ext_len  = 3'd4;
+    out_name_seq = ~out_name_seq;
+    settle();
+    expect_row("save name becomes valid", 12,
+               "ZELDA.sav                     ");
+    out_ext      = ".gb ";
+    out_ext_len  = 3'd3;
+    out_name_seq = ~out_name_seq;
+    settle();
+    expect_row("ROM name restored", 12,
+               "ZELDA.gb                      ");
 
     dump_progress = 8'hC0;
     settle();
