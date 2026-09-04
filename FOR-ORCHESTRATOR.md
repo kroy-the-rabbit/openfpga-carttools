@@ -4,24 +4,22 @@ What `pocket-dev` needs to cut a release of `pocket-cartridge`. Written
 2026-09-02, at `70f03eb`. The full record is `docs/HANDOFF.md`, then
 `docs/STATUS.md`.
 
-## Stop: GBA cartridge identification is not release-ready
+## Hold: GBA safety-gate fix passed its reproducer, wider regression pending
 
-The current branch is `gba-eeprom-save`. Commit `c745719` is the latest
-hardware build, stamp `C745`. It added the native GBA core's weak pull-ups to
-the 16 multiplexed cartridge AD pins, but hardware verification still failed:
-SimCity 2000, The Minish Cap, and NHL 2002 needed repeated scans to resolve,
-and Zero Mission never resolved.
+The current branch is `gba-eeprom-save`. Commit `250d6a0`, stamp `250D`, is
+the hardware candidate. Diagnostic build `21a0da6` proved that intermittent
+GBA identification was failing in the preliminary GB safety gate, not the GBA
+header reader. Weak pull-ups on the sampled bank improved recognition from
+roughly one in ten rescans to four or five in ten. `250d6a0` actively
+precharges that floating bank to `FF` with both strobes inactive, then releases
+it during the setup interval before `/RD` falls. The reproducing cartridge
+could not be made to fail under repeated manual rescans.
 
-This is not a Quartus 25.1 regression. The exact archived pre-25.1 `e510c8e`
-bitstream was reinstalled and showed the same broad inconsistency. The failure
-also is not evidence that those cartridges are dead because their retained
-ROMs match No-Intro, their saves have loaded correctly, and they boot through
-the native cartridge path.
-
-Do not release or distribute `C745` as a fix. The next core must expose whether
-the GB-first safety gate or the GBA header reader produced a failed verdict.
-The detailed failure semantics, build hashes, preserved evidence path, and
-ordered diagnostic plan are at the top of `docs/HANDOFF.md`.
+Do not release yet. Repeat `250D` with the wider GBA set, especially NHL 2002
+and Metroid: Zero Mission, and with at least one GB or GBC control. The exact
+archived Quartus 21.1 bitstream had also reproduced the failure, so Quartus
+25.1 is excluded as the sole cause. The detailed progression, safety argument,
+build hashes, and preserved evidence path are at the top of `docs/HANDOFF.md`.
 
 All runner work must use the shared utility:
 

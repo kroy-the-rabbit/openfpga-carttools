@@ -50,6 +50,20 @@ and NHL 2002 each needed multiple manual scans before resolving; Zero Mission
 never resolved. This result leaves the broader CartTools identification path
 unstable and proves the pull-ups alone are not the fix.
 
+Commit `21a0da6` made the failed stage visible. The reproducing GBA cartridge
+reported `GB SAFETY GATE`, with only about one successful recognition in ten
+rescans. The gate reads `cart_tran_bank1` as GB `D0-D7`; on a GBA cartridge
+those pins are `A16-A23` inputs and are not driven during this safe probe.
+
+Commit `9c55408` put weak pull-ups on the actual bank 1 input. Recognition
+improved to roughly four or five scans in ten, confirming the floating path
+but not fixing it. Commit `250d6a0` then precharged bank 1 to `FF` while both
+GB strobes were inactive and released it during the 200 ns setup before each
+read. The same reproducer could not be made to fail under repeated rescans.
+The two cartridges in the table remain marked `UNSTABLE SCAN` until they are
+explicitly repeated on `250d6a0`; the retained ROM and save evidence remains
+valid throughout.
+
 ## Batch 1, 2026-09-03
 
 Core commit: `ff8c8f0`

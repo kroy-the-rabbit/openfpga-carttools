@@ -3,79 +3,57 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
-## GBA identification is broadly intermittent, 2026-09-04
+## GBA safety-gate fix passed its reproducer, broader regression pending, 2026-09-04
 
-**Do not call `c745719` fixed.** Hardware verification failed. With build stamp
-`C745`, SimCity 2000, The Minish Cap, and NHL 2002 each required multiple `A`
-button scans before CartTools resolved any cartridge. Metroid: Zero Mission
-never resolved. The behavior is not unique to the two cartridges that first
-made it obvious.
+Commit `250d6a0`, build stamp `250D`, is the current hardware candidate. The
+same GBA control that repeatedly failed under the preceding builds could not
+be made to fail under repeated manual rescans. This is a pass for the known
+reproducer, not yet a release-wide pass. Repeat it with the wider GBA set,
+especially NHL 2002 and Metroid: Zero Mission, and run at least one GB or GBC
+control before calling identification fully verified again.
 
-The change in `c745719` adds weak pull-ups to all 16 multiplexed GBA AD-bus
-pins. It copies the native GBA core constraints, whose source says floating AD
-pins can make an empty-bus probe return random data rather than all `FF`.
-That was a close match for CartTools' safe GB-first probe, which advances to
-GBA only when the GB reader sees an all-zero or all-`FF` bus. The change is
-electrically reasonable but did not make identification reliable, so it is at
-most incomplete.
+The diagnostic sequence located the defect precisely:
 
-**Quartus 25.1 is excluded.** Before building `C745`, the card was loaded with
-the exact archived pre-25.1 `e510c8e` bitstream. The installed and archived
-files both had SHA-256
-`0396d943421a0c7357fb0a15b5efa47fa38a6ffb3e569e4f90b0f7040a9ff54f`.
-That old core was also inconsistent across the wider GBA cartridge set. A new
-Quartus build cannot change an old bitstream, so the compiler transition is
-not the cause.
+1. `21a0da6` exposed whether a failure came from the GB-first safety gate or
+   the GBA header reader. Hardware reported `GB SAFETY GATE`. Only about one
+   scan in ten advanced far enough to recognize the GBA cartridge.
+2. `9c55408` added weak pull-ups to `cart_tran_bank1`, the bus actually sampled
+   as GB `D0-D7`. The success rate improved to roughly four or five scans in
+   ten, confirming the floating input path but proving weak pull-ups alone were
+   insufficient.
+3. `250d6a0` actively precharges bank 1 to `FF` while the GB bus is idle and
+   both strobes are inactive. A read releases the bus at the start of the
+   existing 200 ns address setup window, before `/RD` falls. A real GB
+   cartridge only drives these pins while `/RD` is low. The direct bus test
+   asserts the idle value, inactive strobes, release before reads, and absence
+   of contention.
 
-The hardware operator suspects the problem appeared around the filename-state
-fix or the cartridge revalidation fix. The relevant commits are `ad36998` and
-`00fe6d9`. Record that hypothesis, but do not treat it as established:
-`e510c8e` predates both commits and is also failing now. The next investigation
-must explain both facts instead of selecting one.
+The original `c745719` pull-ups on banks 2 and 3 did not address this failure.
+Those banks carry the GB address output during the safety probe. Bank 1 is GB
+data and maps to GBA `A16-A23`, which a GBA cartridge leaves as inputs. The
+partial improvement from the correct bank 1 pull-ups and the clean precharge
+result tie the failure to that floating path.
 
-**What the current error screens mean.** `UNSTABLE READ, RESEAT CART` means
-the two header reads disagreed. `UNRECOGNISED CARTRIDGE` can mean either that a
-stable header failed validation or that the GB-first safety probe saw stable
-nonblank noise and refused to switch the connector into GBA mode. The UI does
-not expose which identifier answered. `cart_probe` already has
-`answered_gba`, but that signal is not displayed.
-
-**Next work, in order:**
-
-1. Add a compact failure diagnostic that shows whether the GB gate or GBA
-   identifier produced the verdict. Preserve enough raw bytes or a short hash
-   from each of the two reads to distinguish floating-bus noise, stable bad
-   data, and read-to-read disagreement.
-2. Reproduce with one reliable GBA control plus Zero Mission. Do not make more
-   timing or retry changes until the failing stage is known.
-3. If failures come from the GB gate, investigate the physical idle value and
-   the GB-to-GBA mode transition. If they come from the GBA reader, compare
-   address latch, read setup, reset, and power sequencing against the native
-   GBA cartridge controller.
-4. Keep the pull-ups during diagnosis unless a controlled A/B test shows they
-   make behavior worse. They match the native core and remove one uncontrolled
-   floating-input condition, but the present hardware run proves they are not
-   sufficient.
+The exact archived Quartus 21.1 `e510c8e` bitstream also showed the broad
+intermittency. That excludes Quartus 25.1 as the sole explanation, while the
+successful `250D` result shows the 25.1 build can operate the reproducer
+reliably once the bus is precharged.
 
 **Build and evidence:**
 
-- Branch `gba-eeprom-save`, current code commit `c745719`.
-- `make test`: 34 run, 34 passed.
-- Built on sisko through `/home/kroy/Desktop/repos/pocket-dev/tools/runner-build`.
-- Quartus Lite 25.1 build 1129, 337 seconds, 3,917 ALMs.
-- Timing passed: setup 1.463 ns, hold 0.030 ns.
-- Package `build/cart/kroy.CartTools_0.9999.c745719.zip`, SHA-256
-  `1971511c57ec1a84d6aa5a468cca882de4c1ab9af0c13a3b7b84a1bae4f6579c`.
+- Branch `gba-eeprom-save`, current hardware candidate `250d6a0`.
+- Full runner test suite passed on sisko.
+- Built through `/home/kroy/Desktop/repos/pocket-dev/tools/runner-build`.
+- Quartus Lite 25.1 build 1129, 347 seconds, 3,901 ALMs.
+- Timing passed: setup 1.549 ns, hold 0.109 ns.
+- Package `build/cart/kroy.CartTools_0.9999.250d6a0.zip`, SHA-256
+  `2736deb674613ac268ec6e1eb873eaf30f5d4f3eca101a568fe45021b1414fff`.
 - Bitstream SHA-256
-  `5dd77f844d6d22ae2f7d7eac2fb94bda1659888de058337f3e06b0eff4952d87`.
-- The card was cleaned before `C745` was installed. The full preceding dump,
-  save, and screenshot set is preserved under
-  `build/evidence/batch-5-unstable/` and was hash-checked against the card
-  before cleanup. Do not delete or overwrite that local evidence.
-- `docs/CARTRIDGE-CORPUS.md` records Batch 5. Five carts fully pass, Tetris
-  Plus has a valid ROM but an unverified save, and the NHL 2002 and Zero
-  Mission historical dumps and saves remain valid despite current scan
-  instability.
+  `2932ed7c67ed1658eb4cb4ff813db3a1180e09132c89806c6509da1ad8a3d596`.
+- The installed package was compared byte for byte with the ZIP before the
+  card was safely unmounted.
+- The full preceding dump, save, and screenshot set remains preserved under
+  `build/evidence/batch-5-unstable/`. Do not delete or overwrite it.
 
 ## EEPROM capacity probe corrected again, awaiting hardware, 2026-09-03
 
