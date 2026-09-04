@@ -3,14 +3,14 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
-## GBA safety-gate fix passed its reproducer, broader regression pending, 2026-09-04
+## GBA safety-gate fix passed the wider hardware regression, 2026-09-04
 
 Commit `250d6a0`, build stamp `250D`, is the current hardware candidate. The
 same GBA control that repeatedly failed under the preceding builds could not
-be made to fail under repeated manual rescans. This is a pass for the known
-reproducer, not yet a release-wide pass. Repeat it with the wider GBA set,
-especially NHL 2002 and Metroid: Zero Mission, and run at least one GB or GBC
-control before calling identification fully verified again.
+be made to fail under repeated manual rescans. The following fresh capture
+then passed the wider scan and dump regression: NHL 2002, Metroid: Zero
+Mission, SimCity 2000, Tetris Plus, and Oracle of Ages. That set includes both
+previously unstable GBA cartridges plus GB and GBC controls.
 
 The diagnostic sequence located the defect precisely:
 
@@ -54,6 +54,11 @@ reliably once the bus is precharged.
   card was safely unmounted.
 - The full preceding dump, save, and screenshot set remains preserved under
   `build/evidence/batch-5-unstable/`. Do not delete or overwrite it.
+- The fresh regression is preserved under
+  `build/evidence/250d-safety-regression/`. All five ROMs match No-Intro by
+  CRC32 and size. Every save present was loaded successfully in mGBA. SimCity
+  2000 has no new save file in this capture and remains a capture-specific
+  exception under the corpus rules.
 
 ## EEPROM capacity probe corrected again, awaiting hardware, 2026-09-03
 

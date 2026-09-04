@@ -17,17 +17,18 @@ A cartridge passes only when all applicable rules pass:
 `ROM PASS, SAVE PENDING` means only rule 1 has passed. Structural inspection of
 a save is useful triage but is never a substitute for rule 2.
 
-## Current scan instability
+## Resolved scan instability
 
-`UNSTABLE SCAN` is a current hardware status and supersedes an earlier pass
-for release qualification. It does not invalidate a retained dump that already
-matched No-Intro or a save that already loaded correctly. It means scanning
-must become repeatable again before the current core can claim support.
+`250d6a0` resolved the intermittent GBA scan failure for the two cartridges
+that had been marked unstable. Both produced fresh ROM and save dumps, and all
+four files are byte-for-byte repeats of their retained verified artifacts.
+The history remains here because it identifies the defect and the hardware
+that reproduced it.
 
 | Current status | Cartridge | Hardware identity | Prior ROM evidence | Prior save evidence | Current observation |
 |---|---|---|---|---|---|
-| UNSTABLE SCAN | NHL 2002 | GBA `ANLE`, 4 MiB, `EEPROM_V122` | CRC32 `D1D9E515`, SHA-256 `5767e661d887e07ccfeaf91f66f7845378e12070df4b19f86acc785894b22785`, exact No-Intro match | 8 KiB, CRC32 `9A19C12D`, SHA-256 `744c12d54e269afe7b85404d33710a511de87af9c5bc7159552790c8d95be470`; loaded correctly in mGBA | Earlier scans and dumps succeeded. Repeated `fd0fa5c` scans failed, then the exact archived `e510c8e` bitstream was also intermittent across this and other GBA cartridges. The cartridge boots through the Pocket native cartridge path. |
-| UNSTABLE SCAN | Metroid - Zero Mission | GBA `BMXE`, 8 MiB, `SRAM_V113` | CRC32 `5C61A844`, SHA-256 `fc94f65380b65b870a30b9b04b39cca1dc63d6e46a4a373d3904adc0912ebc37`, exact No-Intro match | 32 KiB, CRC32 `6C90074B`, SHA-256 `de92473cc3074a592caa43881240bc755bca2533da2c3be3b6635ab37098da21`; loaded correctly in mGBA | Earlier scans and dumps succeeded. Repeated `fd0fa5c` scans failed, then the exact archived `e510c8e` bitstream was also intermittent across this and other GBA cartridges. The cartridge boots through the Pocket native cartridge path. |
+| PASS ON `250D` | NHL 2002 | GBA `ANLE`, 4 MiB, `EEPROM_V122` | CRC32 `D1D9E515`, SHA-256 `5767e661d887e07ccfeaf91f66f7845378e12070df4b19f86acc785894b22785`, exact No-Intro match | 8 KiB, CRC32 `9A19C12D`, SHA-256 `744c12d54e269afe7b85404d33710a511de87af9c5bc7159552790c8d95be470`; loaded correctly in mGBA | Fresh `250D` ROM and save dumps exactly repeat the prior pair, and the fresh save was visually reconfirmed in mGBA. |
+| PASS ON `250D` | Metroid - Zero Mission | GBA `BMXE`, 8 MiB, `SRAM_V113` | CRC32 `5C61A844`, SHA-256 `fc94f65380b65b870a30b9b04b39cca1dc63d6e46a4a373d3904adc0912ebc37`, exact No-Intro match | 32 KiB, CRC32 `6C90074B`, SHA-256 `de92473cc3074a592caa43881240bc755bca2533da2c3be3b6635ab37098da21`; loaded correctly in mGBA | Fresh `250D` ROM and save dumps exactly repeat the prior pair, and the fresh save was visually reconfirmed in mGBA. |
 
 Both cartridges were cleaned again and their contacts appear immaculate. That
 makes visible contamination a weaker explanation, but it does not by itself
@@ -60,9 +61,48 @@ improved to roughly four or five scans in ten, confirming the floating path
 but not fixing it. Commit `250d6a0` then precharged bank 1 to `FF` while both
 GB strobes were inactive and released it during the 200 ns setup before each
 read. The same reproducer could not be made to fail under repeated rescans.
-The two cartridges in the table remain marked `UNSTABLE SCAN` until they are
-explicitly repeated on `250d6a0`; the retained ROM and save evidence remains
-valid throughout.
+The fresh `250D` regression then dumped NHL 2002, Zero Mission, SimCity 2000,
+Tetris Plus, and Oracle of Ages. That set includes both previously unstable
+GBA cartridges plus GB and GBC controls.
+
+## `250D` safety-gate regression, 2026-09-04
+
+Core commit: `250d6a0`
+
+Local evidence: `build/evidence/250d-safety-regression/`
+
+All five ROMs independently match the current No-Intro DATs on CRC32 and byte
+length. NHL 2002 and Zero Mission each produced a fresh save as well, and each
+ROM/save pair is byte-for-byte identical to the earlier verified pair. Both
+fresh saves were also visually reconfirmed in mGBA. This closes their
+`UNSTABLE SCAN` status and passes the scan and dump regression.
+
+The other three retain their corpus qualifications separately. SimCity 2000
+has no save file in this capture, so this capture is a save exception even
+though its earlier verified save remains valid. Tetris Plus exactly repeats
+its earlier save, and that exact save is now verified in mGBA. Oracle of Ages
+produced a different save from Batch 5, and that exact new save loaded correctly
+in mGBA. No screenshots were present.
+
+### ROMs
+
+| Result | Dump | No-Intro identity | Hardware identity | Bytes | CRC32 | SHA-256 |
+|---|---|---|---|---:|---|---|
+| PASS | `NHL_2002.gba` | NHL 2002 (USA) | GBA `ANLE`, `EEPROM_V122` | 4,194,304 | `D1D9E515` | `5767e661d887e07ccfeaf91f66f7845378e12070df4b19f86acc785894b22785` |
+| ROM PASS, SAVE EXCEPTION | `SIMCITY_2000.gba` | SimCity 2000 (USA) | GBA `A5CE`, `EEPROM_V124` | 4,194,304 | `733751B3` | `02a951f2918e13052f4b28844106093a28a3f9c78739434b1e49a2839babc333` |
+| PASS | `TETRIS_PLUS.gb` | Tetris Plus (Japan) (SGB Enhanced) | GB, MBC1+RAM+BAT type `03`, RAM code `02` | 262,144 | `2EC9120A` | `805599a58067cfd10f528d58ce34ae9fc6bba32bbc781dc4bd902fa86028eba4` |
+| PASS | `ZELDA_NAYRUAZ8E.gbc` | Legend of Zelda, The - Oracle of Ages (USA, Australia) | GBC, MBC5+RAM+BAT type `1B`, RAM code `02` | 1,048,576 | `3800A387` | `0b56b78a9e45452e98c33edd111234931f1e034dc097f6f23082eb8db6055474` |
+| PASS | `ZEROMISSIONE.gba` | Metroid - Zero Mission (USA, Australia) | GBA `BMXE`, `SRAM_V113` | 8,388,608 | `5C61A844` | `fc94f65380b65b870a30b9b04b39cca1dc63d6e46a4a373d3904adc0912ebc37` |
+
+### Save verification
+
+| Dump | Technology | Bytes | CRC32 | SHA-256 | Result |
+|---|---|---:|---|---|---|
+| `NHL_2002.sav` | EEPROM, `EEPROM_V122` | 8,192 | `9A19C12D` | `744c12d54e269afe7b85404d33710a511de87af9c5bc7159552790c8d95be470` | PASS, freshly loaded correctly in mGBA |
+| `SIMCITY_2000.sav` | EEPROM, `EEPROM_V124` | 8,192 expected | | | EXCEPTION, no save file in this capture |
+| `TETRIS_PLUS.sav` | MBC1 RAM, one 8 KiB bank | 8,192 | `6E8A645C` | `b3f73935c7519386322ea60211aa104bdbd9be8671453848127c0cc620ffc6f3` | PASS, loaded correctly in mGBA |
+| `ZELDA_NAYRUAZ8E.sav` | MBC5 RAM, one 8 KiB bank | 8,192 | `959B27CB` | `b8de140dbdc3c9c7bd7e72e060b018cc7945c3322230c258f8c7933c0990caa1` | PASS, differs from the Batch 5 save and loaded correctly in mGBA |
+| `ZEROMISSIONE.sav` | SRAM, `SRAM_V113` | 32,768 | `6C90074B` | `de92473cc3074a592caa43881240bc755bca2533da2c3be3b6635ab37098da21` | PASS, freshly loaded correctly in mGBA |
 
 ## Batch 1, 2026-09-03
 

@@ -4,7 +4,7 @@ What `pocket-dev` needs to cut a release of `pocket-cartridge`. Written
 2026-09-02, at `70f03eb`. The full record is `docs/HANDOFF.md`, then
 `docs/STATUS.md`.
 
-## Hold: GBA safety-gate fix passed its reproducer, wider regression pending
+## GBA safety-gate fix passed the wider hardware regression
 
 The current branch is `gba-eeprom-save`. Commit `250d6a0`, stamp `250D`, is
 the hardware candidate. Diagnostic build `21a0da6` proved that intermittent
@@ -15,11 +15,15 @@ precharges that floating bank to `FF` with both strobes inactive, then releases
 it during the setup interval before `/RD` falls. The reproducing cartridge
 could not be made to fail under repeated manual rescans.
 
-Do not release yet. Repeat `250D` with the wider GBA set, especially NHL 2002
-and Metroid: Zero Mission, and with at least one GB or GBC control. The exact
-archived Quartus 21.1 bitstream had also reproduced the failure, so Quartus
-25.1 is excluded as the sole cause. The detailed progression, safety argument,
-build hashes, and preserved evidence path are at the top of `docs/HANDOFF.md`.
+The wider `250D` regression then produced valid No-Intro-matching dumps of NHL
+2002, Metroid: Zero Mission, SimCity 2000, Tetris Plus, and Oracle of Ages.
+This includes both formerly unstable GBA cartridges plus GB and GBC controls.
+Every save present loaded successfully in mGBA. SimCity 2000 has no new save
+file in this capture, so that capture remains an exception under the corpus
+rules even though its earlier save is verified. The exact archived Quartus
+21.1 bitstream had also reproduced the failure, so Quartus 25.1 is excluded as
+the sole cause. The detailed progression, safety argument, build hashes, and
+preserved evidence path are at the top of `docs/HANDOFF.md`.
 
 All runner work must use the shared utility:
 
