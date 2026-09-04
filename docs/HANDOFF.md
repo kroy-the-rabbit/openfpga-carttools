@@ -3,6 +3,80 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## GBA identification is broadly intermittent, 2026-09-04
+
+**Do not call `c745719` fixed.** Hardware verification failed. With build stamp
+`C745`, SimCity 2000, The Minish Cap, and NHL 2002 each required multiple `A`
+button scans before CartTools resolved any cartridge. Metroid: Zero Mission
+never resolved. The behavior is not unique to the two cartridges that first
+made it obvious.
+
+The change in `c745719` adds weak pull-ups to all 16 multiplexed GBA AD-bus
+pins. It copies the native GBA core constraints, whose source says floating AD
+pins can make an empty-bus probe return random data rather than all `FF`.
+That was a close match for CartTools' safe GB-first probe, which advances to
+GBA only when the GB reader sees an all-zero or all-`FF` bus. The change is
+electrically reasonable but did not make identification reliable, so it is at
+most incomplete.
+
+**Quartus 25.1 is excluded.** Before building `C745`, the card was loaded with
+the exact archived pre-25.1 `e510c8e` bitstream. The installed and archived
+files both had SHA-256
+`0396d943421a0c7357fb0a15b5efa47fa38a6ffb3e569e4f90b0f7040a9ff54f`.
+That old core was also inconsistent across the wider GBA cartridge set. A new
+Quartus build cannot change an old bitstream, so the compiler transition is
+not the cause.
+
+The hardware operator suspects the problem appeared around the filename-state
+fix or the cartridge revalidation fix. The relevant commits are `ad36998` and
+`00fe6d9`. Record that hypothesis, but do not treat it as established:
+`e510c8e` predates both commits and is also failing now. The next investigation
+must explain both facts instead of selecting one.
+
+**What the current error screens mean.** `UNSTABLE READ, RESEAT CART` means
+the two header reads disagreed. `UNRECOGNISED CARTRIDGE` can mean either that a
+stable header failed validation or that the GB-first safety probe saw stable
+nonblank noise and refused to switch the connector into GBA mode. The UI does
+not expose which identifier answered. `cart_probe` already has
+`answered_gba`, but that signal is not displayed.
+
+**Next work, in order:**
+
+1. Add a compact failure diagnostic that shows whether the GB gate or GBA
+   identifier produced the verdict. Preserve enough raw bytes or a short hash
+   from each of the two reads to distinguish floating-bus noise, stable bad
+   data, and read-to-read disagreement.
+2. Reproduce with one reliable GBA control plus Zero Mission. Do not make more
+   timing or retry changes until the failing stage is known.
+3. If failures come from the GB gate, investigate the physical idle value and
+   the GB-to-GBA mode transition. If they come from the GBA reader, compare
+   address latch, read setup, reset, and power sequencing against the native
+   GBA cartridge controller.
+4. Keep the pull-ups during diagnosis unless a controlled A/B test shows they
+   make behavior worse. They match the native core and remove one uncontrolled
+   floating-input condition, but the present hardware run proves they are not
+   sufficient.
+
+**Build and evidence:**
+
+- Branch `gba-eeprom-save`, current code commit `c745719`.
+- `make test`: 34 run, 34 passed.
+- Built on sisko through `/home/kroy/Desktop/repos/pocket-dev/tools/runner-build`.
+- Quartus Lite 25.1 build 1129, 337 seconds, 3,917 ALMs.
+- Timing passed: setup 1.463 ns, hold 0.030 ns.
+- Package `build/cart/kroy.CartTools_0.9999.c745719.zip`, SHA-256
+  `1971511c57ec1a84d6aa5a468cca882de4c1ab9af0c13a3b7b84a1bae4f6579c`.
+- Bitstream SHA-256
+  `5dd77f844d6d22ae2f7d7eac2fb94bda1659888de058337f3e06b0eff4952d87`.
+- The card was cleaned before `C745` was installed. The full preceding dump,
+  save, and screenshot set is preserved under
+  `build/evidence/batch-5-unstable/` and was hash-checked against the card
+  before cleanup. Do not delete or overwrite that local evidence.
+- `docs/CARTRIDGE-CORPUS.md` records Batch 5. Five carts fully pass, Tetris
+  Plus has a valid ROM but an unverified save, and the NHL 2002 and Zero
+  Mission historical dumps and saves remain valid despite current scan
+  instability.
+
 ## EEPROM capacity probe corrected again, awaiting hardware, 2026-09-03
 
 Super Mario Advance is the first 512-byte EEPROM cartridge through this path,
@@ -235,7 +309,6 @@ The file carries its own corroboration, which is unusual for a save:
 
     43 41 4d 45 4c 4f 54 ...     ASCII "CAMELOT" at offset 0
     CAMELOT again at 0x1000, 0x2000, 0x3000, 0x4000, 0x5000
-    "Adam" at 0x5010
     84.7% zeros, 0.5% FF, 222 distinct byte values
 
 Camelot Software Planning wrote Golden Sun, and that header repeats once per

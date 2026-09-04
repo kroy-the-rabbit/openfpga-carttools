@@ -4,6 +4,31 @@ What `pocket-dev` needs to cut a release of `pocket-cartridge`. Written
 2026-09-02, at `70f03eb`. The full record is `docs/HANDOFF.md`, then
 `docs/STATUS.md`.
 
+## Stop: GBA cartridge identification is not release-ready
+
+The current branch is `gba-eeprom-save`. Commit `c745719` is the latest
+hardware build, stamp `C745`. It added the native GBA core's weak pull-ups to
+the 16 multiplexed cartridge AD pins, but hardware verification still failed:
+SimCity 2000, The Minish Cap, and NHL 2002 needed repeated scans to resolve,
+and Zero Mission never resolved.
+
+This is not a Quartus 25.1 regression. The exact archived pre-25.1 `e510c8e`
+bitstream was reinstalled and showed the same broad inconsistency. The failure
+also is not evidence that those cartridges are dead because their retained
+ROMs match No-Intro, their saves have loaded correctly, and they boot through
+the native cartridge path.
+
+Do not release or distribute `C745` as a fix. The next core must expose whether
+the GB-first safety gate or the GBA header reader produced a failed verdict.
+The detailed failure semantics, build hashes, preserved evidence path, and
+ordered diagnostic plan are at the top of `docs/HANDOFF.md`.
+
+All runner work must use the shared utility:
+
+    /home/kroy/Desktop/repos/pocket-dev/tools/runner-build start sisko pocket-cartridge cart <job> HEAD
+    /home/kroy/Desktop/repos/pocket-dev/tools/runner-build job sisko pocket-cartridge cart <job> HEAD
+    /home/kroy/Desktop/repos/pocket-dev/tools/runner-build fetch sisko pocket-cartridge cart <job> HEAD
+
 ## How a release is cut here
 
 **Tag `main`. CI does the rest.** `.github/workflows/release.yml` fires on any
