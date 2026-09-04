@@ -107,6 +107,8 @@ task xfer(input w, input [15:0] a, input [7:0] d);
         @(negedge clk);
         req = 1'b1; wr = w; addr = a; wdata = d;
         @(negedge clk);
+        if (!w && e_hi_oe !== 1'b0)
+            fail("read did not release precharged data bus during setup");
         req = 1'b0;
         wait (done == 1'b1);
         @(negedge clk);
@@ -172,6 +174,13 @@ initial begin
 
     gb_mode = 1'b1;
     repeat (4) @(negedge clk);
+
+    // With both strobes inactive and no address driven, precharge the data
+    // bus high. A read must release it before the cartridge is selected.
+    if (e_ad_oe !== 1'b0 || e_hi_oe !== 1'b1 || e_hi_out !== 8'hFF)
+        fail("idle GB data-bus precharge is not FF");
+    if (rd_n !== 1'b1 || wr_n !== 1'b1)
+        fail("a strobe active during idle GB data-bus precharge");
 
     // ---- 2. ROM reads -----------------------------------------------------
     xfer(1'b0, 16'h0000, 8'h00);  expect8("rom 0000", rdata, 8'hAA);

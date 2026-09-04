@@ -77,6 +77,14 @@ reg        wr_n;
 reg        addr_drive;
 reg        data_drive;
 
+// A GBA cartridge leaves bank1, its A16-A23 inputs, floating when this bus
+// performs the safe GB-first probe. The FPGA pin pull-ups improve that input
+// but do not settle the level-translator path reliably on their own. While
+// idle, precharge bank1 high with both strobes inactive and no address being
+// driven. A GB cartridge only drives D0-D7 while /RD is low, so this does not
+// contend with it. A read request releases bank1 at the beginning of the
+// address setup window, 200 ns before /RD falls with the shipped timing.
+
 // One cycle of deafness after done, so a requester that waits for done before
 // dropping req cannot be given a second transaction. gba_cart_bus has that
 // hazard; see docs/STATUS.md.
@@ -157,7 +165,8 @@ always @(posedge clk) begin
                 rd_n       <= 1'b1;
                 wr_n       <= 1'b1;
                 addr_drive <= 1'b0;
-                data_drive <= 1'b0;
+                data_drive    <= 1'b1;
+                latched_wdata <= 8'hFF;
                 refuse     <= 1'b0;
                 if (req && !refuse) begin
                     latched_addr  <= addr;
