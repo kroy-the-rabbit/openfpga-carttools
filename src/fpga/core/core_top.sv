@@ -1202,8 +1202,8 @@ assign save_scan_start = sz_done && sz_size_valid;
 // it takes the GBA bus away through the mux above, so a scan underneath it
 // must let go, but a reset also cleared the seen bits, which threw away a
 // finished scan and made the save button vanish after every ROM dump. So a
-// dump aborts instead, which stops a running scan and leaves a finished one
-// alone.
+// dump interrupts instead. A running scan restarts from byte zero when the
+// dump releases the bus, while a finished scan is left alone.
 gba_save_scan save_scanner (
     .clk            ( clk_sys ),
     .reset          ( ~pll_core_locked | scan_start ),

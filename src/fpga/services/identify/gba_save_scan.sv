@@ -77,13 +77,13 @@ module gba_save_scan #(
     input  wire        start,             // pulse
     input  wire [31:0] rom_size_bytes,    // from gba_size_probe
 
-    // Stop a scan that is running, without destroying one that finished. A
-    // dump takes the GBA bus through core_top's mux, so a scan underneath it
-    // waits for a done that never comes; this is how it lets go. It was a
-    // reset once, and a reset also cleared the seen bits, so dumping a ROM
-    // silently threw away a completed scan and the save button vanished until
-    // the cartridge was rescanned. An abort leaves `complete` low, so a
-    // partial result is never mistaken for a whole one.
+    // Interrupt a scan that is running, without destroying one that finished.
+    // A dump takes the GBA bus through core_top's mux, so a scan underneath it
+    // waits for a done that never comes. The interrupted scan restarts from
+    // byte zero when the dump releases the bus. It was a reset once, and a
+    // reset also cleared the seen bits, so dumping a ROM silently threw away a
+    // completed scan and the save button vanished until the cartridge was
+    // rescanned. A partial result is never reported as a whole one.
     input  wire        abort,
 
     output reg         busy,
@@ -141,6 +141,7 @@ localparam [2:0] ST_REQ  = 3'd2;
 localparam [2:0] ST_WAIT = 3'd3;
 localparam [2:0] ST_FEED = 3'd4;
 localparam [2:0] ST_DONE = 3'd5;
+localparam [2:0] ST_RETRY = 3'd6;
 
 reg [2:0]  state;
 reg [15:0] mode_wait;
@@ -249,9 +250,9 @@ always @(posedge clk) begin
     end else if (busy && abort) begin
         bus_req  <= 1'b0;
         complete <= 1'b0;
-        state    <= ST_DONE;
+        state    <= ST_RETRY;
     end else if (state != ST_IDLE && state != ST_MODE && state != ST_DONE &&
-                 !cart_mode) begin
+                 state != ST_RETRY && !cart_mode) begin
         // The connector left GBA mode underneath us. gba_cart_bus has reset
         // and will never answer the outstanding request, so stop rather than
         // hang, and report nothing rather than a result gathered across a mode
@@ -345,6 +346,27 @@ always @(posedge clk) begin
                 end else begin
                     bsel <= bsel + 2'd1;
                 end
+            end
+
+            // A dump interrupted this scan and has now released the bus.
+            // Begin again rather than publishing the partial result. Starting
+            // at byte zero is required because a save signature may have
+            // straddled the interrupted read or may have occurred before it.
+            ST_RETRY: begin
+                busy      <= 1'b1;
+                want_gba  <= 1'b1;
+                mode_wait <= MODE_WAIT_CYCLES[15:0];
+                addr      <= 28'd0;
+                bsel      <= 2'd0;
+                seen_eeprom   <= 1'b0;
+                seen_sram     <= 1'b0;
+                seen_sram_f   <= 1'b0;
+                seen_flash    <= 1'b0;
+                seen_flash512 <= 1'b0;
+                seen_flash1m  <= 1'b0;
+                for (k = 0; k < 10; k = k + 1) w[k] <= 8'h00;
+                complete <= (rom_size_bytes >= 32'd4);
+                state    <= (rom_size_bytes < 32'd4) ? ST_DONE : ST_MODE;
             end
 
             ST_DONE: begin

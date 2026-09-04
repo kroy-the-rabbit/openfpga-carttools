@@ -431,20 +431,27 @@ initial begin
         errors = errors + 1;
     end
 
-    // ---- Abort stops a running scan --------------------------------------
-    // A dump takes the bus, so a scan underneath it has to let go rather than
-    // wait for a done that is never coming.
+    // ---- A dump interruption restarts a running scan ----------------------
+    // A guarded ROM dump starts as soon as its fresh size probe finishes. The
+    // save scan also starts on that edge, then loses the bus to the dump. If it
+    // merely stops, the save button disappears after the ROM dump and never
+    // returns. It must restart from byte zero when the dump releases the bus.
     plant_at = -1; plant_len = 0; no_plant2;
     set_plant("SRAM_V", 6, 512);
     abort_at = 300;
     run_scan(ROM_BYTES);
     abort_at = -1;
+    expect_only(6'b000010, "SRAM_V after a dump interruption");
     if (busy !== 1'b0) begin
-        $display("ERROR: the scanner is still busy after an abort");
+        $display("ERROR: the restarted scanner is still busy");
         errors = errors + 1;
     end
-    if (complete !== 1'b0) begin
-        $display("ERROR: an aborted scan reported complete");
+    if (complete !== 1'b1) begin
+        $display("ERROR: the restarted scan did not report complete");
+        errors = errors + 1;
+    end
+    if (feeds <= ROM_BYTES) begin
+        $display("ERROR: the interrupted scan did not restart from byte zero");
         errors = errors + 1;
     end
 

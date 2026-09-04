@@ -96,3 +96,33 @@ missing-save exceptions.
 |---|---|---:|---|---|---|
 | `ZELDA.sav` | MBC5 RAM, four 8 KiB banks | 32,768 | `E8BBE64B` | `a172e041e2a6f158aa79a603b88fb1860ae5fc25ce80bd23700d346543e0958c` | PASS |
 | `ZELDA_DIN__AZ7E.sav` | MBC5 RAM, one 8 KiB bank | 8,192 | `57193E99` | `71f20fe37dc84600733db4ad56a30e629332d337a07d09bd0e0311a4f027fea7` | PASS |
+
+## Batch 3, 2026-09-03
+
+Core commit: `ad36998`
+
+Local evidence: `build/evidence/batch-3-bug/`
+
+Collection stopped after one cartridge because completing its ROM dump removed
+the previously available save action. The ROM is a repeat identity from Batch 1
+and passes its header checks plus No-Intro CRC32 and byte-length matching. No
+save file was produced. Because this ROM contains `EEPROM_V122` and is expected
+to have an 8 KiB save, this observation is a save exception and the cartridge
+does not pass Batch 3.
+
+The failure is in control flow rather than ROM data. Pre-dump cartridge
+revalidation clears the completed GBA save-signature scan. The ROM dump then
+interrupts the replacement scan, leaving no valid result to make the save
+action available afterward.
+
+### ROMs
+
+| Result | Dump | No-Intro identity | Hardware identity | Bytes | CRC32 | SHA-256 |
+|---|---|---|---|---:|---|---|
+| ROM PASS, SAVE EXCEPTION | `GBAZELDA.gba` | Legend of Zelda, The - A Link to the Past & Four Swords (USA) | GBA `AZLE`, `EEPROM_V122` | 8,388,608 | `8E91CD13` | `f328f8f07d736288a00c80d31cc1630f3aa02aaf20efdcba73d31dae832b5d76` |
+
+### Save verification
+
+| Expected dump | Technology | Expected bytes | Result |
+|---|---|---:|---|
+| `GBAZELDA.sav` | EEPROM, `EEPROM_V122` | 8,192 | EXCEPTION: save action disappeared after the ROM dump; no file produced |
