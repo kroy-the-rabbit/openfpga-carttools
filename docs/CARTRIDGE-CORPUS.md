@@ -126,3 +126,28 @@ action available afterward.
 | Expected dump | Technology | Expected bytes | Result |
 |---|---|---:|---|
 | `GBAZELDA.sav` | EEPROM, `EEPROM_V122` | 8,192 | EXCEPTION: save action disappeared after the ROM dump; no file produced |
+
+## Batch 4 control, 2026-09-03
+
+Core commit: `fd0fa5c`
+
+Local evidence: `build/evidence/batch-4-control/`
+
+The single Batch 3 cartridge was repeated as the control for the save-scan
+restart fix. Its ROM dump completed, the save action returned without a manual
+rescan, and the 8 KiB save dump completed. The hardware screenshot carries
+build stamp `FD0F`, identifies `GBAZELDA.sav`, reports 8 KiB and CRC32
+`33DCC739`, and still shows the save action after completion. The new save
+loaded in mGBA with the expected visible state. The control cartridge passes.
+
+### ROMs
+
+| Result | Dump | No-Intro identity | Hardware identity | Bytes | CRC32 | SHA-256 |
+|---|---|---|---|---:|---|---|
+| PASS | `GBAZELDA.gba` | Legend of Zelda, The - A Link to the Past & Four Swords (USA) | GBA `AZLE`, `EEPROM_V122` | 8,388,608 | `8E91CD13` | `f328f8f07d736288a00c80d31cc1630f3aa02aaf20efdcba73d31dae832b5d76` |
+
+### Save verification
+
+| Dump | Technology | Bytes | CRC32 | SHA-256 | Result |
+|---|---|---:|---|---|---|
+| `GBAZELDA.sav` | EEPROM, `EEPROM_V122` | 8,192 | `33DCC739` | `8c18f0658bbf652204c6259d8b2af2c58330dc12e9c4ccaf3d5d3d1f85c071f5` | PASS |

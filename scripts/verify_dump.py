@@ -37,9 +37,10 @@ them are worth having:
     A save is the one thing in a cartridge that cannot be fetched from
     anywhere else if it comes back wrong.
 
-Also cross-checks a .sav against its own ROM dump when one sits beside it: the
-ROM's byte at 0x0149 says how large the save should be, which is the only
-external fact about a save file that exists.
+Also cross-checks a .sav against its own ROM dump when one sits beside it. A
+GB or GBC ROM's byte at 0x0149 says how large the save should be. A GBA ROM has
+no equivalent header field, so the script reports that limitation instead of
+interpreting its unrelated byte at 0x0149 as a Game Boy RAM-size code.
 """
 
 import argparse
@@ -251,12 +252,15 @@ def verify_sav(path, data, rep):
     rom = find_rom_beside(path)
     if rom:
         rom_data = open(rom, "rb").read()
-        if len(rom_data) >= 0x150:
+        rep.note("ROM beside it", os.path.basename(rom))
+        if os.path.splitext(rom)[1].lower() == ".gba":
+            rep.note("expected size from ROM",
+                     "GBA has no save-size header; CartTools scans and probes it")
+        elif len(rom_data) >= 0x150:
             cart_type, ram_code = rom_data[0x147], rom_data[0x149]
             expect = RAM_SIZES.get(ram_code, None)
             if cart_type in (0x05, 0x06):
                 expect = 512
-            rep.note("ROM beside it", os.path.basename(rom))
             if expect is None:
                 rep.warn("expected size from 0x0149",
                          "unrecognised code {:02X}".format(ram_code))
@@ -432,6 +436,15 @@ def selftest():
         path = os.path.join(tmp, "TESTROM.sav")
         open(path, "wb").write(varied[:BANK])
         expect(verify(path).failures > 0, "a save of the wrong size fails")
+
+        # A GBA has no RAM-size byte at 0x0149. Applying the GB rule here used
+        # that unrelated byte, usually 00, and falsely failed real GBA saves.
+        gba = os.path.join(tmp, "GBATEST.gba")
+        open(gba, "wb").write(bytes(0x200))
+        gba_save = os.path.join(tmp, "GBATEST.sav")
+        open(gba_save, "wb").write(bytes(range(256)) * 32)
+        expect(verify(gba_save).failures == 0,
+               "a GBA save does not use the GB RAM-size byte")
 
         # compare() on a one bit difference.
         a_path = os.path.join(tmp, "a.sav")
