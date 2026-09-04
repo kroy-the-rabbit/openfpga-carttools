@@ -26,6 +26,7 @@ reg reset = 1'b1;
 
 reg         valid = 1'b0;
 reg  [2:0]  platform = 3'd0;
+reg         answered_gba = 1'b0;
 reg  [95:0] title = 96'd0;
 reg  [31:0] game_code = 32'd0;
 reg  [15:0] maker_code = 16'd0;
@@ -85,6 +86,7 @@ ui_screen dut (
     .reset      ( reset ),
     .valid      ( valid ),
     .platform   ( platform ),
+    .answered_gba( answered_gba ),
     .title      ( title ),
     .game_code  ( game_code ),
     .maker_code ( maker_code ),
@@ -340,6 +342,29 @@ initial begin
         settle();
         expect_row_not_blank("result code", 2);
     end
+
+    // A failed verdict must identify which probe produced it. Without this,
+    // the same screen can mean floating data during the GB safety gate or a
+    // bad read from the actual GBA header.
+    platform = 3'd3;
+    answered_gba = 1'b0;
+    settle();
+    expect_row("unknown at gb gate", 2,
+               "UNKNOWN: GB SAFETY GATE       ");
+    answered_gba = 1'b1;
+    settle();
+    expect_row("unknown at gba header", 2,
+               "UNKNOWN: GBA HEADER           ");
+
+    platform = 3'd4;
+    answered_gba = 1'b0;
+    settle();
+    expect_row("unstable at gb gate", 2,
+               "UNSTABLE: GB SAFETY GATE      ");
+    answered_gba = 1'b1;
+    settle();
+    expect_row("unstable at gba header", 2,
+               "UNSTABLE: GBA HEADER          ");
 
     // ---- 9. The help row names only buttons that do something ------------
     //

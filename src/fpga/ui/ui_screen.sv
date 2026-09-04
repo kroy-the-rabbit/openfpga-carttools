@@ -44,6 +44,7 @@ module ui_screen #(
     // Result snapshot from cart_identify_gba. Stable while `valid` is high.
     input  wire        valid,           // an identification has completed
     input  wire [2:0]  platform,        // cart_probe result, see below
+    input  wire        answered_gba,    // which identifier produced the result
     input  wire [95:0] title,
     input  wire [31:0] game_code,
     input  wire [15:0] maker_code,
@@ -160,8 +161,10 @@ localparam [LW-1:0] ROW_BLANK = "                              ";
 localparam [LW-1:0] MSG_GBA      = "GBA CARTRIDGE                 ";
 localparam [LW-1:0] MSG_GB       = "GB / GBC CARTRIDGE            ";
 localparam [LW-1:0] MSG_NO_CART  = "NO CARTRIDGE DETECTED         ";
-localparam [LW-1:0] MSG_UNSTABLE = "UNSTABLE READ, RESEAT CART    ";
-localparam [LW-1:0] MSG_NOT_GBA  = "UNRECOGNISED CARTRIDGE        ";
+localparam [LW-1:0] MSG_UNSTABLE_GB  = "UNSTABLE: GB SAFETY GATE      ";
+localparam [LW-1:0] MSG_UNSTABLE_GBA = "UNSTABLE: GBA HEADER          ";
+localparam [LW-1:0] MSG_UNKNOWN_GB   = "UNKNOWN: GB SAFETY GATE       ";
+localparam [LW-1:0] MSG_UNKNOWN_GBA  = "UNKNOWN: GBA HEADER           ";
 localparam [LW-1:0] MSG_NO_POWER = "SELECT PLAY CARTRIDGE         ";
 localparam [LW-1:0] MSG_SCANNING = "READING HEADER...             ";
 localparam [LW-1:0] MSG_READY    = "READY                         ";
@@ -303,7 +306,7 @@ endfunction
 //
 // Every header field, on both platforms, changes only when a probe completes
 // and id_seq counts those, so none of them are compared here. A 320 bit
-// comparator made this the critical path of the core; 40 bits does not.
+// comparator made this the critical path of the core; 41 bits does not.
 //
 // The dump fields are here for the reason the identification fields are not:
 // they change without a probe completing, so id_seq does not cover them.
@@ -319,7 +322,7 @@ endfunction
 // out_ext are the exception: path generation finishes after dump_state enters
 // RUN, so out_name_valid repaints once those fields belong to this dump
 // without putting their 192 bits here.
-wire [39:0] snapshot = {valid, scanning, platform, id_seq,
+wire [40:0] snapshot = {valid, scanning, platform, answered_gba, id_seq,
                         save_ready, save_shown, save_refused,
                         // The probed size, as a code. Four bits, and they are
                         // needed: the size arrives after the probe that
@@ -332,7 +335,7 @@ wire [39:0] snapshot = {valid, scanning, platform, id_seq,
                         // changes only when they do.
                         dump_progress[7:4], dump_err, out_name_valid};
 
-reg [39:0] shown;
+reg [40:0] shown;
 reg         painting;
 
 // ---- Where the painter is -------------------------------------------------
@@ -378,7 +381,8 @@ reg       paint_r;
 // and the line holds X in simulation while hardware would have settled it.
 // That is a simulation and synthesis mismatch on the exact case a user is
 // most likely to hit first, a cold boot with an empty slot.
-function [LW-1:0] msg_of(input scan, input val, input [2:0] res);
+function [LW-1:0] msg_of(input scan, input val, input [2:0] res,
+                         input from_gba);
     begin
         if (scan)       msg_of = MSG_SCANNING;
         else if (!val)  msg_of = MSG_READY;
@@ -386,18 +390,18 @@ function [LW-1:0] msg_of(input scan, input val, input [2:0] res);
             P_GBA:      msg_of = MSG_GBA;
             P_GB:       msg_of = MSG_GB;
             P_NONE:     msg_of = MSG_NO_CART;
-            P_UNSTABLE: msg_of = MSG_UNSTABLE;
-            P_UNKNOWN:  msg_of = MSG_NOT_GBA;
+            P_UNSTABLE: msg_of = from_gba ? MSG_UNSTABLE_GBA : MSG_UNSTABLE_GB;
+            P_UNKNOWN:  msg_of = from_gba ? MSG_UNKNOWN_GBA : MSG_UNKNOWN_GB;
             P_NO_POWER: msg_of = MSG_NO_POWER;
             // Every result code has a line. A code with no line would put the
             // user in front of a blank screen after a failure, which is the
             // moment they most need to be told something.
-            default:         msg_of = MSG_NOT_GBA;
+            default:         msg_of = MSG_UNKNOWN_GB;
         endcase
     end
 endfunction
 
-wire [LW-1:0] msg_line = msg_of(scanning, valid, platform);
+wire [LW-1:0] msg_line = msg_of(scanning, valid, platform, answered_gba);
 
 wire settled     = valid && !scanning;
 wire details_gba = settled && (platform == P_GBA);

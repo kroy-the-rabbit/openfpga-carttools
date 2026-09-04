@@ -1691,6 +1691,7 @@ ui_screen screen (
 
     .valid       ( id_valid ),
     .platform    ( platform ),
+    .answered_gba( probe_answered_gba ),
     .title       ( id_title ),
     .game_code   ( id_game_code ),
     .maker_code  ( id_maker_code ),
