@@ -881,11 +881,22 @@ set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to bridge_1wire
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to bridge_spiclk
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to bridge_spimiso
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to bridge_spimosi
-# A GBA cartridge leaves its multiplexed AD bus undriven during the safe GB
-# probe. Pull the bus high so that probe sees the all-FF empty-bus value and
-# advances to GBA identification instead of classifying floating noise as a
-# stable unknown cartridge or an unstable read. This matches the native GBA
-# core's cartridge constraints.
+# In GB mode, bank1 is the D0-D7 input read by the safety probe. Those same
+# pins are A16-A23 inputs on a GBA cartridge, so no cartridge drives them
+# during the GB probe. Pull the actual sampled bus high so a GBA cartridge
+# produces the all-FF empty-bus value required to advance safely to GBA
+# identification.
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to cart_tran_bank1[0]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to cart_tran_bank1[1]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to cart_tran_bank1[2]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to cart_tran_bank1[3]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to cart_tran_bank1[4]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to cart_tran_bank1[5]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to cart_tran_bank1[6]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to cart_tran_bank1[7]
+# Banks 2 and 3 are the multiplexed GBA AD bus. Keep them biased while the
+# cartridge releases them during GBA read turnaround, but they are not the
+# data bus sampled by the GB safety probe.
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to cart_tran_bank2[0]
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to cart_tran_bank2[1]
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to cart_tran_bank2[2]
