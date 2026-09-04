@@ -17,6 +17,26 @@ A cartridge passes only when all applicable rules pass:
 `ROM PASS, SAVE PENDING` means only rule 1 has passed. Structural inspection of
 a save is useful triage but is never a substitute for rule 2.
 
+## Current unstable cartridges
+
+`UNSTABLE SCAN` is a current hardware status and supersedes an earlier pass
+for release qualification. It does not invalidate a retained dump that already
+matched No-Intro or a save that already loaded correctly. It means the same
+physical cartridge must become repeatable again before the current core can
+claim support for it.
+
+| Current status | Cartridge | Hardware identity | Prior ROM evidence | Prior save evidence | Current observation |
+|---|---|---|---|---|---|
+| UNSTABLE SCAN | NHL 2002 | GBA `ANLE`, 4 MiB, `EEPROM_V122` | CRC32 `D1D9E515`, SHA-256 `5767e661d887e07ccfeaf91f66f7845378e12070df4b19f86acc785894b22785`, exact No-Intro match | 8 KiB, CRC32 `9A19C12D`, SHA-256 `744c12d54e269afe7b85404d33710a511de87af9c5bc7159552790c8d95be470`; loaded correctly in mGBA | Earlier scans, ROM dumps, and save dumps succeeded. On `fd0fa5c`, every current CartTools scan ends as unrecognized cartridge or reseat. The cartridge boots through the Pocket native cartridge path. |
+| UNSTABLE SCAN | Metroid - Zero Mission | GBA `BMXE`, 8 MiB, `SRAM_V113` | CRC32 `5C61A844`, SHA-256 `fc94f65380b65b870a30b9b04b39cca1dc63d6e46a4a373d3904adc0912ebc37`, exact No-Intro match | 32 KiB, CRC32 `6C90074B`, SHA-256 `de92473cc3074a592caa43881240bc755bca2533da2c3be3b6635ab37098da21`; loaded correctly in mGBA | Earlier scans, ROM dumps, and save dumps succeeded. On `fd0fa5c`, every current CartTools scan ends as unrecognized cartridge or reseat. The cartridge boots through the Pocket native cartridge path. |
+
+Both cartridges were cleaned again and their contacts appear immaculate. That
+makes visible contamination a weaker explanation, but it does not by itself
+exclude contact resistance, connector pressure, timing margin, voltage margin,
+or a probe sequencing defect. The repeatable native-path boot is evidence
+against dead cartridges and narrows the failure to differences between that
+path and CartTools.
+
 ## Batch 1, 2026-09-03
 
 Core commit: `ff8c8f0`
