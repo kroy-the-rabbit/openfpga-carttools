@@ -4,6 +4,15 @@ Current as of 2026-09-04. Read this file first, then the private
 `pocket-dev/docs/HANDOFF.md`. The detailed hardware record is in
 `docs/CARTRIDGE-CORPUS.md` and `docs/HANDOFF.md`.
 
+## Released, 2026-09-04
+
+`v0.9999.250d6a0` is published on exact commit `250d6a0`, stable, with
+`kroy.CartTools_0.9999.250d6a0.zip`, `report.txt` and `SHA256SUMS`, from the
+artifacts hashed below. `main` was fast-forwarded from `gba-eeprom-save`.
+`.github/workflows/release.yml` no longer builds: on a tag it runs the sim
+suite and verifies the published package against the tag. `build.yml` still
+runs Quartus on a hosted runner and fails there; it is next.
+
 ## Release candidate
 
 The release candidate is exact commit `250d6a0`, package version
