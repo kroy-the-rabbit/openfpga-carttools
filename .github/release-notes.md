@@ -27,13 +27,13 @@ control. The full record, cartridge by cartridge, is
 | Reproduces | 12 GB/GBC cartridges and 2 GBA cartridges re-dumped byte for byte identical |
 | Rejected reads | 2, both Yu-Gi-Oh! through dirty contacts, both failing the global checksum; the clean retry matched the record exactly |
 
-**Saves.** 27 retained from 26 cartridges, each checked the only way a save can
+**Saves.** 27 retained from 27 cartridges, each checked the only way a save can
 be, by loading it in mGBA beside its own ROM and finding the game's state
 intact.
 
 | | |
 |---|---|
-| GB / GBC | 15 cartridges, 8 KiB and 32 KiB four-bank. One, Tetris Plus, shows no recognisable state and is carried as unverified; a depleted battery is possible and unproven |
+| GB / GBC | 16 cartridges, 7 Game Boy and 9 Game Boy Color, 8 KiB and 32 KiB four-bank. One, Tetris Plus, shows no recognisable state and is carried as unverified; a depleted battery is possible and unproven |
 | GBA SRAM 32 KiB | 2, Metroid: Zero Mission and Kirby: Nightmare in Dream Land |
 | GBA Flash 64 KiB | 1, Golden Sun |
 | GBA EEPROM 512 bytes | 4, Super Mario Advance, Harry Potter, Magical Quest, Shrek |
