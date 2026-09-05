@@ -26,6 +26,7 @@ REPO="$(cd "$HERE/../.." && pwd)"
 PODMAN=${PODMAN:-podman}
 IMAGE=${IMAGE:-localhost/pocket-emu:1}
 WORK=${WORK:-$REPO/build/emu}
+MGBA_SCALE=${MGBA_SCALE:-5}
 
 usage() { sed -n '2,17p' "$0" | sed 's/^# \?//'; exit 1; }
 [ $# -ge 1 ] || usage
@@ -97,4 +98,4 @@ exec $PODMAN run --rm -i --security-opt label=disable \
     -v /tmp/.X11-unix:/tmp/.X11-unix \
     -v "$WORK":/work \
     --userns=keep-id \
-    "$IMAGE" /usr/games/mgba "/work/$BASE"
+    "$IMAGE" /usr/games/mgba --scale "$MGBA_SCALE" "/work/$BASE"

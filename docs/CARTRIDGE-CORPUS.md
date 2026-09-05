@@ -104,6 +104,77 @@ in mGBA. No screenshots were present.
 | `ZELDA_NAYRUAZ8E.sav` | MBC5 RAM, one 8 KiB bank | 8,192 | `959B27CB` | `b8de140dbdc3c9c7bd7e72e060b018cc7945c3322230c258f8c7933c0990caa1` | PASS, differs from the Batch 5 save and loaded correctly in mGBA |
 | `ZEROMISSIONE.sav` | SRAM, `SRAM_V113` | 32,768 | `6C90074B` | `de92473cc3074a592caa43881240bc755bca2533da2c3be3b6635ab37098da21` | PASS, freshly loaded correctly in mGBA |
 
+## Batch 6, 2026-09-04
+
+Core commit: `250d6a0`
+
+Local evidence: `build/evidence/batch-6/` and
+`build/evidence/batch-6-yugioh-redump-2/`
+
+All 21 cartridges pass the corpus rules. Every ROM matches a current No-Intro
+record on CRC32 and byte length, and every ROM also passes its internal header
+checks. Nine cartridges report no save hardware. The other 12 produced saves
+of the sizes specified by their cartridge headers.
+
+Eight saves were loaded and checked in mGBA from this capture: Donkey Kong,
+Hamster Paradise 2, Super Mario Land 2, Mario's Picross, Moguranya, The Little
+Mermaid II: Pinball Frenzy, Sangokushi, and Link's Awakening. The Dragon Quest
+Monsters 2, Jinsei Game, Yu-Gi-Oh!, and Oracle of Seasons saves are exact
+byte-for-byte matches to captures already checked in mGBA. No screenshots were
+present, and no personal save data is recorded here.
+
+The first Yu-Gi-Oh! ROM was rejected at CRC32 `4E015EC4`, and a retry was
+rejected at `8B370A91`. Both failed the ROM global checksum and differed
+widely from each other. After the cartridge pins were cleaned, the next ROM
+matched the known-good dump byte-for-byte at CRC32 `298BD054`. Its save also
+matched the previously confirmed capture at CRC32 `6646D2D7`. This sequence
+identifies dirty pin contact as the cause of those two failed reads. It also
+retains useful evidence that a plausible header alone does not make a dump
+safe to accept.
+
+### ROMs
+
+| Result | Dump | No-Intro identity | Hardware identity | Bytes | CRC32 | SHA-256 |
+|---|---|---|---|---:|---|---|
+| PASS | `BOMBERMAN_GB.gb` | Bomberman GB (Japan) (SGB Enhanced) | GB, MBC1 type `01`, no RAM | 262,144 | `94337D56` | `6d5de1b94660ab41ae82e4130ddb3df44761579a30c7161615a58b2380b20364` |
+| PASS | `BOMBER_BOY.gb` | Bomber Boy (Japan) (En) | GB, MBC1 type `01`, no RAM | 131,072 | `EF9595AC` | `4bf5e484e7c0ae4db784560431402b26963ca12eb82eea7cd6587cbbb414402b` |
+| PASS | `DONKEY_KONG.gb` | Donkey Kong (Japan, USA) (En) (SGB Enhanced) | GB, MBC1+RAM+BAT type `03`, RAM code `02` | 524,288 | `EDAB3378` | `2781f6b1014336e3318073f162cadd970329c8148fc62b5e795441cd6fd57051` |
+| PASS | `DQM2_R_____BQLJ.gbc` | Dragon Quest Monsters 2 - Maruta no Fushigina Kagi - Ruka no Tabidachi (Japan) (SGB Enhanced) (GB Compatible) | GBC, MBC5+RAM+BAT type `1B`, RAM code `03` | 4,194,304 | `2C428A87` | `90517f73231e52fe3ef733e369b8a3464996e785803fdb583398d40689760ab7` |
+| PASS | `HAMUPARA2__BHMJ.gbc` | Hamster Paradise 2 (Japan) | GBC, MBC5+RAM+BAT type `1B`, RAM code `02` | 2,097,152 | `542C78B6` | `aa00671d2803d3ef56533577f1d4609572da3cd0c52061ff7262baeb3a060fb1` |
+| PASS | `JINSEI_TOMOACJJ.gbc` | Jinsei Game - Tomodachi Takusan Tsukurou yo! (Japan) (SGB Enhanced) (GB Compatible) | GBC, MBC5+RAM+BAT type `1B`, RAM code `02` | 1,048,576 | `C8D46E99` | `f059eec463aefa71a908743f7286e981161c0877a8d61651ecdce68bc26c342a` |
+| PASS | `MARIOLAND2.gb` | Super Mario Land 2 - 6-tsu no Kinka (Japan) (Rev 2) | GB, MBC1+RAM+BAT type `03`, RAM code `02` | 524,288 | `29E0911A` | `fe27376d7dfd218c900873bfd0b1ed5cb618b5a2bc9d427c3618ed5382fe5327` |
+| PASS | `MARIO_S_PICROSS.gb` | Mario no Picross (Japan) (SGB Enhanced) | GB, MBC1+RAM+BAT type `03`, RAM code `02` | 262,144 | `17533700` | `eb13fba45c077e52b6947d53cd36ff2fa2f79be39004681dc8f3b4bd93743173` |
+| PASS | `MOGURANYA.gb` | Moguranya (Japan) (SGB Enhanced) | GB, MBC1+RAM+BAT type `03`, RAM code `02` | 524,288 | `82FCA204` | `7b85e04d1f22931bdb5bfc82ce23a71b8a5c690d3b5ed0b383bf61608f319fc5` |
+| PASS | `OTHELLO.gb` | Othello (Japan) (En) | GB, ROM-only type `00`, no RAM | 32,768 | `C17A002E` | `d0d6537f60f4c19f0a74716504c4d51712595f0a6c4bb498e8d53caf2af458eb` |
+| PASS | `PNBALFRENZYVM2E.gbc` | Little Mermaid II, The - Pinball Frenzy (USA) (En,Fr,De,Es,It) (Rumble Version) | GBC, MBC5+RUMBLE+RAM+BAT type `1E`, RAM code `02` | 1,048,576 | `364F9CCD` | `e9e3b8f82c84aabf06f5061567fa23d1bfacb1c2d5cb83e31d93e0cd04716728` |
+| PASS | `SANGOKUSHI.gb` | Sangokushi - Game Boy Ban (Japan) | GB, MBC1+RAM+BAT type `03`, RAM code `02` | 262,144 | `83706E92` | `a9b8c50c84b6f33ec29025a76420d5ad098d6b1b99ea9798976d758755f73256` |
+| PASS | `SUPER_MARIOLAND.gb` | Super Mario Land (World) (Rev 1) | GB, MBC1 type `01`, no RAM | 65,536 | `2C27EC70` | `49fbd2f61f953d5ef28cab73e357e524c3009ad19fcf30f6a9ee0ae273be41dc` |
+| PASS | `TENNIS.gb` | Tennis (World) | GB, ROM-only type `00`, no RAM | 32,768 | `5009215F` | `cdcb6ba23ea2c32a2af47abb267d8bd065a8bc10777b435de6a9be421e5bf919` |
+| PASS | `TETRIS.gb` | Tetris (World) (Rev 1) | GB, ROM-only type `00`, no RAM | 32,768 | `46DF91AD` | `0d6535aef23969c7e5af2b077acaddb4a445b3d0df7bf34c8acef07b51b015c3` |
+| PASS | `TETRIS_FLASH.gb` | Tetris Flash (Japan) (SGB Enhanced) | GB, MBC1 type `01`, no RAM | 131,072 | `9DFCB385` | `fe9eb6e38a2a16de78713254da361543070d91a49b986a50158b88f0328e6391` |
+| PASS | `TYCORAT1___BTIE.gbc` | Racin' Ratz (USA) | GBC, MBC5 type `19`, no RAM | 1,048,576 | `D6881014` | `664a532bbaef3f044ceeda8ce696f1a24cdb613525e8990cea0fb6458c067d9d` |
+| PASS | `UNO2SMALL_WORLD.gb` | Uno 2 - Small World (Japan) (SGB Enhanced) | GB, MBC1 type `01`, no RAM | 131,072 | `A7AD65EF` | `88773be9e71529b35ce03d39f417e866f48df97cdfb894943f729dab7beefb90` |
+| PASS | `YUGIOUDM4J_BY6J.gbc` | Yu-Gi-Oh! Duel Monsters 4 - Battle of Great Duelist - Jounouchi Deck (Japan) | GBC, MBC5+RAM+BAT type `1B`, RAM code `02` | 4,194,304 | `298BD054` | `734b915b1d408d7e647757ccfcc019295e1280e7d5d77e1764b6a9c7ca334670` |
+| PASS | `ZELDA.gb` | Legend of Zelda, The - Link's Awakening (USA, Europe) | GB, MBC1+RAM+BAT type `03`, RAM code `02` | 524,288 | `8CF27C90` | `21f712e213f43f9efb93ca039a5190fc09325d5d932af1fb2f8e90b4f9fd169f` |
+| PASS | `ZELDA_DIN__AZ7E.gbc` | Legend of Zelda, The - Oracle of Seasons (USA, Australia) | GBC, MBC5+RAM+BAT type `1B`, RAM code `02` | 1,048,576 | `D7E9F5D7` | `862a51368fb30539279d336b3fe193b43876d2cb15c87a36f5da517804ab3971` |
+
+### Save verification
+
+| Dump | Technology | Bytes | CRC32 | SHA-256 | Result |
+|---|---|---:|---|---|---|
+| `DONKEY_KONG.sav` | MBC1 RAM, one 8 KiB bank | 8,192 | `CC13720B` | `266ee19fa4c960cea9a3c07eaa2626bce1489efef022541974f799ca8cfc044a` | PASS, loaded correctly in mGBA |
+| `DQM2_R_____BQLJ.sav` | MBC5 RAM, four 8 KiB banks | 32,768 | `08BE7E23` | `07fd548dfc50858c77ae7e44c1d8232564a027cfce518cb4866583c339a11077` | PASS, exact repeat of a previously confirmed save |
+| `HAMUPARA2__BHMJ.sav` | MBC5 RAM, one 8 KiB bank | 8,192 | `03AA0B0A` | `e2d75f6cfb8d68dc20df854c9fb68f4beec57985591456b4ccd9982a2468be04` | PASS, loaded correctly in mGBA |
+| `JINSEI_TOMOACJJ.sav` | MBC5 RAM, one 8 KiB bank | 8,192 | `A6F62B50` | `c0419d0ed61e075fc7eae21240135887db9cb71bf9f4ac2ad458ad3d719389f0` | PASS, exact repeat of a previously confirmed save |
+| `MARIOLAND2.sav` | MBC1 RAM, one 8 KiB bank | 8,192 | `6EB28307` | `34171386b3bb5b30b99d197b5bc5038c177f3b25cd59d86dfa5cdaf1842ad28c` | PASS, loaded correctly in mGBA |
+| `MARIO_S_PICROSS.sav` | MBC1 RAM, one 8 KiB bank | 8,192 | `B54ADB6C` | `f9bc1e3621b0170aa082dead207fefe7d53cb48eee3eaf0fa670069361dbaa23` | PASS, loaded correctly in mGBA |
+| `MOGURANYA.sav` | MBC1 RAM, one 8 KiB bank | 8,192 | `A910880D` | `e29950853de4a6890c7efc0d20eddc39ddda394a3baec879558261436c60c1ee` | PASS, loaded correctly in mGBA |
+| `PNBALFRENZYVM2E.sav` | MBC5 rumble RAM, one 8 KiB bank | 8,192 | `5EC85AF5` | `8a71d01e72b81ad5de675b01831e3b7741d92b4fff4436dc2874adb101d19269` | PASS, loaded correctly in mGBA |
+| `SANGOKUSHI.sav` | MBC1 RAM, one 8 KiB bank | 8,192 | `5D074EE3` | `70516e40e7738c5838f8bc837d1ff47e96cc1b0b72c4bc27cbfc0ee81b8bb3b7` | PASS, loaded correctly in mGBA |
+| `YUGIOUDM4J_BY6J.sav` | MBC5 RAM, one 8 KiB bank | 8,192 | `6646D2D7` | `5a29a36a0d1cf4dd5c59a2dddbf2530fedf03d990da5c099ee88ad95a4c7a025` | PASS, exact repeat of a previously confirmed save |
+| `ZELDA.sav` | MBC1 RAM, one 8 KiB bank | 8,192 | `19CCD1B4` | `d558d7f9400861fb3398eeb455be30b889ef8c021ce533a203535b3bc3729cae` | PASS, loaded correctly in mGBA |
+| `ZELDA_DIN__AZ7E.sav` | MBC5 RAM, one 8 KiB bank | 8,192 | `57193E99` | `71f20fe37dc84600733db4ad56a30e629332d337a07d09bd0e0311a4f027fea7` | PASS, exact repeat of a previously confirmed save |
+
 ## Batch 1, 2026-09-03
 
 Core commit: `ff8c8f0`
