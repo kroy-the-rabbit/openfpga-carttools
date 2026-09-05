@@ -93,13 +93,13 @@ jobs:
 
             Save backup works on both platforms, and is verified the only way
             a save can be: loaded in an emulator beside its own ROM, with the
-            game's state intact. Six GB/GBC saves are backed up and five have
-            loaded that way; on GBA, 64 KiB Flash and 32 KiB SRAM both have.
-            Neither GBA save type needs a write to the cartridge. 128 KiB
-            Flash and EEPROM are refused, because both would. A save is still
-            read once - the double read is not built - so do not treat a
-            `.sav` as a backup you would rely on, and restore is not started
-            on either platform.
+            game's state intact. Twenty-seven saves are retained from
+            twenty-six cartridges: fifteen GB/GBC, and eleven GBA across
+            32 KiB SRAM, 64 KiB Flash, and EEPROM at 512 bytes and 8 KiB.
+            None of it writes to the cartridge. 128 KiB Flash is refused,
+            because it would. A save is still read once - the double read is
+            not built - so do not treat a `.sav` as a backup you would rely
+            on, and restore is not started on either platform.
 
             Read `docs/STATUS.md` for what is proven and how, and
             `docs/HANDOFF.md` for what is not.

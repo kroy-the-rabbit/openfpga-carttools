@@ -2,8 +2,8 @@
 
 A Pocket core that reads cartridges through the handheld's own cartridge slot.
 It identifies Game Boy, Game Boy Color and Game Boy Advance cartridges, dumps
-their ROMs to the SD card, and backs up Game Boy and Game Boy Color saves. It is
-not an emulator and it will not play anything.
+their ROMs to the SD card, and backs up their saves. It is not an emulator and
+it will not play anything.
 
 **Based on commit `0e1b2e1` of the `feat/cartridge-support` branch of
 [Rai/openfpga-GBA](https://github.com/Rai/openfpga-GBA)**, which is a fork of
@@ -26,9 +26,9 @@ what was written here.
 | CRC32 shown on the device | **works**, both platforms, over a save as well as a ROM |
 | Image checked against the cartridge's own checksum | **works**, GB / GBC only |
 | Files named `.gb` / `.gbc` / `.gba` | **works** |
-| GB / GBC save backup | **works**, six cartridges backed up, five loaded in an emulator with their state intact. The sixth is refused by its own game, a dead battery |
+| GB / GBC save backup | **works**, fifteen cartridges backed up and loaded in an emulator with their state intact, one of them showing no recognisable state and carried as unverified |
 | Save RAM banking, to 128 KB | **works** at 8 KB one bank and 32 KB four banks; 64 KB and 128 KB built, untested |
-| GBA save backup | **works**, two cartridges: 64 KiB Flash and 32 KiB SRAM, each loaded in an emulator with its state intact. Needs no write to the cartridge. 128 KiB Flash and EEPROM refused, both need a write |
+| GBA save backup | **works**, eleven cartridges: 32 KiB SRAM, 64 KiB Flash, and EEPROM at 512 bytes and 8 KiB, each loaded in an emulator with its state intact. None of it writes to the cartridge; the EEPROM reader cannot even express a write. 128 KiB Flash refused, it needs a bank-select write |
 | A write that is cut short mid-pulse | **safe**, the cartridge captures the byte that was asked for rather than a floating bus |
 | Save restore | not started |
 | MBC3 RTC | not started |
@@ -111,9 +111,10 @@ Every dumped image passes the checks the cartridge itself carries: the Nintendo
 logo, the header checksum, and for Game Boy the global checksum.
 
 **And every one of the forty-one images matches a published record.** Checked
-2026-09-02 against the No-Intro DATs for Game Boy, Game Boy Color and Game Boy
-Advance, 7,572 entries: all forty-one dumps are present by CRC32, and the size
-agrees too. That is the strongest evidence this project has, because it is
+against the No-Intro DATs for Game Boy, Game Boy Color and Game Boy Advance,
+7,572 entries: all forty-one dumps are present by CRC32, and the size agrees
+too. The corpus, cartridge by cartridge, is in
+[docs/CARTRIDGE-CORPUS.md](docs/CARTRIDGE-CORPUS.md). That is the strongest evidence this project has, because it is
 external to the core, external to this repo, and it covers the GBA images,
 which carry no checksum of their own. [docs/STATUS.md](docs/STATUS.md) has the
 evidence for each claim and [docs/HANDOFF.md](docs/HANDOFF.md) has what is
@@ -141,15 +142,16 @@ clock edge of a full read, that `/WR` never falls while `/CS` is low.
 
 ## Versions
 
-The five projects in this set share one version number, and this core is part of
-that set. It never carried an inherited number, so nothing here is being
-renumbered; the cores it sits beside are.
+Every project in this set sits at **0.9999** and none of them moves off it.
+1.0 is a claim to be finished, none of this is finished, and a version that
+never climbs cannot drift into making that claim by accident. This core never
+carried an inherited number, so nothing here is being renumbered; the cores it
+sits beside are.
 
-The set is at **0.9999**, and it stays there. A release adds the short SHA of
-the commit it was cut from, so a tag reads `v0.9999.ed18b9b`: the tail grows
-rather than climbing toward a round number, and the version names the exact
-commit the bitstream came from. Nothing here reaches 1.0, because 1.0 is a
-claim to be finished and none of this is.
+The projects are not kept in step with each other. A release adds the short
+SHA of the commit it was cut from, so a tag reads `v0.9999.250d6a0`, and two
+tags that share the prefix are unrelated releases. Read the tail, not the
+number.
 
 What 1.0 would mean for this core is listed below, and it is a long way off.
 
@@ -166,8 +168,8 @@ What 1.0 would mean for this core is listed below, and it is a long way off.
 
 Prebuilt cores are on the [Releases](../../releases) page. Download
 `kroy.CartTools_<version>.zip`, not the "Source code" archives: the bitstream is
-built by CI rather than committed, so a core installed from a source archive is
-listed by the Pocket and cannot start.
+not committed, so a core installed from a source archive is listed by the
+Pocket and cannot start.
 
 This core installs as `Cores/kroy.CartTools`. Copy the `Assets`, `Cores` and
 `Platforms` folders to the root of the SD card. Finder on macOS *replaces*
@@ -324,5 +326,7 @@ supplied under Analogue's own software licence agreement and the Pocket EULA
 linked from their headers, which provide that where the MIT or GNU licences must
 apply, those prevail.
 
-Binary releases here are built by CI from a tagged commit of this repository,
-which is the corresponding source for them.
+Binary releases here are built from the exact tagged commit of this repository
+on a controlled builder, and the tag is the corresponding source for them. The
+release carries the zip and the timing report; its SHA-256s are recorded in
+the release notes.

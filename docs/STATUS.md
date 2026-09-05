@@ -19,7 +19,7 @@ has to come from a cartridge.
 | v0.6 | GB/GBC save restore | not started |
 | v0.7 | GBA SRAM backup and restore | backup **verified on hardware**, Zero Mission's 32 KiB SRAM loaded in mGBA with its file intact. Needs no write. Restore not started |
 | v0.8 | GBA Flash backup and restore | 64 KiB backup **verified on hardware**, Golden Sun loaded in mGBA with its state intact, and it needs no write. 128 KiB blocked on the bank select write. Restore not started |
-| v0.9 | GBA EEPROM backup and restore | not started, and blocked: EEPROM is addressed by writing |
+| v0.9 | GBA EEPROM backup and restore | backup **verified on hardware**, eight cartridges at 512 bytes and 8 KiB, each loaded in mGBA with its state intact. The read command is the only one the reader can form. Restore not started |
 | v0.10 | RTC support | not started |
 | v1.0 | Stable GB/GBC/GBA cartridge utility | not started |
 
@@ -1085,7 +1085,7 @@ would make it wrong.
 | A mask ROM larger than its game is sized correctly | Hardware, Minish Cap's last two megabytes are pure `FF` padding and the probe read past both to the real 16 MB boundary |
 | The core's CRC32 agrees with `zlib` | Hardware, the screen and the file on the card both say `E1FB68E8` |
 | A real GB/GBC cartridge is identified correctly | Hardware, three cartridges: Link's Awakening DX, Oracle of Seasons, Tetris Plus. MBC5 and MBC1, all three CGB flag values, both header layouts |
-| A real GBA cartridge is identified correctly | Hardware, fourteen cartridges, header and checksum, fixed byte `0x96` in place on every one |
+| A real GBA cartridge is identified correctly | Hardware, fifteen cartridges, header and checksum, fixed byte `0x96` in place on every one |
 | The GB to GBA escalation works at the connector | Hardware, the Minish Cap read is reached through it |
 | The Pocket powers the slot and reports it | Hardware, `play 1 power 1` on the diagnostics page, before that page was removed |
 | Every bank of a GB ROM is read once, in order, through the right mapper register | `tb_cart_dump_gb`, four mappers, content derived from the linear address |
