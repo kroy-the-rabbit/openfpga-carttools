@@ -1,11 +1,22 @@
 name: Build
 
-# Gate 1: main only.
+# Gate 1: main only, and simulation only.
 #
-# Not every branch. A Quartus run is ~6 minutes of a hosted runner and this
-# core's timing margin has been thin enough to fail a build once already, so
-# what matters is that main always holds something that compiles and closes
-# timing. Feature branches get tested by `make test`, which is seconds.
+# Every cartridge-facing module has a testbench because the hardware it talks
+# to cannot be put in CI: a wrong write to a cartridge is not recoverable.
+# That suite is the gate here, and it runs on every push to main and every
+# pull request against it. Feature branches get it from `make test` in
+# seconds.
+#
+# Synthesis is not done here, and must not be. Quartus runs only on the
+# controlled builders, sisko and kira, through the orchestrator's
+# tools/runner-build, against a Quartus image that is private and stays so:
+# Quartus Lite needs no licence, but that grants no right to redistribute its
+# installed files, so the image is never uploaded to Actions or a registry.
+# The timing gate lives there too: build.sh exits 3 on negative slack, so a
+# package that ships was fit to flash where it was built. A hosted job that
+# tried to synthesise here could not resolve that image and failed on every
+# push, which is what this file used to do.
 on:
   push:
     branches: [main]
@@ -24,9 +35,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Every cartridge-facing module has a testbench because the hardware it
-      # talks to cannot be put in CI: a wrong write to a cartridge is not
-      # recoverable. This is the cheap gate and it runs first.
       - name: Build the Icarus image
         run: docker build -t carttools-sim:1 -f tools/podman/Containerfile.sim tools/podman
 
@@ -34,35 +42,3 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/work" -w /work -e HOME=/tmp \
             carttools-sim:1 python3 tools/sim/run_all.py
-
-  synth:
-    name: Synthesis and timing
-    runs-on: ubuntu-latest
-    needs: sim
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0        # build.sh stamps core.json from the commit
-
-      # PODMAN is a variable precisely so this works. build.sh exits 3 when
-      # worst slack is negative, which is what makes this a gate rather than a
-      # report: a bitstream that does not close timing must not reach main.
-      - name: Build
-        run: make cart PODMAN=docker
-
-      - name: Timing report
-        if: always()
-        run: cat build/cart/report.txt || true
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: report-${{ github.sha }}
-          path: build/cart/report.txt
-          if-no-files-found: warn
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: core-${{ github.sha }}
-          path: build/cart/*.zip
-          if-no-files-found: error
