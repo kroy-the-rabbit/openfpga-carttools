@@ -106,6 +106,7 @@ module ui_screen #(
     // as facts rather than folded into a verdict.
     input  wire         save_shown,      // the last dump was a save
     input  wire         save_ready,      // Y would do something right now
+    input  wire         restore_ready,   // Select hold can open restore
     // This cartridge has save RAM and this core cannot read it. Distinct from
     // "no save": a cartridge with nothing to back up needs no explanation,
     // and one with a save that Y silently will not touch does. The first
@@ -285,6 +286,7 @@ localparam integer R_VERIFY = 13;
 localparam integer R_CRC    = 14;
 localparam integer R_FIRST  = 15;
 localparam integer R_HELP   = 18;
+localparam integer R_RESTORE_HELP = 19;
 
 // A nibble as a hex character. Up here rather than beside its first user
 // because the CRC32 row below is built out of eight of them, and that row is
@@ -306,7 +308,7 @@ endfunction
 //
 // Every header field, on both platforms, changes only when a probe completes
 // and id_seq counts those, so none of them are compared here. A 320 bit
-// comparator made this the critical path of the core; 41 bits does not.
+// comparator made this the critical path of the core; 42 bits does not.
 //
 // The dump fields are here for the reason the identification fields are not:
 // they change without a probe completing, so id_seq does not cover them.
@@ -322,8 +324,8 @@ endfunction
 // out_ext are the exception: path generation finishes after dump_state enters
 // RUN, so out_name_valid repaints once those fields belong to this dump
 // without putting their 192 bits here.
-wire [40:0] snapshot = {valid, scanning, platform, answered_gba, id_seq,
-                        save_ready, save_shown, save_refused,
+wire [41:0] snapshot = {valid, scanning, platform, answered_gba, id_seq,
+                        save_ready, restore_ready, save_shown, save_refused,
                         // The probed size, as a code. Four bits, and they are
                         // needed: the size arrives after the probe that
                         // id_seq counts, so id_seq has already moved by the
@@ -335,7 +337,7 @@ wire [40:0] snapshot = {valid, scanning, platform, answered_gba, id_seq,
                         // changes only when they do.
                         dump_progress[7:4], dump_err, out_name_valid};
 
-reg [40:0] shown;
+reg [41:0] shown;
 reg         painting;
 
 // ---- Where the painter is -------------------------------------------------
@@ -565,7 +567,9 @@ wire [LW-1:0] crc_line = (dump_state == 2'd2) ? ROW_CRC
 // already false for a save, so the row would otherwise sit blank.
 wire [LW-1:0] verify_line = save_shown ? save_line : sum_line;
 
-wire [LW-1:0] static_next = line_of(row_c, details, details_gb, msg_line,
+wire [LW-1:0] static_next = row_c == R_RESTORE_HELP && restore_ready ?
+                            "HOLD SELECT 3s: RESTORE       " :
+                            line_of(row_c, details, details_gb, msg_line,
                                     dump_line, file_line, verify_line,
                                     gba_ver_row, crc_line, first_line,
                                     dump_ready, save_ready, dump_state);
@@ -828,7 +832,7 @@ always @(posedge clk) begin
         col_c    <= 5'd0;
         addr_c   <= 10'd0;
         paint_r  <= 1'b0;
-        shown    <= {40{1'b1}};   // deliberately not a reachable snapshot
+        shown    <= {42{1'b1}};   // deliberately not a reachable snapshot
         tb_we    <= 1'b0;
     end else begin
         tb_we <= 1'b0;

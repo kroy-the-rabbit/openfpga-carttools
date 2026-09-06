@@ -12,6 +12,7 @@ module ui_restore_screen (
     input  wire        reset,
     input  wire        active,
     input  wire [3:0]  guard_state,
+    input  wire [1:0]  hold_progress,
     input  wire [5:0]  phase,
     input  wire [4:0]  error,
     input  wire [3:0]  io_error,
@@ -39,10 +40,10 @@ function [LW-1:0] status_line(input [3:0] guard, input [5:0] current_phase,
                               input [4:0] current_error, input writes);
     begin
         case (guard)
-            4'd1: status_line = "UNLOCK: SELECT FIVE TIMES     ";
-            4'd2: status_line = "RESTORE SCREEN UNLOCKED       ";
+            4'd1: status_line = "HOLD SELECT TO ENTER RESTORE  ";
+            4'd2: status_line = "RESTORE READY                 ";
             4'd3: status_line = "PREFLIGHT IN PROGRESS         ";
-            4'd4, 4'd5, 4'd6: status_line = "PREFLIGHT CHECKS PASSED       ";
+            4'd6: status_line = "PREFLIGHT CHECKS PASSED       ";
             4'd7: status_line = writes ? "RESTORE IN PROGRESS           " :
                                          "FINAL CHECKS IN PROGRESS      ";
             4'd8: status_line = current_phase != 6'd18 || current_error != 5'd0 ?
@@ -60,11 +61,9 @@ function [LW-1:0] action_line(input [3:0] guard, input [5:0] current_phase,
                               input [4:0] current_error, input writes);
     begin
         case (guard)
-            4'd1: action_line = "FIVE FULL TAPS WITHIN 10 SEC  ";
-            4'd2: action_line = "X: CHECK CART AND BACKUP      ";
+            4'd1: action_line = "KEEP SELECT HELD FOR 3 SECONDS";
+            4'd2: action_line = "A: CHECK CART AND BACKUP      ";
             4'd3: action_line = "READS AND SD BACKUP ONLY      ";
-            4'd4: action_line = "PRESS AND RELEASE Y           ";
-            4'd5: action_line = "PRESS AND RELEASE X           ";
             4'd6: action_line = "HOLD A FOR 3 SECONDS          ";
             4'd7: action_line = "KEEP CARTRIDGE AND POWER ON   ";
             4'd8: action_line = current_phase != 6'd18 || current_error != 5'd0 ?
@@ -73,7 +72,21 @@ function [LW-1:0] action_line(input [3:0] guard, input [5:0] current_phase,
                                          "WRITES DISABLED               ";
             4'd9: action_line = "NO SUCCESS REPORTED           ";
             4'd10: action_line = "WAIT FOR CARTRIDGE CLEANUP    ";
-            default: action_line = "SELECT FIVE TIMES TO UNLOCK   ";
+            default: action_line = "HOLD SELECT FOR RESTORE       ";
+        endcase
+    end
+endfunction
+
+// Progress is measured in thirds of the required hold. Only the two hold
+// states display it, so a retained completed hold cannot look like the next
+// action has already been confirmed.
+function [LW-1:0] progress_line(input [1:0] progress);
+    begin
+        case (progress)
+            2'd0: progress_line = "HOLD PROGRESS [---] 0/3       ";
+            2'd1: progress_line = "HOLD PROGRESS [#--] 1/3       ";
+            2'd2: progress_line = "HOLD PROGRESS [##-] 2/3       ";
+            2'd3: progress_line = "HOLD PROGRESS [###] 3/3       ";
         endcase
     end
 endfunction
@@ -128,13 +141,14 @@ function [LW-1:0] error_line(input [4:0] current_error);
     end
 endfunction
 
-wire [100:0] snapshot = {active, guard_state, phase, error, io_error, rom_crc,
+wire [102:0] snapshot = {active, guard_state, hold_progress, phase, error, io_error, rom_crc,
                        save_crc, backup_index, write_enabled};
-reg [100:0] shown;
+reg [102:0] shown;
 reg dirty;
 reg was_active;
 wire shown_active;
 wire [3:0] shown_guard;
+wire [1:0] shown_progress;
 wire [5:0] shown_phase;
 wire [4:0] shown_error;
 wire [3:0] shown_io_error;
@@ -142,11 +156,11 @@ wire [31:0] shown_rom;
 wire [31:0] shown_save;
 wire [15:0] shown_backup;
 wire shown_writes;
-assign {shown_active, shown_guard, shown_phase, shown_error, shown_io_error, shown_rom,
+assign {shown_active, shown_guard, shown_progress, shown_phase, shown_error, shown_io_error, shown_rom,
         shown_save, shown_backup, shown_writes} = shown;
 
 wire checks_passed = shown_error == 5'd0 &&
-                     ((shown_guard >= 4'd4 && shown_guard <= 4'd7) ||
+                     ((shown_guard == 4'd6 || shown_guard == 4'd7) ||
                       (shown_guard == 4'd8 && shown_phase == 6'd18));
 wire [LW-1:0] rom_line = {"ROM CRC  ",
     hex_digit(shown_rom[31:28]), hex_digit(shown_rom[27:24]),
@@ -187,6 +201,8 @@ always @* begin
                                          "CORE WRITES DISABLED          ";
         5'd7: line_next = status_line(shown_guard, shown_phase, shown_error, shown_writes);
         5'd8: line_next = action_line(shown_guard, shown_phase, shown_error, shown_writes);
+        5'd9: line_next = shown_guard == 4'd1 || shown_guard == 4'd6 ?
+                         progress_line(shown_progress) : BLANK;
         5'd10: begin
             if (shown_guard == 4'd3)
                 line_next = shown_phase >= 6'd1 && shown_phase <= 6'd11 ?
@@ -204,12 +220,16 @@ always @* begin
         5'd13: line_next = checks_passed ? save_line : BLANK;
         5'd14: line_next = checks_passed ? recovery_line : BLANK;
         5'd15: line_next = checks_passed ? "RECOVERY FILE VERIFIED        " : BLANK;
-        5'd17: line_next = "RESTORE RELOCKS AFTER ONE USE ";
-        5'd18: line_next = shown_guard == 4'd7 || shown_guard == 4'd10 ?
+        5'd17: line_next = shown_guard >= 4'd2 ?
+                              "RESTORE PAGE STAYS OPEN       " : BLANK;
+        5'd18: line_next = shown_guard == 4'd3 || shown_guard == 4'd6 ||
+                          shown_guard == 4'd7 || shown_guard == 4'd10 ?
                               "B: REQUEST SAFE STOP          " :
                           shown_guard == 4'd8 || shown_guard == 4'd9 ?
-                              "B: CLOSE  SELECT 5X: RETRY     " :
-                              "B: CANCEL                     ";
+                              "B: CLOSE  HOLD SELECT: RETRY  " :
+                          shown_guard == 4'd1 ?
+                              "B: CANCEL HOLD                " :
+                              "B: CLOSE RESTORE PAGE         ";
         5'd19: line_next = shown_writes ?
                               "SAVE DATA WILL BE OVERWRITTEN " :
                               "CHECK BUILD: NO SAVE WRITES   ";
@@ -219,7 +239,7 @@ end
 
 always @(posedge clk) begin
     if (reset) begin
-        shown      <= 101'b0;
+        shown      <= 103'b0;
         dirty      <= 1'b1;
         was_active <= 1'b0;
         painting   <= 1'b0;

@@ -469,9 +469,13 @@ wire restore_preflight_request, restore_commit_request;
 wire restore_reprobe_request;
 wire restore_preflight_done, restore_preflight_ok, restore_done, restore_failed;
 wire restore_authorized;
+wire [1:0] restore_hold_progress;
 reg restore_probe_pending, restore_engine_start;
 wire restore_overlay = restore_guard_state != 0;
-wire restore_block = restore_overlay || restore_busy || restore_probe_pending || restore_poisoned_s;
+reg restore_input_wait;
+wire restore_entry_key = cont1_key_s[14];
+wire restore_block = restore_overlay || restore_entry_key || restore_input_wait ||
+                     restore_busy || restore_probe_pending || restore_poisoned_s;
 
 wire d_target_write, d_target_open, d_target_get, d_target_flush;
 wire [15:0] d_target_id;
@@ -895,6 +899,29 @@ cart_pins cart_pins_inst (
 wire [31:0] cont1_key_s;
 synch_3 #(.WIDTH(32)) s_cont1 (cont1_key, cont1_key_s, clk_sys);
 
+// Claim ordinary controls on the first Select sample, before debounce opens
+// the overlay. After leaving restore, require every button to stay released
+// for 20 ms before normal scan/dump controls can accept a fresh press. This
+// prevents an interrupted entry or B+X chord from falling through into dump.
+localparam [20:0] RESTORE_RELEASE_CYCLES = 21'd2013266;
+reg [20:0] restore_release_count;
+always @(posedge clk_sys) begin
+    if (~pll_core_locked) begin
+        restore_input_wait <= 1'b1;
+        restore_release_count <= 0;
+    end else if (restore_entry_key || restore_overlay || restore_busy ||
+                 restore_probe_pending || restore_engine_start) begin
+        restore_input_wait <= 1'b1;
+        restore_release_count <= 0;
+    end else if (cont1_key_s[15:0] != 0) begin
+        restore_release_count <= 0;
+    end else if (restore_release_count < RESTORE_RELEASE_CYCLES) begin
+        restore_release_count <= restore_release_count + 1'b1;
+    end else begin
+        restore_input_wait <= 1'b0;
+    end
+end
+
 wire key_a = cont1_key_s[4];
 reg  key_a_d;
 wire key_a_edge = key_a & ~key_a_d;
@@ -1050,7 +1077,7 @@ wire action_validated_save_available;
 // because the dump display has to clear on exactly the same event, and two
 // copies of this expression would drift.
 wire        scan_start = (cart_wake_pulse | cart_mode_fell |
-                          (key_a_edge & ~restore_overlay) |
+                          (key_a_edge & ~restore_block) |
                           action_scan_start | restore_preflight_request | restore_reprobe_request) &
                          ~dump_busy & ~probe_sizing & ~sz_start &
                          (~restore_busy | restore_reprobe_request);
@@ -1727,6 +1754,10 @@ synch_3 s_restore_menu (osnotify_inmenu, restore_menu_s, clk_sys);
 synch_3 s_restore_poison (restore_poisoned, restore_poisoned_s, clk_sys);
 synch_3 #(.WIDTH(16)) s_restore_backup (restore_backup_index, restore_backup_index_s, clk_sys);
 wire restore_cancel = cart_mode_change || !restore_reset_n_s || restore_menu_s;
+wire restore_stop_request = restore_cancel || restore_guard_state == 4'd10 ||
+                            (restore_overlay && cont1_key_s[5]);
+wire restore_transaction_busy = restore_busy || restore_probe_pending ||
+                                restore_engine_start || cart_engine_busy;
 wire restore_available = id_valid && platform == 3'd2 &&
     gbid_cart_type == 8'h03 && gbid_ram_size == 8'h02 && gbid_cgb_flag == 0 &&
     gbid_rom_size <= 4 && !cart_engine_busy && !dump_busy && !action_pending &&
@@ -1736,18 +1767,20 @@ restore_guard restore_lock (
     .clk(clk_sys), .reset(~pll_core_locked),
     .key_select(cont1_key_s[14]), .key_x(key_x), .key_y(key_y),
     .key_a(key_a), .key_b(cont1_key_s[5]), .cancel(restore_cancel),
-    .available(restore_available), .preflight_done(restore_preflight_done),
+    .available(restore_available), .transaction_busy(restore_transaction_busy),
+    .preflight_done(restore_preflight_done),
     .preflight_ok(restore_preflight_ok), .operation_done(restore_done),
     .operation_failed(restore_failed && restore_done), .preflight_start(restore_preflight_request),
     .write_start(restore_commit_request), .unlocked(), .active(restore_active),
-    .busy(), .state(restore_guard_state), .unlock_count(), .authorized(restore_authorized)
+    .busy(), .state(restore_guard_state), .hold_progress(restore_hold_progress),
+    .authorized(restore_authorized)
 );
 
 // Every preflight begins with the existing GB-first electrical safety probe.
 // A physical swap need not change cart_power, so cached identity is insufficient.
 always @(posedge clk_sys) begin
     restore_engine_start <= 0;
-    if (~pll_core_locked || restore_cancel || !restore_active)
+    if (~pll_core_locked || restore_stop_request || !restore_active)
         restore_probe_pending <= 0;
     else if (restore_preflight_request) restore_probe_pending <= 1;
     else if (restore_probe_pending && probe_done) begin
@@ -1815,8 +1848,7 @@ restore_engine #(.WRITE_ENABLED(RESTORE_WRITE_ENABLED)) restore (
     .preflight_start(restore_engine_start), .commit_start(restore_commit_request),
     .reprobe_start(restore_reprobe_request), .reprobe_done(probe_done),
     .reprobe_ok(platform == 3'd2 && gbid_checksum_ok),
-    .cancel(restore_cancel || (!restore_active && restore_busy) ||
-            (restore_guard_state == 4'd10) ||
+    .cancel(restore_stop_request || (!restore_active && restore_busy) ||
             (restore_guard_state == 4'd7 && !restore_authorized)),
     .cart_powered(cart_mode_s), .mode_ready(gb_mode_s),
     .target_ok(id_valid && platform == 3'd2 && gbid_checksum_ok),
@@ -1862,7 +1894,7 @@ always @(posedge clk_sys) restore_overlay_d <= restore_overlay;
 ui_restore_screen restore_screen (
     .clk(clk_sys), .reset(~pll_core_locked), .active(restore_overlay),
     .guard_state(restore_guard_state), .phase(restore_phase), .error(restore_error),
-    .io_error(restore_io_err_s),
+    .io_error(restore_io_err_s), .hold_progress(restore_hold_progress),
     .rom_crc(restore_rom_crc), .save_crc(restore_save_crc),
     .backup_index(restore_backup_index_s), .write_enabled(RESTORE_WRITE_ENABLED),
     .tb_addr(restore_tb_addr), .tb_char(restore_tb_char), .tb_attr(restore_tb_attr), .tb_we(restore_tb_we)
@@ -1910,6 +1942,7 @@ ui_screen screen (
     .stall_at        ( dump_stall_at ),
     .save_shown      ( dump_was_save ),
     .save_ready      ( save_ready ),
+    .restore_ready   ( restore_available ),
     .save_refused    ( save_refused ),
     .save_responded  ( dump_save_responded ),
     .save_blank_ff   ( dump_save_blank_ff ),

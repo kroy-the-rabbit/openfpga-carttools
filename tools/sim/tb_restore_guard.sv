@@ -3,62 +3,45 @@
 `timescale 1ns/1ps
 
 module tb_restore_guard;
-
 localparam integer DEBOUNCE = 3;
-localparam integer UNLOCK = 180;
-localparam integer CONFIRM = 200;
+localparam integer ENTRY = 18;
 localparam integer HOLD = 12;
-localparam [4:0] SELECT = 5'b10000;
-localparam [4:0] X = 5'b01000;
-localparam [4:0] Y = 5'b00100;
-localparam [4:0] A = 5'b00010;
-localparam [4:0] B = 5'b00001;
-
-reg clk = 1'b0;
+localparam [4:0] SELECT = 5'b10000, X = 5'b01000, Y = 5'b00100;
+localparam [4:0] A = 5'b00010, B = 5'b00001;
+reg clk = 0;
 always #5 clk = ~clk;
-reg reset = 1'b1;
-reg [4:0] keys = 5'b0;
-reg cancel = 1'b0;
-reg available = 1'b1;
-reg preflight_done = 1'b0;
-reg preflight_ok = 1'b0;
-reg operation_done = 1'b0;
-reg operation_failed = 1'b0;
+reg reset = 1;
+reg [4:0] keys = 0;
+reg cancel = 0, available = 1, transaction_busy = 0;
+reg preflight_done = 0, preflight_ok = 0;
+reg operation_done = 0, operation_failed = 0;
 wire preflight_start, write_start, unlocked, active, busy, authorized;
 wire [3:0] state;
-wire [2:0] unlock_count;
-integer preflight_pulses = 0;
-integer write_pulses = 0;
-integer before_preflight;
-integer before_write;
+wire [1:0] hold_progress;
+integer preflight_pulses = 0, write_pulses = 0;
+integer before_preflight, before_write;
 integer i;
-reg previous_preflight = 1'b0;
-reg previous_write = 1'b0;
+reg previous_preflight = 0, previous_write = 0;
 
-restore_guard #(
-    .DEBOUNCE_CYCLES(DEBOUNCE), .UNLOCK_CYCLES(UNLOCK),
-    .CONFIRM_CYCLES(CONFIRM), .HOLD_CYCLES(HOLD)
-) dut (
+restore_guard #(.DEBOUNCE_CYCLES(DEBOUNCE), .ENTRY_HOLD_CYCLES(ENTRY),
+                .HOLD_CYCLES(HOLD)) dut (
     .clk(clk), .reset(reset), .key_select(keys[4]), .key_x(keys[3]),
-    .key_y(keys[2]), .key_a(keys[1]), .key_b(keys[0]),
-    .cancel(cancel), .available(available), .preflight_done(preflight_done),
-    .preflight_ok(preflight_ok), .operation_done(operation_done),
-    .operation_failed(operation_failed), .preflight_start(preflight_start),
-    .write_start(write_start), .unlocked(unlocked), .active(active),
-    .busy(busy), .state(state), .unlock_count(unlock_count),
-    .authorized(authorized)
+    .key_y(keys[2]), .key_a(keys[1]), .key_b(keys[0]), .cancel(cancel),
+    .available(available), .transaction_busy(transaction_busy),
+    .preflight_done(preflight_done), .preflight_ok(preflight_ok),
+    .operation_done(operation_done), .operation_failed(operation_failed),
+    .preflight_start(preflight_start), .write_start(write_start),
+    .unlocked(unlocked), .active(active), .busy(busy), .state(state),
+    .hold_progress(hold_progress), .authorized(authorized)
 );
 
 always @(posedge clk) begin
     if (!reset) begin
-        if (write_start && !authorized)
-            $fatal(1, "write pulse without authorization");
-        if (authorized && state != 4'd7)
-            $fatal(1, "authorization outside running transaction");
-        if (preflight_start && previous_preflight)
-            $fatal(1, "preflight request exceeded one cycle");
-        if (write_start && previous_write)
-            $fatal(1, "write request exceeded one cycle");
+        if (write_start && !authorized) $fatal(1, "write pulse without authorization");
+        if (authorized && state != 7) $fatal(1, "authorization outside RUN");
+        if (active !== (state != 0)) $fatal(1, "visible restore page lost active exclusion");
+        if (preflight_start && previous_preflight) $fatal(1, "preflight pulse exceeded one clock");
+        if (write_start && previous_write) $fatal(1, "write pulse exceeded one clock");
         if (preflight_start) preflight_pulses = preflight_pulses + 1;
         if (write_start) write_pulses = write_pulses + 1;
     end
@@ -69,281 +52,338 @@ end
 task tick(input integer count);
     repeat (count) @(negedge clk);
 endtask
-
 task settle(input [4:0] value);
-    begin
-        keys = value;
-        tick(DEBOUNCE + 3);
-    end
+    begin keys = value; tick(DEBOUNCE + 3); end
 endtask
-
 task tap(input [4:0] value);
-    begin
-        settle(value);
-        settle(5'b0);
-    end
+    begin settle(value); settle(0); end
 endtask
-
 task check_state(input [3:0] expected, input [511:0] message);
     if (state !== expected)
         $fatal(1, "%0s: expected state %0d, got %0d", message, expected, state);
 endtask
-
 task initialize;
     begin
-        reset = 1'b1;
-        keys = 5'b0;
-        cancel = 1'b0;
-        available = 1'b1;
-        preflight_done = 1'b0;
-        preflight_ok = 1'b0;
-        operation_done = 1'b0;
-        operation_failed = 1'b0;
+        reset = 1;
+        keys = 0;
+        cancel = 0;
+        available = 1;
+        transaction_busy = 0;
+        preflight_done = 0;
+        preflight_ok = 0;
+        operation_done = 0;
+        operation_failed = 0;
         tick(2);
-        reset = 1'b0;
-        tick(DEBOUNCE + 3);
+        reset = 0;
+        settle(0);
         check_state(0, "reset locks");
     end
 endtask
-
-task unlock;
-    integer n;
+task enter_ready;
     begin
-        for (n = 1; n <= 5; n = n + 1) begin
-            tap(SELECT);
-            if (unlock_count !== n)
-                $fatal(1, "Select complete tap %0d counted as %0d", n, unlock_count);
-            if (n < 5 && unlocked)
-                $fatal(1, "unlocked before five full Select taps");
-        end
-        check_state(2, "five full taps open restore screen");
-        if (!unlocked || busy || !active || authorized)
-            $fatal(1, "wrong readiness signals after unlock");
+        keys = SELECT;
+        tick(DEBOUNCE + ENTRY + 5);
+        check_state(2, "Select hold opens latched page");
+        if (!unlocked || !active || busy || authorized)
+            $fatal(1, "READY ownership signals incorrect");
+        settle(0);
     end
 endtask
-
 task begin_preflight;
     begin
         before_preflight = preflight_pulses;
-        tap(X);
-        check_state(3, "X requests preflight");
+        tap(A);
+        check_state(3, "fresh A press/release requests preflight");
         if (preflight_pulses != before_preflight + 1 || !busy || authorized)
-            $fatal(1, "preflight pulse/busy/authorization failure");
+            $fatal(1, "preflight request or ownership incorrect");
+        transaction_busy = 1;
+        available = 0;
     end
 endtask
-
 task pass_preflight;
     begin
-        preflight_ok = 1'b1;
-        preflight_done = 1'b1;
+        preflight_ok = 1;
+        preflight_done = 1;
         tick(1);
-        preflight_done = 1'b0;
+        preflight_done = 0;
         tick(2);
-        check_state(4, "successful preflight awaits Y");
+        check_state(6, "preflight success requests a new A hold");
+        if (!busy || authorized) $fatal(1, "confirmation lost owned preflight or authorized early");
     end
 endtask
-
-task reach_hold;
-    begin
-        unlock();
-        begin_preflight();
-        pass_preflight();
-        tap(Y);
-        check_state(5, "Y release advances to X");
-        tap(X);
-        check_state(6, "X release advances to A hold");
-    end
+task reach_confirm;
+    begin enter_ready(); begin_preflight(); pass_preflight(); end
 endtask
-
 task start_write;
     begin
         before_write = write_pulses;
-        settle(A);
-        tick(HOLD + 2);
-        check_state(7, "continuous A hold starts transaction");
+        settle(0);
+        keys = A;
+        tick(DEBOUNCE + HOLD + 5);
+        check_state(7, "fresh continuous A hold authorizes one transaction");
         if (!authorized || !busy || write_pulses != before_write + 1)
-            $fatal(1, "write pulse, authorization or ownership missing");
+            $fatal(1, "RUN pulse or authorization incorrect");
+    end
+endtask
+task drain_abort;
+    begin
+        transaction_busy = 0;
+        tick(1);
+        check_state(9, "drained cancellation reports failure");
+        if (!active || busy || authorized || unlocked)
+            $fatal(1, "stopped result retained authorization or lost its page");
     end
 endtask
 
 initial begin
     initialize();
-    // A button held at reset must be released before it can count.
-    reset = 1'b1;
+    // Aggregate ownership can describe an ordinary scan while restore has
+    // never been opened. B and global cancellation must leave that UI alone.
+    transaction_busy = 1;
+    available = 0;
+    before_preflight = preflight_pulses;
+    before_write = write_pulses;
+    tap(B);
+    check_state(0, "B during ordinary scan does not enter restore");
+    if (active || busy || authorized) $fatal(1, "locked B claimed ordinary scan ownership");
+    cancel = 1;
+    tick(3);
+    cancel = 0;
+    check_state(0, "global cancel during ordinary scan does not enter restore");
+    if (active || busy || authorized || preflight_pulses != before_preflight ||
+        write_pulses != before_write)
+        $fatal(1, "locked cancellation launched or claimed restore work");
+    transaction_busy = 0;
+    tick(3);
+    check_state(0, "ordinary scan drain does not leave a restore failure result");
+
+    initialize();
+    reset = 1;
     keys = SELECT;
     tick(2);
-    reset = 1'b0;
-    tick(DEBOUNCE + 10);
-    check_state(0, "boot-held Select ignored");
-    if (unlock_count != 0) $fatal(1, "boot-held Select counted");
+    reset = 0;
+    tick(DEBOUNCE + ENTRY + 5);
+    check_state(0, "boot-held Select requires release");
     settle(0);
-
-    // Short edges and contact bounce cannot create affirmative taps.
     repeat (8) begin
-        keys = SELECT;
-        tick(1);
-        keys = 0;
-        tick(1);
+        keys = SELECT; tick(1);
+        keys = 0; tick(1);
     end
     settle(0);
-    check_state(0, "Select bounce ignored");
-    settle(SELECT);
-    tick(20);
-    if (unlock_count != 0) $fatal(1, "held Select counted before release");
-    settle(0);
-    if (unlock_count != 1) $fatal(1, "held Select did not count exactly once");
-    tap(SELECT | X);
-    check_state(0, "Select chord relocks");
-    if (unlock_count != 0) $fatal(1, "chord kept partial unlock");
+    check_state(0, "Select bounce cannot open restore");
 
-    tap(SELECT);
-    tick(UNLOCK + 2);
-    check_state(0, "partial unlock timeout");
+    // Show one-third and two-thirds progress only after continuous holding.
+    keys = SELECT;
+    while (state == 0) tick(1);
+    check_state(1, "entry page latched after stable Select");
+    tick(ENTRY / 3);
+    if (hold_progress != 1) $fatal(1, "entry first-third progress incorrect");
+    tick(ENTRY / 3);
+    if (hold_progress != 2) $fatal(1, "entry second-third progress incorrect");
+    tick(ENTRY / 3);
+    check_state(2, "entry threshold reaches READY");
+    if (hold_progress != 3) $fatal(1, "entry completion progress missing");
+
+    // Neither the still-held entry key nor a direct switch to A may start work.
+    before_preflight = preflight_pulses;
+    settle(A);
+    settle(0);
+    if (preflight_pulses != before_preflight)
+        $fatal(1, "entry hold carried into preflight acceptance");
+    tap(B);
+    check_state(0, "B exits idle READY");
+
+    // An abandoned entry cannot reveal ordinary controls while any key from
+    // the interrupted gesture is still held.
+    settle(SELECT);
+    settle(SELECT | X);
+    settle(X);
+    tick(ENTRY + 5);
+    check_state(1, "abandoned entry retains overlay until full release");
+    if (hold_progress != 0) $fatal(1, "abandoned entry retained progress");
+    settle(0);
+    check_state(0, "released abandoned entry returns to normal controls");
+
     available = 0;
-    repeat (5) tap(SELECT);
-    check_state(0, "unavailable core cannot unlock");
+    keys = SELECT;
+    tick(DEBOUNCE + ENTRY + 5);
+    check_state(0, "unavailable entry refused");
+    settle(0);
     available = 1;
     settle(0);
+    enter_ready();
 
-    // Preflight completion by itself is not authorization, even if stale.
-    preflight_done = 1;
-    preflight_ok = 1;
-    unlock();
-    begin_preflight();
-    tick(10);
-    check_state(3, "stale preflight completion ignored");
+    // READY survives all unrelated keys and an availability change. There
+    // is no automatic return to ordinary dump controls on an input mistake.
+    before_preflight = preflight_pulses;
+    tap(X);
     tap(Y);
-    tap(X);
-    settle(A);
-    tick(HOLD + 2);
-    if (authorized || write_pulses != 0)
-        $fatal(1, "buttons bypassed unfinished preflight");
-    settle(0);
-    preflight_done = 0;
-    tick(1);
-    pass_preflight();
-    tap(X);
-    check_state(0, "wrong confirmation button relocks");
-
-    initialize();
-    unlock();
-    begin_preflight();
-    preflight_done = 1;
-    preflight_ok = 0;
-    tick(2);
-    check_state(9, "failed preflight relocks with failure result");
-    if (unlocked || active || busy || authorized)
-        $fatal(1, "failure retained authorization or ownership");
-    preflight_done = 0;
+    tap(SELECT);
+    tap(A | X);
+    available = 0;
     tap(A);
-    check_state(9, "failed preflight cannot retry with A");
+    tick(500);
+    check_state(2, "READY remains latched after mistakes and waiting");
+    if (preflight_pulses != before_preflight) $fatal(1, "invalid READY input requested work");
+    available = 1;
+    settle(0);
+    begin_preflight();
+    tap(X);
+    tap(Y);
+    tap(SELECT);
+    check_state(3, "unrelated keys do not abandon working preflight");
 
-    initialize();
-    unlock();
-    tick(CONFIRM + 2);
-    check_state(0, "ready screen timeout");
-    reach_hold();
-    tick(CONFIRM + 2);
-    check_state(0, "confirmation timeout");
-
-    // Fresh release must separate Y, X and A. A short hold never accumulates.
-    reach_hold();
+    // Holding A while preflight completes never supplies the final hold.
+    keys = A;
+    tick(DEBOUNCE + 4);
+    pass_preflight();
+    tick(HOLD + 20);
+    check_state(6, "A held during preflight must be released again");
+    if (hold_progress != 0 || write_pulses != 0)
+        $fatal(1, "preflight held input supplied final authorization");
+    settle(0);
+    tap(X);
+    tap(Y);
+    tap(SELECT);
+    tap(A | Y);
+    check_state(6, "wrong confirmation keys retain page");
+    tick(500);
+    check_state(6, "confirmation page remains latched");
     before_write = write_pulses;
     settle(A);
-    tick(2);
+    tick(1);
     settle(0);
-    if (write_pulses != before_write || authorized)
-        $fatal(1, "short A hold started transaction");
     settle(A);
-    tick(2);
+    tick(1);
     settle(0);
-    if (write_pulses != before_write)
-        $fatal(1, "separate A holds accumulated");
+    if (write_pulses != before_write || hold_progress != 0)
+        $fatal(1, "separate short A holds accumulated");
 
-    // Cancel has precedence on the exact clock that would finish the hold.
     keys = A;
     while (dut.hold_timer < HOLD - 1) tick(1);
     cancel = 1;
     tick(1);
     cancel = 0;
-    tick(1);
-    check_state(0, "cancel wins final hold cycle");
-    if (write_pulses != before_write || authorized)
-        $fatal(1, "cancel on final hold produced write authorization");
+    check_state(10, "cancel wins final hold and drains preflight owner");
+    if (authorized || write_pulses != before_write)
+        $fatal(1, "final-cycle cancellation authorized writing");
+    operation_done = 1;
+    preflight_done = 1;
+    tick(2);
+    check_state(10, "completion cannot release ongoing aggregate work");
+    operation_done = 0;
+    preflight_done = 0;
+    drain_abort();
     settle(0);
 
-    reach_hold();
-    // Completion left over from a previous operation cannot finish a new one.
+    // The failed result is itself latched, then a new complete Select hold
+    // retries without an intervening return to the ordinary dump page.
+    available = 1;
+    tap(X);
+    tap(Y);
+    check_state(9, "failure result retains overlay on unrelated input");
+    settle(SELECT);
+    settle(0);
+    check_state(9, "short retry hold returns to its prior result");
+    enter_ready();
+    begin_preflight();
+    pass_preflight();
+    start_write();
+    operation_failed = 1;
+    tick(3);
+    check_state(7, "failure flag alone is not cleanup completion");
+    operation_failed = 0;
+    operation_done = 1;
+    transaction_busy = 0;
+    tick(1);
+    operation_done = 0;
+    check_state(8, "successful operation reports DONE");
+    if (!active || busy || authorized) $fatal(1, "DONE lost page exclusion or retained authorization");
+    tick(HOLD + 10);
+    if (write_pulses != before_write + 1) $fatal(1, "held A reused one-shot authorization");
+    settle(0);
+    tap(B);
+    check_state(0, "fresh B dismisses completed result");
+
+    // A stale preflight completion must fall before another one is accepted.
+    initialize();
+    enter_ready();
+    preflight_done = 1;
+    preflight_ok = 1;
+    begin_preflight();
+    tick(10);
+    check_state(3, "stale preflight completion ignored");
+    preflight_done = 0;
+    tick(1);
+    pass_preflight();
     operation_done = 1;
     start_write();
-    tick(10);
+    tick(5);
     check_state(7, "stale operation completion ignored");
     operation_done = 0;
     tick(1);
+    operation_failed = 1;
     operation_done = 1;
+    transaction_busy = 0;
     tick(1);
     operation_done = 0;
-    check_state(8, "fresh operation completion succeeds");
-    if (unlocked || active || busy || authorized)
-        $fatal(1, "completed transaction did not relock");
-    tick(HOLD + 5);
-    if (write_pulses != before_write + 1)
-        $fatal(1, "held A reused one-use authorization");
-    settle(0);
+    check_state(9, "fresh failed completion reports failure");
 
-    // Cancellation cannot hand the cartridge bus to another client before
-    // the transaction controller has finished its safe stop.
-    reach_hold();
-    start_write();
-    settle(0);
-    cancel = 1;
-    #1;
-    if (authorized) $fatal(1, "cancel failed to revoke immediately");
-    tick(1);
-    cancel = 0;
-    check_state(10, "running cancel waits for safe stop");
-    if (!busy || !active || authorized || unlocked)
-        $fatal(1, "safe-stop ownership signals incorrect");
-    repeat (5) tap(SELECT);
-    check_state(10, "cannot unlock during safe stop");
-    operation_done = 1;
-    tick(1);
-    operation_done = 0;
-    check_state(9, "safe stop ends as failure");
+    // Cancel every work phase. PREFLIGHT can have only a pending electrical
+    // probe, or no dispatched work at all; no artificial done is required.
+    for (i = 0; i < 3; i = i + 1) begin
+        initialize();
+        enter_ready();
+        begin_preflight();
+        if (i >= 1) pass_preflight();
+        if (i >= 2) start_write();
+        keys = B;
+        #1;
+        if (authorized) $fatal(1, "raw B did not revoke immediately");
+        tick(1);
+        check_state(10, "busy B enters safe stop");
+        preflight_done = 1;
+        operation_done = 1;
+        tick(3);
+        check_state(10, "safe stop retains ownership until aggregate drain");
+        preflight_done = 0;
+        operation_done = 0;
+        drain_abort();
+        tick(5);
+        check_state(9, "held cancel B does not dismiss its own failure result");
+        settle(0);
+        tap(B);
+        check_state(0, "new B can dismiss cancellation result");
+    end
 
     initialize();
-    reach_hold();
-    start_write();
-    operation_failed = 1;
+    enter_ready();
+    begin_preflight();
+    transaction_busy = 0;
+    cancel = 1;
     tick(1);
-    operation_failed = 0;
-    check_state(9, "operation failure is never success");
+    check_state(10, "no-dispatch cancellation still enters stop for one clock");
+    cancel = 0;
+    tick(1);
+    check_state(9, "no-dispatch cancellation does not wait for impossible done");
 
-    // Cancellation must work from every phase before destructive work.
-    for (i = 0; i < 5; i = i + 1) begin
-        initialize();
-        if (i == 0) tap(SELECT);
-        else begin
-            unlock();
-            if (i >= 2) begin_preflight();
-            if (i >= 3) pass_preflight();
-            if (i >= 4) tap(Y);
-        end
-        settle(B);
-        check_state(0, "B relocks before write");
-        if (authorized || busy || unlocked)
-            $fatal(1, "B retained authorization");
-    end
+    initialize();
+    enter_ready();
+    begin_preflight();
+    preflight_done = 1;
+    preflight_ok = 0;
+    transaction_busy = 0;
+    tick(1);
+    preflight_done = 0;
+    check_state(9, "preflight refusal keeps failure page");
+    if (authorized) $fatal(1, "preflight refusal authorized writes");
 
     $display("TB PASS: tb_restore_guard");
     $finish;
 end
-
 initial begin
     #1000000;
     $fatal(1, "restore guard watchdog expired");
 end
-
 endmodule
-
 `default_nettype wire

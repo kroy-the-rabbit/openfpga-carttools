@@ -60,12 +60,16 @@ the cartridge write gate.
 Candidate `54cb159`, stamp `54CB`, is built on sisko and retained locally at
 `build/restore/candidate-54cb159/`. All 43 checks pass; setup is `+0.795 ns`,
 hold `+0.122 ns`. It was installed with the prepared restore pair on
-2026-09-06, flushed, and byte-verified. Hardware preflight is still pending.
-`docs/HANDOFF.md` records exact hashes and the first hardware procedure.
+2026-09-06, flushed, and byte-verified. Hardware feedback rejected its five-tap
+UI, so the controls are being replaced with a latched hold-based page. Focused
+tests pass; full regression and a new sisko fit are pending. Hardware preflight
+is still unverified. `docs/HANDOFF.md` records the previous artifact hashes
+and current status.
 The preceding `13fd4c6` package failed timing and must not be installed.
 
 The first candidate keeps `RESTORE_WRITE_ENABLED = 0`. It must prove the
-single input file and metadata, five Select taps, further X/Y/X/A confirmation,
+single input file and metadata, Select hold to enter, A press/release to check,
+then a fresh three-second A hold after preflight,
 fresh cartridge identification, two matching original-save reads, and a new
 recovery file reopened and compared from SD. A full ROM match and another
 original-save comparison follow final confirmation. No game hash is built

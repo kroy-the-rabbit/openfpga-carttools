@@ -3,7 +3,25 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
-## Restore preflight candidate ready, 2026-09-06
+## Restore controls revised, 2026-09-06
+
+Hardware feedback on installed `54CB`: the five-tap/button-sequence path
+returned to ordinary dump controls unexpectedly. The old guard did return to
+LOCKED on an out-of-sequence button. Do not continue using that UI procedure.
+
+The replacement is Hold Select 3 seconds, release, A press/release for checks
+and backup, then a fresh A hold for 3 seconds after checks pass. Both holds
+show progress. Wrong buttons keep the page open; B closes or safely stops it.
+All buttons must be released before normal scan/dump controls can resume.
+The main screen now advertises restore only for supported cartridge geometry.
+
+Focused guard, overlay, normal-screen, and top integration checks pass,
+including nine deliberately broken integration variants. Full regression and
+a new sisko fit are pending. `RESTORE_WRITE_ENABLED` remains zero. The card's
+last verified installation is still `54CB`; no replacement is installed yet.
+Use `docs/SAVE-RESTORE-PLAN.md` for current controls and hardware gates.
+
+## Previous restore preflight candidate, 2026-09-06
 
 The timing-clean candidate is exact code commit `54cb159`, package
 `0.9999.54cb159`, build stamp `54CB`. It is retained locally and was installed
@@ -35,18 +53,11 @@ files compared byte for byte. The restore pair is in
 `build/restore/deploy-54cb159.WCI4Vm/before/`, alongside the exact deployed
 files in `package/`. Existing ROMs, saves, and screenshots were not removed.
 The card was left mounted. Preserve every corpus original and released package.
-Next is the write-disabled hardware test, not another installation.
-Use the original non-DX Link's Awakening cartridge, verify stamp `54CB`, and
-confirm the restore screen says `CORE WRITES DISABLED`.
-
-Tap and release Select five times within ten seconds. Press and release X for
-preflight; record its ROM CRC, save CRC, and recovery ID. Then press and release
-Y, press and release X, and hold A for three seconds to exercise final checks.
-The expected result is `CHECK COMPLETE` / `WRITES DISABLED`. Power-cycle,
-remount, copy the new `PREhhhh.sav` off-card, and compare it with the current
-cartridge baseline before enabling any save-memory writes. See
-`docs/SAVE-RESTORE-PLAN.md` for the subsequent original/different/original
-restore qualification sequence.
+The UI was subsequently rejected by hardware feedback; the replacement above
+needs a new build before repeating write-disabled checks. Preserve any new
+`PREhhhh.sav` off-card after power-cycle and remount, and compare it with the
+current cartridge baseline before enabling save-memory writes. The expected
+write-disabled result remains `CHECK COMPLETE` / `WRITES DISABLED`.
 
 `runner-build fetch` also copies packages from failed builds. A successful
 fetch is not a timing pass. Candidate `13fd4c6` remains rejected; use the
@@ -82,7 +93,7 @@ write-disabled engine, including exact data, ROM identity, staged-buffer
 ownership, recovery-file errors, cartridge changes, cancellation, and two
 post-write comparisons. The pin test sweeps 1,665 cancellation positions
 across abort, authorization loss, and writer reset. Separate top integration
-checks cover the actual action gates and reject eight deliberately broken
+checks covered the actual action gates and rejected eight deliberately broken
 variants. These are simulation evidence, not hardware qualification.
 
 The exact released ZIP, bitstream, and timing report have an additional ignored

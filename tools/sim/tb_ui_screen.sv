@@ -50,6 +50,7 @@ reg          no_open = 1'b0;
 reg  [1:0]   stall_at = 2'd0;
 reg          save_shown = 1'b0;
 reg          save_ready = 1'b0;
+reg          restore_ready = 1'b0;
 reg          save_refused = 1'b0;
 reg          save_responded = 1'b0;
 reg          save_blank_ff = 1'b0;
@@ -111,6 +112,7 @@ ui_screen dut (
     .stall_at        ( stall_at ),
     .save_shown      ( save_shown ),
     .save_ready      ( save_ready ),
+    .restore_ready   ( restore_ready ),
     .save_refused    ( save_refused ),
     .save_responded  ( save_responded ),
     .save_blank_ff   ( save_blank_ff ),
@@ -368,9 +370,16 @@ initial begin
 
     // ---- 9. The help row names only buttons that do something ------------
     //
-    // SELECT used to open a diagnostics page. The page is gone, and a help
-    // row still advertising it would send a user pressing a dead button.
+    // Restore has a separate, explicitly gated entry hint. It appears only
+    // when the top has identified a supported idle cartridge.
     expect_row("main help", 18, "A scan                        ");
+    expect_row("restore unavailable", 19, "                              ");
+    restore_ready = 1;
+    settle();
+    expect_row("restore offered", 19, "HOLD SELECT 3s: RESTORE       ");
+    restore_ready = 0;
+    settle();
+    expect_row("restore withdrawn", 19, "                              ");
 
     // ---- Dumping -----------------------------------------------------------
     //

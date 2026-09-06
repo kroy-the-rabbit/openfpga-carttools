@@ -43,19 +43,28 @@ global checksum, exact ROM length up to 512 KiB, GB flag, MBC1 battery type, and
 The tool supports the initial MBC1 RAM technology without identifying games by
 filename. Core support may be narrower during hardware qualification.
 
-The UI requires five separate Select presses and releases within ten seconds
-to open restore.
-This gesture only unlocks the screen. A subsequent explicit preflight action
-loads and validates the complete input, identifies the cartridge, and creates
-the mandatory recovery backup. Writing requires further displayed button
-presses and a timed hold after those checks succeed: X runs preflight, then
-press and release Y, press and release X, and hold A continuously for three
-seconds. Confirmation expires after thirty seconds. Authorization is consumed
-by one operation. Reset, cartridge state change, validation failure, timeout,
-and completion relock it. A held or bouncing Select must not count as five
-presses. Ordinary scan and dump buttons are blocked while the restore screen
-is visible. Each attempt stages its own complete input; late SD transfers
-cannot replace the buffer used by the writer.
+The UI uses two deliberate holds with a separate check action between them:
+
+1. Hold Select continuously for three seconds to open the restore page.
+2. Release the buttons, then press and release A to check the input and
+   cartridge and create the mandatory recovery backup.
+3. After checks pass, release all restore buttons, then hold A continuously
+   for three seconds to authorize the final checks and one operation.
+
+Both holds show progress. An A held during preflight cannot carry over into
+final authorization. Unexpected buttons reset affirmative progress but keep
+the page open. B explicitly closes an idle page or requests a safe stop when
+work is in flight. Cancellation retains the stop screen until the engine and
+electrical probe have drained. Results stay visible until B closes them or a
+new Select hold begins a fresh attempt. There is no timed page dismissal.
+
+Ordinary scan and dump buttons are claimed from the first Select sample,
+before debounce opens the page. After exit, every controller button must stay
+released for 20 ms before ordinary controls accept a new press. Interrupted
+entry and B+X chords cannot fall through into dumping. Reset, cartridge state
+change, validation failure, and completion revoke authorization. Each attempt
+stages its own complete input; late SD transfers cannot replace the buffer
+used by the writer. Save writes remain compiled out for initial hardware checks.
 
 ## Identity checks and their limits
 

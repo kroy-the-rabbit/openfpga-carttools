@@ -105,7 +105,8 @@ def elaboration_copy(path, directory):
 
 def control_harness(source):
     names = (
-        "restore_overlay", "restore_block", "restore_cancel", "restore_available", "cart_engine_busy",
+        "restore_overlay", "restore_entry_key", "restore_block", "restore_cancel",
+        "restore_stop_request", "restore_transaction_busy", "restore_available", "cart_engine_busy",
         "dump_ready", "save_ready", "scan_start", "restore_owns_cart",
         "gb_req_mux", "gb_wr_mux", "gb_addr_mux", "gb_wdata_mux",
     )
@@ -115,7 +116,7 @@ def control_harness(source):
         for name in names)
     guard = instance(source, "restore_guard", "restore_lock").replace(
         "restore_guard restore_lock", "restore_guard #(.DEBOUNCE_CYCLES(2), "
-        ".UNLOCK_CYCLES(200), .CONFIRM_CYCLES(300), .HOLD_CYCLES(8)) restore_lock")
+        ".ENTRY_HOLD_CYCLES(16), .HOLD_CYCLES(8)) restore_lock")
     action = instance(source, "cart_action_guard", "action_guard")
     marker = source.index("restore_engine_start <= 0;")
     start = source.rfind("always @(posedge clk_sys) begin", 0, marker)
@@ -123,7 +124,12 @@ def control_harness(source):
     if start < 0:
         raise AssertionError("missing restore probe handoff clocked block")
     handoff = source[start:end]
-    return HARNESS_PREFIX + expressions + guard + action + handoff + HARNESS_TEST
+    marker = source.index("restore_release_count <= 0;")
+    start = source.rfind("always @(posedge clk_sys) begin", 0, marker)
+    end = source.index("\nend", marker) + len("\nend")
+    quarantine = source[start:end]
+    return "\n".join((HARNESS_PREFIX, expressions, guard, action, handoff,
+                      quarantine, HARNESS_TEST))
 
 
 HARNESS_PREFIX = r"""
@@ -134,6 +140,9 @@ reg clk_sys = 0;
 always #5 clk_sys = ~clk_sys;
 reg pll_core_locked = 0;
 reg [31:0] cont1_key_s = 0;
+localparam [20:0] RESTORE_RELEASE_CYCLES = 2;
+reg restore_input_wait;
+reg [20:0] restore_release_count;
 wire key_a = cont1_key_s[4], key_x = cont1_key_s[6], key_y = cont1_key_s[7];
 reg key_a_d = 0, key_x_d = 0, key_y_d = 0;
 wire key_a_edge = key_a && !key_a_d;
@@ -158,6 +167,7 @@ reg [15:0] dmp_addr = 16'hA222, gbid_addr = 16'h0147;
 reg [7:0] dmp_wdata = 8'hD5, gbid_wdata = 8'h5A;
 wire restore_active, restore_preflight_request, restore_commit_request;
 wire restore_authorized;
+wire [1:0] restore_hold_progress;
 wire [3:0] restore_guard_state;
 reg restore_probe_pending, restore_engine_start;
 reg cart_mode_change = 0, cart_mode_s = 1, cart_mode_fell = 0, cart_wake_pulse = 0;
@@ -179,8 +189,8 @@ always @(posedge clk_sys) begin
         if (restore_commit_request) commits = commits + 1;
         if (restore_active && (dump_ready || save_ready))
             $fatal(1, "restore activity exposed ordinary X/Y actions");
-        if (restore_overlay && !restore_active && (dump_ready || save_ready))
-            $fatal(1, "restore result exposed ordinary X/Y actions");
+        if (restore_overlay && (dump_ready || save_ready))
+            $fatal(1, "restore overlay exposed ordinary X/Y actions");
         if (restore_busy && (dump_ready || save_ready))
             $fatal(1, "engine cleanup exposed ordinary X/Y actions");
     end
@@ -202,7 +212,10 @@ task tap(input integer key);
 endtask
 task unlock;
     begin
-        repeat (5) tap(14);
+        cont1_key_s = 32'd1 << 14;
+        tick(24);
+        cont1_key_s = 0;
+        tick(6);
         if (restore_guard_state != 2) $fatal(1, "top availability prevented unlock");
     end
 endtask
@@ -210,7 +223,7 @@ task request_preflight;
     begin
         initial_scans = scans;
         initial_starts = starts;
-        tap(6);
+        tap(4);
         if (scans != initial_scans + 1 || starts != initial_starts || !restore_probe_pending)
             $fatal(1, "preflight bypassed or failed to request fresh probe");
         if (restore_guard_state != 3 || restore_available)
@@ -236,7 +249,7 @@ task request_with_stale_done;
     begin
         initial_scans = scans;
         initial_starts = starts;
-        cont1_key_s = 32'd1 << 6;
+        cont1_key_s = 32'd1 << 4;
         tick(5);
         cont1_key_s = 0;
         while (!restore_preflight_request) tick(1);
@@ -256,9 +269,7 @@ task confirm;
         restore_preflight_ok = 1;
         tick(1);
         restore_preflight_done = 0;
-        tick(3);
-        tap(7);
-        tap(6);
+        tick(6);
         cont1_key_s = 32'd1 << 4;
         tick(16);
         if (restore_guard_state != 7 || !restore_authorized)
@@ -314,6 +325,20 @@ initial begin
     pll_core_locked = 1;
     tick(4);
 
+    // Cancellation of an ordinary scan must not open the restore page.
+    probe_busy = 1;
+    tap(5);
+    if (restore_guard_state != 0 || restore_overlay)
+        $fatal(1, "normal scan B acquired restore ownership");
+    restore_menu_s = 1;
+    tick(1);
+    restore_menu_s = 0;
+    tick(3);
+    if (restore_guard_state != 0 || restore_overlay)
+        $fatal(1, "normal scan menu cancellation acquired restore ownership");
+    probe_busy = 0;
+    tick(4);
+
     // Establish that the ordinary X path is alive before testing its exclusion.
     tap(6);
     if (!action_pending) $fatal(1, "normal X action unavailable in control fixture");
@@ -324,7 +349,30 @@ initial begin
     if (dumps != 1) $fatal(1, "normal X action did not reach dump guard");
     initial_dumps = dumps;
 
+    // A Select chord is claimed before debounce or the overlay can react.
+    initial_scans = scans;
+    cont1_key_s = (32'd1 << 14) | (32'd1 << 6) | (32'd1 << 4);
+    tick(1);
+    if (action_pending || scans != initial_scans)
+        $fatal(1, "raw Select chord leaked before restore entry");
+    cont1_key_s = 32'd1 << 6;
+    tick(6);
+    if (action_pending || dumps != initial_dumps)
+        $fatal(1, "interrupted entry leaked held X into dumping");
+    if (dump_ready || save_ready)
+        $fatal(1, "interrupted entry released ordinary controls before full release");
+    cont1_key_s = 0;
+    tick(6);
+
     unlock();
+    // In the old sequence these buttons silently abandoned restore and made
+    // the next ordinary key press act on the dump screen. They must stay put.
+    initial_scans = scans;
+    tap(6);
+    tap(7);
+    if (restore_guard_state != 2 || action_pending || scans != initial_scans ||
+        dumps != initial_dumps)
+        $fatal(1, "unexpected READY buttons left restore or launched dumping");
     // Stale completion before requesting cannot be reused as the fresh probe.
     probe_done = 1;
     tick(1);
@@ -407,8 +455,44 @@ initial begin
     restore_menu_s = 0;
     probe_done = 0;
     tick(3);
-    if (starts != initial_starts || restore_probe_pending || restore_guard_state != 0)
+    if (starts != initial_starts || restore_probe_pending || restore_guard_state != 9)
         $fatal(1, "cancel lost race against fresh probe completion");
+
+    // Canceling a pending physical probe cannot manufacture an engine
+    // completion. The guard stays visible until actual probe ownership ends.
+    unlock();
+    request_preflight();
+    probe_busy = 1;
+    cont1_key_s = (32'd1 << 5) | (32'd1 << 6);
+    tick(5);
+    if (restore_guard_state != 10 || restore_probe_pending || action_pending)
+        $fatal(1, "pending probe cancellation lost its safe-stop gate");
+    probe_done = 1;
+    tick(1);
+    probe_done = 0;
+    if (starts != initial_starts || restore_guard_state != 10)
+        $fatal(1, "canceled busy probe launched engine or dismissed early");
+    probe_busy = 0;
+    tick(3);
+    cont1_key_s = 32'd1 << 6;
+    tick(5);
+    if (action_pending || dumps != initial_dumps)
+        $fatal(1, "held X leaked after canceled probe");
+    cont1_key_s = 0;
+    tick(6);
+    tap(5);
+
+    // B+X closes an idle page, but X stays quarantined until every button
+    // has been released. There is no delayed or replayed ordinary dump.
+    unlock();
+    cont1_key_s = (32'd1 << 5) | (32'd1 << 6);
+    tick(5);
+    cont1_key_s = 32'd1 << 6;
+    tick(5);
+    if (action_pending || dumps != initial_dumps || !restore_input_wait)
+        $fatal(1, "B exit leaked into ordinary dump before release");
+    cont1_key_s = 0;
+    tick(6);
 
     unlock();
     request_preflight();
@@ -423,7 +507,10 @@ initial begin
     dismiss_and_check_actions();
 
     restore_poisoned_s = 1;
-    repeat (5) tap(14);
+    cont1_key_s = 32'd1 << 14;
+    tick(24);
+    cont1_key_s = 0;
+    tick(6);
     if (restore_guard_state != 0 || dump_ready || save_ready)
         $fatal(1, "poisoned APF channel exposed new operations");
     $display("TB PASS: extracted restore integration controls");
@@ -473,41 +560,44 @@ def main():
                 if result.returncode or "TB PASS: extracted restore integration controls" not in combined:
                     raise AssertionError("control wiring simulation failed:\n" + combined)
             elif result.returncode == 0 or expected_failure not in combined:
-                raise AssertionError("control test failed to catch mutation: " + expected_failure)
+                raise AssertionError("control test failed to catch mutation: " + expected_failure
+                                     + "\nActual output:\n" + combined)
 
         simulate(source)
         # Negative controls prove the fixture distinguishes safe wiring from
         # specific realistic integration regressions, without modifying files.
         mutations = (
             ("dump_ready", assignment(source, "dump_ready").replace("!restore_block", "1'b1"),
-             "restore activity exposed ordinary X/Y actions"),
+             "interrupted entry released ordinary controls before full release"),
+            ("save_ready", assignment(source, "save_ready").replace("!restore_block", "1'b1"),
+             "interrupted entry released ordinary controls before full release"),
             ("restore_available", assignment(source, "restore_available") + " && !restore_active",
              "top availability prevented unlock"),
             ("scan_start", assignment(source, "scan_start").replace("restore_preflight_request", "1'b0"),
              "preflight bypassed or failed to request fresh probe"),
             ("restore_owns_cart", "restore_busy",
              "final probe cannot scan or does not own cartridge bus"),
-            ("restore_block", assignment(source, "restore_block").replace("restore_overlay", "restore_active"),
-             "restore result exposed ordinary X/Y actions"),
-            ("scan_start", assignment(source, "scan_start").replace("~restore_overlay", "~restore_active"),
-             "ordinary A/X/Y leaked behind restore result"),
+            ("restore_block", assignment(source, "restore_block").replace("restore_input_wait", "1'b0"),
+             "interrupted entry released ordinary controls before full release"),
+            ("scan_start", assignment(source, "scan_start").replace("~restore_block", "1'b1"),
+             "raw Select chord leaked before restore entry"),
         )
         for name, replacement, expected in mutations:
             expression = assignment(source, name)
             if expression == replacement:
                 raise AssertionError(f"mutation no longer applies to {name}")
             simulate(source.replace(expression, replacement, 1), expected)
-        old = ".operation_failed(restore_failed && restore_done)"
+        old = ".operation_done(restore_done)"
         if old not in source:
             raise AssertionError("guard must wait for the engine failure completion acknowledgment")
-        simulate(source.replace(old, ".operation_failed(restore_failed)", 1),
+        simulate(source.replace(old, ".operation_done(restore_done || restore_failed)", 1),
                  "failure flag bypassed engine cleanup acknowledgment")
-        old = "restore_cancel || !restore_active"
+        old = "restore_stop_request || !restore_active"
         if old not in source:
             raise AssertionError("probe handoff cancellation condition changed; audit it")
         simulate(source.replace(old, "!restore_active", 1),
                  "cancel lost race against fresh probe completion")
-    print("check_restore_integration: top elaborates; extracted controls and eight negative controls pass")
+    print("check_restore_integration: top elaborates; extracted controls and nine negative controls pass")
 
 
 if __name__ == "__main__":

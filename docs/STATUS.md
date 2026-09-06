@@ -4,11 +4,13 @@ What is actually true right now, as opposed to what is written. The plan in
 `plan.md` says where this is going; this file says where it is.
 
 Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
-Development is on `save-restore-la`. Candidate `54cb159` (stamp `54CB`) passed
-all 43 tests and sisko timing: setup `+0.795 ns`, hold `+0.122 ns`. It is ready
-for restore preflight on the original, non-DX Link's Awakening, with cartridge
-save writes disabled. It was installed and byte-verified on 2026-09-06;
-the write-disabled hardware preflight has not yet been verified. See
+Development is on `save-restore-la`. Installed candidate `54cb159` (stamp
+`54CB`) passed all 43 tests and sisko timing, but hardware feedback rejected
+its five-tap/button-sequence UI. The replacement uses a three-second Select
+hold, A for checks/backup, then a fresh three-second A hold. Wrong buttons
+retain the page; exiting requires full button release before dumping resumes.
+Focused tests pass; full regression and a new sisko fit are pending. Cartridge
+save writes remain disabled, and hardware preflight is not yet verified. See
 `docs/SAVE-RESTORE-PLAN.md` for the retained corpus and acceptance gates.
 
 The rule for this file: nothing moves to **verified** without evidence that

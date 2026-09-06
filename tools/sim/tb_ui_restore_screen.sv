@@ -9,6 +9,7 @@ always #5 clk = ~clk;
 reg reset = 1'b1;
 reg active = 1'b0;
 reg [3:0] guard_state = 4'd0;
+reg [1:0] hold_progress = 2'd0;
 reg [5:0] phase = 6'd0;
 reg [4:0] error = 5'd0;
 reg [3:0] io_error = 4'hD;
@@ -29,6 +30,7 @@ integer n;
 
 ui_restore_screen dut (
     .clk(clk), .reset(reset), .active(active), .guard_state(guard_state),
+    .hold_progress(hold_progress),
     .phase(phase), .error(error), .io_error(io_error), .rom_crc(rom_crc), .save_crc(save_crc),
     .backup_index(backup_index), .write_enabled(write_enabled),
     .tb_addr(tb_addr), .tb_char(tb_char), .tb_attr(tb_attr), .tb_we(tb_we)
@@ -53,6 +55,17 @@ end
 
 task tick(input integer cycles);
     repeat (cycles) @(negedge clk);
+endtask
+
+task expect_progress(input [1:0] value);
+    begin
+        case (value)
+            2'd0: expect_row(9, "HOLD PROGRESS [---] 0/3       ");
+            2'd1: expect_row(9, "HOLD PROGRESS [#--] 1/3       ");
+            2'd2: expect_row(9, "HOLD PROGRESS [##-] 2/3       ");
+            2'd3: expect_row(9, "HOLD PROGRESS [###] 3/3       ");
+        endcase
+    end
 endtask
 
 task settle;
@@ -106,21 +119,36 @@ initial begin
     expect_row(3, "FIRST TARGET: MBC1 8K         ");
     expect_row(4, "LINK'S AWAKENING (NON-DX)     ");
     expect_row(5, "CORE WRITES DISABLED          ");
-    expect_row(7, "UNLOCK: SELECT FIVE TIMES     ");
-    expect_row(8, "FIVE FULL TAPS WITHIN 10 SEC  ");
+    expect_row(7, "HOLD SELECT TO ENTER RESTORE  ");
+    expect_row(8, "KEEP SELECT HELD FOR 3 SECONDS");
+    expect_progress(0);
+    expect_row(18, "B: CANCEL HOLD                ");
     expect_row(10, "                              ");
     expect_hidden_evidence();
     if (attrs[5*30] !== 2'd1)
         $fatal(1, "disabled cartridge writer warning is not prominent");
+    // A progress change alone must repaint the registered display snapshot.
+    for (n = 1; n <= 3; n = n + 1) begin
+        hold_progress = n;
+        settle();
+        expect_progress(n);
+        expect_hidden_evidence();
+    end
 
     guard_state = 2;
     settle();
-    expect_row(8, "X: CHECK CART AND BACKUP      ");
+    expect_row(7, "RESTORE READY                 ");
+    expect_row(8, "A: CHECK CART AND BACKUP      ");
+    expect_row(9, "                              ");
+    expect_row(17, "RESTORE PAGE STAYS OPEN       ");
+    expect_row(18, "B: CLOSE RESTORE PAGE         ");
     expect_hidden_evidence();
 
     guard_state = 3;
     settle();
     expect_row(10, "STARTING PREFLIGHT            ");
+    expect_row(9, "                              ");
+    expect_row(18, "B: REQUEST SAFE STOP          ");
     expect_hidden_evidence();
     for (n = 1; n <= 11; n = n + 1) begin
         phase = n;
@@ -131,27 +159,49 @@ initial begin
     end
     expect_row(10, "COMPARING SD RECOVERY BYTES   ");
 
-    guard_state = 4;
+    guard_state = 6;
+    hold_progress = 0;
     phase = 12;
     settle();
     expect_row(7, "PREFLIGHT CHECKS PASSED       ");
-    expect_row(8, "PRESS AND RELEASE Y           ");
+    expect_row(8, "HOLD A FOR 3 SECONDS          ");
+    expect_progress(0);
     expect_row(12, "ROM CRC  A1B2C3D4             ");
     expect_row(13, "SAVE CRC 87654321             ");
     expect_row(14, "RECOVERY ID 012A              ");
     expect_row(15, "RECOVERY FILE VERIFIED        ");
 
-    guard_state = 5;
+    for (n = 1; n <= 3; n = n + 1) begin
+        hold_progress = n;
+        settle();
+        expect_progress(n);
+        expect_row(7, "PREFLIGHT CHECKS PASSED       ");
+        expect_row(12, "ROM CRC  A1B2C3D4             ");
+    end
+    // Releasing an incomplete hold resets its bar without leaving restore.
+    hold_progress = 0;
     settle();
-    expect_row(8, "PRESS AND RELEASE X           ");
-    guard_state = 6;
-    settle();
+    expect_progress(0);
     expect_row(8, "HOLD A FOR 3 SECONDS          ");
+    expect_row(18, "B: REQUEST SAFE STOP          ");
+
+    // Removed confirmation states must not revive old button instructions
+    // or expose a previous operation's evidence.
+    for (n = 4; n <= 5; n = n + 1) begin
+        guard_state = n;
+        settle();
+        expect_row(7, "RESTORE LOCKED                ");
+        expect_row(8, "HOLD SELECT FOR RESTORE       ");
+        expect_row(9, "                              ");
+        expect_hidden_evidence();
+    end
 
     guard_state = 7;
+    hold_progress = 3;
     phase = 13;
     settle();
     expect_row(7, "FINAL CHECKS IN PROGRESS      ");
+    expect_row(9, "                              ");
     expect_row(10, "RECHECKING FULL ROM IDENTITY  ");
     expect_row(18, "B: REQUEST SAFE STOP          ");
     phase = 22;
@@ -166,7 +216,7 @@ initial begin
     settle();
     expect_row(7, "CHECK COMPLETE                ");
     expect_row(8, "WRITES DISABLED               ");
-    expect_row(18, "B: CLOSE  SELECT 5X: RETRY     ");
+    expect_row(18, "B: CLOSE  HOLD SELECT: RETRY  ");
     expect_row(19, "CHECK BUILD: NO SAVE WRITES   ");
     phase = 17;
     settle();
@@ -200,7 +250,7 @@ initial begin
         settle();
         expect_row(7, "RESTORE STOPPED               ");
         expect_row(8, "NO SUCCESS REPORTED           ");
-        expect_row(18, "B: CLOSE  SELECT 5X: RETRY     ");
+        expect_row(18, "B: CLOSE  HOLD SELECT: RETRY  ");
         expect_nonblank(10);
         expect_hidden_evidence();
         if (n == 6) expect_row(11, "SD ERROR: D                   ");
@@ -219,6 +269,7 @@ initial begin
     settle();
     expect_row(11, "SD ERROR: A                   ");
     guard_state = 1;
+    hold_progress = 0;
     settle();
     expect_row(11, "                              ");
     guard_state = 3;
@@ -238,7 +289,8 @@ initial begin
     guard_state = 1;
     phase = 18;
     settle();
-    expect_row(7, "UNLOCK: SELECT FIVE TIMES     ");
+    expect_row(7, "HOLD SELECT TO ENTER RESTORE  ");
+    expect_progress(0);
     expect_row(10, "                              ");
     expect_hidden_evidence();
 
@@ -251,11 +303,12 @@ initial begin
     write_enabled = 0;
     settle();
     expect_row(5, "CORE WRITES DISABLED          ");
-    expect_row(7, "RESTORE SCREEN UNLOCKED       ");
+    expect_row(7, "RESTORE READY                 ");
+    expect_row(9, "                              ");
     expect_hidden_evidence();
 
     // Repainting also tracks metadata and the build switch alone.
-    guard_state = 4;
+    guard_state = 6;
     phase = 12;
     settle();
     rom_crc = 32'h10203040;
