@@ -144,6 +144,45 @@ task expect_failure(input bit committing, input [4:0] expected_error);
     end
 endtask
 
+task last_crc_byte(input integer timeout_value);
+    begin
+        // One known byte is sufficient to exercise the final registered CRC
+        // boundary. CRC32 of byte 5A from initial FFFFFFFF is 59BC5767.
+        dut.phase = 4;
+        dut.offset = 8191;
+        dut.memory_wait = 0;
+        dut.timer = timeout_value;
+        dut.crc = 32'hFFFFFFFF;
+        dut.expected_save_crc = 32'h59BC5767;
+        dut.staged[2047] = 32'h5A000000;
+        tick(3);
+        if (dut.offset != 8192 || dut.save_crc != 32'h59BC5767 ||
+            phase != 4 || want_mode != 0 || preflight_ok)
+            $fatal(1, "last CRC byte skipped its registered comparison boundary");
+    end
+endtask
+
+task expect_crc_failure(input [4:0] expected_error);
+    integer clocks;
+    begin
+        clocks = 0;
+        while (!preflight_done && clocks < 10) begin
+            if (phase == 5 || want_mode != 0 || preflight_ok ||
+                dut.rom_start || dut.save_start || dut.writer_start || bus_req)
+                $fatal(1, "CRC boundary failure claimed cartridge mode or launched work");
+            tick(1);
+            clocks = clocks + 1;
+        end
+        if (!preflight_done || done || phase != 19 || busy || !failed ||
+            preflight_ok || want_mode != 0 || error != expected_error)
+            $fatal(1, "CRC boundary did not report the expected preflight failure");
+        if (ram_writes != 0 || cleanup_writes != 0)
+            $fatal(1, "CRC boundary failure issued cartridge writes before mode acquisition");
+        tick(2);
+        if (done || preflight_done) $fatal(1, "CRC failure completion was not one pulse");
+    end
+endtask
+
 initial begin
     for (kind = 0; kind < 3; kind = kind + 1) begin
         for (offset = 0; offset < 6; offset = offset + 1) begin
@@ -177,6 +216,47 @@ initial begin
     tick(1);
     cancel = 0;
     expect_failure(0, 5'd10);
+
+    // The new comparison clock is a real authorization boundary. A matching
+    // registered save CRC may claim GB mode only with a live timer and no
+    // cancellation on that clock.
+    initialize();
+    last_crc_byte(10000);
+    tick(1);
+    if (phase != 5 || want_mode != 2 || preflight_ok || failed)
+        $fatal(1, "valid registered CRC did not reach wake without claiming preflight success");
+
+    initialize();
+    last_crc_byte(10000);
+    cancel = 1;
+    tick(1);
+    cancel = 0;
+    expect_crc_failure(5'd10);
+
+    initialize();
+    last_crc_byte(3);
+    if (dut.timer != 0) $fatal(1, "timeout fixture missed the CRC comparison boundary");
+    expect_crc_failure(5'd11);
+
+    // Also inject the exact registered boundary, independently of the byte
+    // pipeline, to pin cancellation and timeout precedence over a CRC match.
+    for (n = 0; n < 2; n = n + 1) begin
+        initialize();
+        dut.phase = 4;
+        dut.offset = 8192;
+        dut.save_crc = 32'h59BC5767;
+        dut.expected_save_crc = 32'h59BC5767;
+        dut.timer = n == 0 ? 10000 : 0;
+        cancel = n == 0;
+        tick(1);
+        cancel = 0;
+        expect_crc_failure(n == 0 ? 5'd10 : 5'd11);
+    end
+
+    initialize();
+    last_crc_byte(10000);
+    dut.expected_save_crc = 32'h59BC5766;
+    expect_crc_failure(5'd3);
 
     $display("TB PASS: tb_restore_abort_dispatch");
     $finish;

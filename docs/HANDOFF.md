@@ -40,6 +40,13 @@ The exact released ZIP, bitstream, and timing report have an additional ignored
 copy in `build/restore/released-baseline/` before candidate outputs replace the
 generic files in `build/cart/`. No card deployment is implied by a local fit.
 
+Candidate `13fd4c6` passed all 43 tests, including the separate 512 KiB ROM
+case, but failed setup timing by 0.554 ns on sisko. Do not install that ZIP.
+Detailed paths are retained under ignored `build/restore/timing-13fd4c6/`.
+The failing path ran from staged-save BRAM through CRC calculation and final
+equality into error/timer control. The next revision compares the registered
+final CRC one cycle later, without weakening the check or timing constraints.
+
 The release details and dated investigations below remain historical evidence.
 
 ## Released baseline, 2026-09-05

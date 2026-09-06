@@ -372,20 +372,24 @@ always @(posedge clk) begin
                 end
             end
             SAVE_CRC: begin
-                if (memory_wait != 2) memory_wait <= memory_wait + 1'b1;
+                // Compare the registered final CRC on a separate cycle. The
+                // BRAM -> byte mux -> CRC -> equality -> error/timer path
+                // otherwise exceeds clk_sys setup timing in the fitted core.
+                if (offset == 8192) begin
+                    if (save_crc != expected_save_crc) fail_with(5'd3);
+                    else begin
+                        phase <= WAKE;
+                        mode_owned <= 1;
+                        timer <= WAKE_CYCLES;
+                        after_normalize <= ROM;
+                    end
+                end else if (memory_wait != 2) memory_wait <= memory_wait + 1'b1;
                 else begin
                     memory_wait <= 0;
                     crc <= crc_byte(crc,stage_byte);
-                    if (offset == 8191) begin
+                    offset <= offset + 1'b1;
+                    if (offset == 8191)
                         save_crc <= ~crc_byte(crc,stage_byte);
-                        if (~crc_byte(crc,stage_byte) != expected_save_crc) fail_with(5'd3);
-                        else begin
-                            phase <= WAKE;
-                            mode_owned <= 1;
-                            timer <= WAKE_CYCLES;
-                            after_normalize <= ROM;
-                        end
-                    end else offset <= offset + 1'b1;
                 end
             end
             WAKE: begin
