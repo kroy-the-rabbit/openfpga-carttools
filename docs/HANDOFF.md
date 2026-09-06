@@ -3,6 +3,27 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## Released baseline and next work, 2026-09-05
+
+`v0.9999.250d6a0` is published from exact commit `250d6a0`. The feature branch
+was fast-forwarded into `main`, the final save-count correction was pushed, and
+this checkout is back on `main`. GitHub runs simulation and release-artifact
+verification only. Quartus fits run on sisko or kira through
+`/home/kroy/Desktop/repos/pocket-dev/tools/runner-build`.
+
+There is no pending hardware candidate. The next implementation should branch
+from current `main`. The open engineering boundaries, in practical order, are:
+
+1. Add an independent second save read and compare before reporting success.
+2. Add GBA 128 KiB Flash backup only after its bank-select write is fully
+   modeled and safety-tested.
+3. Design save restore as a separate write-safety project for both platforms.
+4. Expand physical coverage for MBC2, MBC3, RTC, and large MBC1 cartridges.
+
+The dated sections below preserve how the released behavior was established.
+Labels such as "candidate", "awaiting hardware", or "not yet re-dumped" are
+historical state at that point in the investigation, not current instructions.
+
 ## GBA safety-gate fix passed the wider hardware regression, 2026-09-04
 
 Commit `250d6a0`, build stamp `250D`, is the current hardware candidate. The

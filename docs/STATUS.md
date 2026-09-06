@@ -3,6 +3,9 @@
 What is actually true right now, as opposed to what is written. The plan in
 `plan.md` says where this is going; this file says where it is.
 
+Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
+Development continues from `main`; there is no active hardware candidate.
+
 The rule for this file: nothing moves to **verified** without evidence that
 someone could go and check. For anything touching a cartridge, that evidence
 has to come from a cartridge.
