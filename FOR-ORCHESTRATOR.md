@@ -59,7 +59,8 @@ the cartridge write gate.
 
 Candidate `54cb159`, stamp `54CB`, is built on sisko and retained locally at
 `build/restore/candidate-54cb159/`. All 43 checks pass; setup is `+0.795 ns`,
-hold `+0.122 ns`. It has not been installed on the card or hardware verified.
+hold `+0.122 ns`. It was installed with the prepared restore pair on
+2026-09-06, flushed, and byte-verified. Hardware preflight is still pending.
 `docs/HANDOFF.md` records exact hashes and the first hardware procedure.
 The preceding `13fd4c6` package failed timing and must not be installed.
 

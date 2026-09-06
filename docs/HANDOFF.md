@@ -6,8 +6,8 @@ Traps and next steps. Read `docs/STATUS.md` for the current position and
 ## Restore preflight candidate ready, 2026-09-06
 
 The timing-clean candidate is exact code commit `54cb159`, package
-`0.9999.54cb159`, build stamp `54CB`. It is built and retained locally, not
-installed on the card. Cartridge save writes are still compiled out. This is
+`0.9999.54cb159`, build stamp `54CB`. It is retained locally and was installed
+on the card on 2026-09-06. Cartridge save writes are still compiled out. This is
 a hardware preflight candidate, not a verified restore release.
 
 - All 43 simulation and structural checks passed. The retained log is
@@ -28,9 +28,14 @@ a hardware preflight candidate, not a verified restore release.
 | `report.txt` | `6933ed8dedf64e568cb448020d5947c7be55aafc12d4952a4cbf5e99b550e80c` |
 | `simulation-54cb159.log` | `8f49ce8a5cd1cd4d2203221fa048dea5344f4b254d92745f8ea86f10b70ea5b3` |
 
-Next, when card deployment is requested, install this complete package and
-copy the two prepared files from `build/restore/la-nondx/` into
-`Assets/carttools/common/`. Keep every corpus original and released package.
+Deployment is complete: the full package and both prepared files from
+`build/restore/la-nondx/` were copied onto the card, then flushed and all 16
+files compared byte for byte. The restore pair is in
+`Assets/carttools/common/`. Replaced files are preserved under ignored
+`build/restore/deploy-54cb159.WCI4Vm/before/`, alongside the exact deployed
+files in `package/`. Existing ROMs, saves, and screenshots were not removed.
+The card was left mounted. Preserve every corpus original and released package.
+Next is the write-disabled hardware test, not another installation.
 Use the original non-DX Link's Awakening cartridge, verify stamp `54CB`, and
 confirm the restore screen says `CORE WRITES DISABLED`.
 

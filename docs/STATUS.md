@@ -7,7 +7,8 @@ Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
 Development is on `save-restore-la`. Candidate `54cb159` (stamp `54CB`) passed
 all 43 tests and sisko timing: setup `+0.795 ns`, hold `+0.122 ns`. It is ready
 for restore preflight on the original, non-DX Link's Awakening, with cartridge
-save writes disabled. It has not been installed or hardware verified. See
+save writes disabled. It was installed and byte-verified on 2026-09-06;
+the write-disabled hardware preflight has not yet been verified. See
 `docs/SAVE-RESTORE-PLAN.md` for the retained corpus and acceptance gates.
 
 The rule for this file: nothing moves to **verified** without evidence that
