@@ -3,6 +3,50 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## Restore preflight candidate ready, 2026-09-06
+
+The timing-clean candidate is exact code commit `54cb159`, package
+`0.9999.54cb159`, build stamp `54CB`. It is built and retained locally, not
+installed on the card. Cartridge save writes are still compiled out. This is
+a hardware preflight candidate, not a verified restore release.
+
+- All 43 simulation and structural checks passed. The retained log is
+  `build/restore/simulation-54cb159.log`.
+- Sisko job `la-restore-crc-pipeline`, run through `../tools/runner-build`,
+  returned `rc=0`. Quartus Lite 25.1 build 1129 took 444 seconds.
+- Setup `+0.795 ns`, hold `+0.122 ns`, minimum pulse width `+0.827 ns`;
+  6,383 ALMs, 129 RAM blocks. No timing constraints were relaxed.
+- ZIP integrity passed; its embedded bitstream matches the separately fetched
+  bitstream, and its data-slot definition matches the committed source.
+- ZIP, bitstream, reports, build log, and simulation log are retained under
+  ignored `build/restore/candidate-54cb159/` as well as the generic build output.
+
+| Artifact | SHA-256 |
+|---|---|
+| `kroy.CartTools_0.9999.54cb159.zip` | `3ba4a32bee37428ebe094cbbfc889a5ffac67da48a710b40ab6782743112c607` |
+| `bitstream.rbf_r` | `3d1adf695fddb72132332922b026e0f3cb36200e490c60a9c8b58e5cbd6696d2` |
+| `report.txt` | `6933ed8dedf64e568cb448020d5947c7be55aafc12d4952a4cbf5e99b550e80c` |
+| `simulation-54cb159.log` | `8f49ce8a5cd1cd4d2203221fa048dea5344f4b254d92745f8ea86f10b70ea5b3` |
+
+Next, when card deployment is requested, install this complete package and
+copy the two prepared files from `build/restore/la-nondx/` into
+`Assets/carttools/common/`. Keep every corpus original and released package.
+Use the original non-DX Link's Awakening cartridge, verify stamp `54CB`, and
+confirm the restore screen says `CORE WRITES DISABLED`.
+
+Tap and release Select five times within ten seconds. Press and release X for
+preflight; record its ROM CRC, save CRC, and recovery ID. Then press and release
+Y, press and release X, and hold A for three seconds to exercise final checks.
+The expected result is `CHECK COMPLETE` / `WRITES DISABLED`. Power-cycle,
+remount, copy the new `PREhhhh.sav` off-card, and compare it with the current
+cartridge baseline before enabling any save-memory writes. See
+`docs/SAVE-RESTORE-PLAN.md` for the subsequent original/different/original
+restore qualification sequence.
+
+`runner-build fetch` also copies packages from failed builds. A successful
+fetch is not a timing pass. Candidate `13fd4c6` remains rejected; use the
+explicit `54cb159` ZIP rather than an arbitrary newest file in `build/cart/`.
+
 ## Save restore development, 2026-09-05
 
 Work is on `save-restore-la`, starting from released-main commit `3b62eac`.

@@ -4,9 +4,10 @@ What is actually true right now, as opposed to what is written. The plan in
 `plan.md` says where this is going; this file says where it is.
 
 Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
-Development is on `save-restore-la`. The next candidate qualifies restore
-preflight for the original, non-DX Link's Awakening, with cartridge save
-writes disabled. No hardware restore is verified. See
+Development is on `save-restore-la`. Candidate `54cb159` (stamp `54CB`) passed
+all 43 tests and sisko timing: setup `+0.795 ns`, hold `+0.122 ns`. It is ready
+for restore preflight on the original, non-DX Link's Awakening, with cartridge
+save writes disabled. It has not been installed or hardware verified. See
 `docs/SAVE-RESTORE-PLAN.md` for the retained corpus and acceptance gates.
 
 The rule for this file: nothing moves to **verified** without evidence that

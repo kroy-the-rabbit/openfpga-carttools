@@ -1,6 +1,6 @@
 # For the orchestrator: CartTools after the 250D release
 
-Current as of 2026-09-05. The release is complete. New restore development is
+Current as of 2026-09-06. The release is complete. New restore development is
 on `save-restore-la`, branched from current `main`. Read `docs/HANDOFF.md` for engineering history and traps,
 `docs/STATUS.md` for supported paths, and `docs/CARTRIDGE-CORPUS.md` for the
 cartridge-by-cartridge evidence.
@@ -56,6 +56,12 @@ The active task is save restore, beginning with the original, non-DX Link's
 Awakening. Its retained Batch 6 corpus has ROM CRC32 `8CF27C90` and an 8 KiB
 save with CRC32 `19CCD1B4`. Read `docs/SAVE-RESTORE-PLAN.md` before changing
 the cartridge write gate.
+
+Candidate `54cb159`, stamp `54CB`, is built on sisko and retained locally at
+`build/restore/candidate-54cb159/`. All 43 checks pass; setup is `+0.795 ns`,
+hold `+0.122 ns`. It has not been installed on the card or hardware verified.
+`docs/HANDOFF.md` records exact hashes and the first hardware procedure.
+The preceding `13fd4c6` package failed timing and must not be installed.
 
 The first candidate keeps `RESTORE_WRITE_ENABLED = 0`. It must prove the
 single input file and metadata, five Select taps, further X/Y/X/A confirmation,
