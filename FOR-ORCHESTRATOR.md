@@ -1,7 +1,7 @@
 # For the orchestrator: CartTools after the 250D release
 
-Current as of 2026-09-05. The release is complete and this repository is back
-on `main`. Read `docs/HANDOFF.md` for engineering history and traps,
+Current as of 2026-09-05. The release is complete. New restore development is
+on `save-restore-la`, branched from current `main`. Read `docs/HANDOFF.md` for engineering history and traps,
 `docs/STATUS.md` for supported paths, and `docs/CARTRIDGE-CORPUS.md` for the
 cartridge-by-cartridge evidence.
 
@@ -52,22 +52,29 @@ the finished core package, checksums, and reports.
 
 ## Next work in this repository
 
-The release closes GBA EEPROM backup and intermittent GBA recognition. There
-is no active feature branch and no pending hardware candidate. Start the next
-piece of work from current `main`.
+The active task is save restore, beginning with the original, non-DX Link's
+Awakening. Its retained Batch 6 corpus has ROM CRC32 `8CF27C90` and an 8 KiB
+save with CRC32 `19CCD1B4`. Read `docs/SAVE-RESTORE-PLAN.md` before changing
+the cartridge write gate.
 
-1. **Double-read save verification.** A save is currently read once. The next
-   reliability step is to read it independently a second time and compare
-   before presenting success. Define failure behavior before changing either
-   cartridge bus path.
-2. **GBA Flash 128 KiB backup.** This requires the Flash bank-select command,
-   so it crosses from passive reads into deliberate cartridge writes. Preserve
-   the existing write-abort and mode-hold safety invariants and add protocol
-   simulation before touching hardware.
-3. **Save restore.** Restore is not implemented on either platform. Treat it as
-   a separate write-safety project, not an extension of backup. It needs file
-   validation, interruption behavior, verification after writing, and an
-   explicit user confirmation design.
+The first candidate keeps `RESTORE_WRITE_ENABLED = 0`. It must prove the
+single input file and metadata, five Select taps, further X/Y/X/A confirmation,
+fresh cartridge identification, two matching original-save reads, and a new
+recovery file reopened and compared from SD. A full ROM match and another
+original-save comparison follow final confirmation. No game hash is built
+into the RTL. Save writes stay disabled until this preflight passes on the
+Pocket and the recovery file is independently verified off-card after remount.
+
+The subsequent writer qualification restores the retained original, then a
+known different save to prove actual RAM mutation, then the original again.
+Each needs readback, power-cycle, and native cartridge verification. Do not
+publish this as hardware restore support based on simulation alone.
+
+Remaining work after the first restore qualification:
+
+1. Extend independent save rereads to the ordinary backup workflow.
+2. Qualify further GB/GBC mappers and GBA restore technologies individually.
+3. Add GBA Flash 128 KiB backup with modeled bank-select commands.
 4. **Missing cartridge families.** MBC2, MBC3, RTC, and MBC1 above 512 KiB lack
    physical coverage. Add hardware evidence when cartridges become available;
    do not turn simulation coverage into a hardware claim.

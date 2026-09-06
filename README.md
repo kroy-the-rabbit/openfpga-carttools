@@ -30,7 +30,7 @@ what was written here.
 | Save RAM banking, to 128 KB | **works** at 8 KB one bank and 32 KB four banks; 64 KB and 128 KB built, untested |
 | GBA save backup | **works**, eleven cartridges: 32 KiB SRAM, 64 KiB Flash, and EEPROM at 512 bytes and 8 KiB, each loaded in an emulator with its state intact. None of it writes to the cartridge; the EEPROM reader cannot even express a write. 128 KiB Flash refused, it needs a bank-select write |
 | A write that is cut short mid-pulse | **safe**, the cartridge captures the byte that was asked for rather than a floating bus |
-| Save restore | not started |
+| Save restore | experimental MBC1 8 KiB implementation; first hardware candidate keeps save writes disabled while staging and recovery are qualified. See [restore plan](docs/SAVE-RESTORE-PLAN.md) |
 | MBC3 RTC | not started |
 | MBC2, MBC3, MBC1 above 512 KB | simulation only, no cartridge to test |
 | MBC2's 512 nibbles of save RAM | refused, and the screen says so |
@@ -122,9 +122,12 @@ left.
 
 ## What this core writes to a cartridge
 
-**It never writes save data to a cartridge.** It dumps; it does not restore.
-There is no restore path in it, and the byte that would carry save data back has
-nowhere to go.
+**The released core and the current default build do not write save data to a
+cartridge.** The experimental restore engine has a separate MBC1 writer,
+disabled by `RESTORE_WRITE_ENABLED = 0` in `core_top.sv`. The first candidate
+qualifies file staging, identity checks, and recovery backups on hardware.
+Enabling cartridge writes requires the gates in
+[docs/SAVE-RESTORE-PLAN.md](docs/SAVE-RESTORE-PLAN.md).
 
 It does write to mapper registers, in ROM space, because the hardware offers no
 other way to read:
@@ -135,7 +138,7 @@ other way to read:
   cartridge answers in the RAM window only while the gate is open. It is closed
   again on every exit, including an abort.
 
-Nothing this core does puts a byte into `0xA000` to `0xBFFF` or into GBA ROM
+The default build cannot put save bytes into `0xA000` to `0xBFFF` or into GBA ROM
 space. `gb_cart_bus` derives `/CS` from the address rather than taking it from
 the caller, and `tb_gb_save_write_protect` checks at the connector pins, every
 clock edge of a full read, that `/WR` never falls while `/CS` is low.

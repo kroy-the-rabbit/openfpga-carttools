@@ -421,10 +421,10 @@ wire            osnotify_inmenu;
 
 // The target_dataslot_* path is how a core moves a file to or from the SD
 // card, and it is the only path that lets the core choose the filename. It is
-// driven entirely by dump_engine, which lives in this clock domain for that
-// reason. Read and getfile are not issued: nothing here loads a file, and the
-// only thing getfile would tell us is where the user's ROM came from.
-wire            target_dataslot_read    = 1'b0;
+// shared by dump_engine and the restore file service in this clock domain.
+// Dumping opens and writes output files. Restore reads its staged input and
+// writes, reopens, and reads the mandatory recovery backup.
+wire            target_dataslot_read;
 wire            target_dataslot_getfile;
 
 wire            target_dataslot_write;
@@ -446,10 +446,52 @@ wire    [31:0]  target_buffer_param_struct;
 // owns the window it writes to.
 wire    [31:0]  target_buffer_resp_struct;
 
-wire    [9:0]   datatable_addr = 10'h0;
+wire    [9:0]   datatable_addr;
 wire            datatable_wren = 1'b0;
 wire    [31:0]  datatable_data = 32'h0;
 wire    [31:0]  datatable_q;
+
+// First restore candidate verifies staging and recovery on hardware with RAM
+// writes clamped off. Enabling writes requires the documented hardware gate.
+localparam bit RESTORE_WRITE_ENABLED = 1'b0;
+wire restore_busy, restore_active, restore_io_busy, restore_poisoned;
+wire restore_poisoned_s;
+wire [3:0] restore_guard_state;
+wire [5:0] restore_phase;
+wire [4:0] restore_error;
+wire [31:0] restore_rom_crc, restore_save_crc;
+wire [15:0] restore_backup_index, restore_backup_index_s;
+wire [1:0] restore_want_mode;
+wire restore_req, restore_wr;
+wire [15:0] restore_addr;
+wire [7:0] restore_wdata;
+wire restore_preflight_request, restore_commit_request;
+wire restore_reprobe_request;
+wire restore_preflight_done, restore_preflight_ok, restore_done, restore_failed;
+wire restore_authorized;
+reg restore_probe_pending, restore_engine_start;
+wire restore_overlay = restore_guard_state != 0;
+wire restore_block = restore_overlay || restore_busy || restore_probe_pending || restore_poisoned_s;
+
+wire d_target_write, d_target_open, d_target_get, d_target_flush;
+wire [15:0] d_target_id;
+wire [31:0] d_target_offset, d_target_bridge, d_target_length, d_target_struct, d_target_response;
+wire r_target_read, r_target_write, r_target_open;
+wire [15:0] r_target_id;
+wire [31:0] r_target_offset, r_target_bridge, r_target_length, r_target_struct;
+wire [31:0] restore_bridge_rd_data;
+wire restore_bridge_rd_hit;
+assign target_dataslot_read = r_target_read;
+assign target_dataslot_write = restore_io_busy ? r_target_write : d_target_write;
+assign target_dataslot_openfile = restore_io_busy ? r_target_open : d_target_open;
+assign target_dataslot_getfile = !restore_io_busy && d_target_get;
+assign target_dataslot_flush = !restore_io_busy && d_target_flush;
+assign target_dataslot_id = restore_io_busy ? r_target_id : d_target_id;
+assign target_dataslot_slotoffset = restore_io_busy ? r_target_offset : d_target_offset;
+assign target_dataslot_bridgeaddr = restore_io_busy ? r_target_bridge : d_target_bridge;
+assign target_dataslot_length = restore_io_busy ? r_target_length : d_target_length;
+assign target_buffer_param_struct = restore_io_busy ? r_target_struct : d_target_struct;
+assign target_buffer_resp_struct = d_target_response;
 
 core_bridge_cmd icb (
 
@@ -547,7 +589,8 @@ wire [31:0] dump_bridge_rd_data;
 wire        dump_bridge_rd_hit;
 
 always @(*) begin
-    bridge_rd_data = dump_bridge_rd_hit ? dump_bridge_rd_data
+    bridge_rd_data = restore_bridge_rd_hit ? restore_bridge_rd_data :
+                     dump_bridge_rd_hit ? dump_bridge_rd_data
                                         : cmd_bridge_rd_data;
 end
 
@@ -723,7 +766,8 @@ wire        save_scan_want_gba;
 // it raises done, and the scan raises its own a cycle after that, so without
 // this the request falls back to parked idle for exactly one cycle and
 // cart_pins begins a turnaround nobody wanted.
-wire [1:0]  cart_mode_req_raw = (dump_want_mode != 2'b00) ? dump_want_mode :
+wire [1:0]  cart_mode_req_raw = (restore_want_mode != 2'b00) ? restore_want_mode :
+                               (dump_want_mode != 2'b00) ? dump_want_mode :
                                 (sz_want_gba | save_scan_want_gba |
                                  save_scan_start |
                                  ee_probe_busy | ee_probe_start) ? 2'b01
@@ -762,10 +806,11 @@ wire        dmp_wr;
 wire [15:0] dmp_addr;
 wire [7:0]  dmp_wdata;
 
-wire        gb_req_mux   = dump_busy ? dmp_req   : gbid_req;
-wire        gb_wr_mux    = dump_busy ? dmp_wr    : gbid_wr;
-wire [15:0] gb_addr_mux  = dump_busy ? dmp_addr  : gbid_addr;
-wire [7:0]  gb_wdata_mux = dump_busy ? dmp_wdata : gbid_wdata;
+wire restore_owns_cart = restore_want_mode != 0;
+wire        gb_req_mux   = restore_owns_cart ? restore_req   : dump_busy ? dmp_req   : gbid_req;
+wire        gb_wr_mux    = restore_owns_cart ? restore_wr    : dump_busy ? dmp_wr    : gbid_wr;
+wire [15:0] gb_addr_mux  = restore_owns_cart ? restore_addr  : dump_busy ? dmp_addr  : gbid_addr;
+wire [7:0]  gb_wdata_mux = restore_owns_cart ? restore_wdata : dump_busy ? dmp_wdata : gbid_wdata;
 
 gb_cart_bus gb_bus (
     .clk       ( clk_sys ),
@@ -1004,9 +1049,11 @@ wire action_validated_save_available;
 // pressed. Named rather than left inline in cart_probe's instantiation
 // because the dump display has to clear on exactly the same event, and two
 // copies of this expression would drift.
-wire        scan_start = (cart_wake_pulse | cart_mode_fell | key_a_edge |
-                          action_scan_start) &
-                         ~dump_busy & ~probe_sizing & ~sz_start;
+wire        scan_start = (cart_wake_pulse | cart_mode_fell |
+                          (key_a_edge & ~restore_overlay) |
+                          action_scan_start | restore_preflight_request | restore_reprobe_request) &
+                         ~dump_busy & ~probe_sizing & ~sz_start &
+                         (~restore_busy | restore_reprobe_request);
 wire [2:0]  platform;
 wire        gb_start, gba_start;
 
@@ -1433,7 +1480,7 @@ assign action_rom_available = id_valid &&
 // is for accepting a new press; the guard separately receives the raw result
 // of the fresh scan when deciding whether the queued action is allowed.
 wire dump_ready = action_rom_available && !cart_engine_busy &&
-                  !dump_busy && !action_pending;
+                  !dump_busy && !action_pending && !restore_block;
 
 // Y only when this cartridge has a save this core can actually read, which is
 // a stricter condition than dump_ready and false for most cartridges: GB or
@@ -1449,7 +1496,7 @@ assign action_save_available = action_rom_available &&
                                (((platform == 3'd2) && dump_save_supported) ||
                                 ((platform == 3'd1) && gba_save_ok));
 wire save_ready = action_save_available && !cart_engine_busy &&
-                  !dump_busy && !action_pending;
+                  !dump_busy && !action_pending && !restore_block;
 
 // A cartridge that has a save and is refused anyway. MBC2's RAM lives inside
 // the mapper and reports 0x00 at 0x0149, so the type has to be asked as well
@@ -1657,20 +1704,138 @@ dump_engine dump (
     .bridge_rd_data       ( dump_bridge_rd_data ),
     .bridge_rd_hit        ( dump_bridge_rd_hit ),
 
-    .target_dataslot_write      ( target_dataslot_write ),
-    .target_dataslot_openfile   ( target_dataslot_openfile ),
-    .target_dataslot_getfile    ( target_dataslot_getfile ),
-    .target_dataslot_flush      ( target_dataslot_flush ),
-    .target_dataslot_id         ( target_dataslot_id ),
-    .target_dataslot_slotoffset ( target_dataslot_slotoffset ),
-    .target_dataslot_bridgeaddr ( target_dataslot_bridgeaddr ),
-    .target_dataslot_length     ( target_dataslot_length ),
-    .target_buffer_param_struct ( target_buffer_param_struct ),
-    .target_buffer_resp_struct  ( target_buffer_resp_struct ),
+    .target_dataslot_write      ( d_target_write ),
+    .target_dataslot_openfile   ( d_target_open ),
+    .target_dataslot_getfile    ( d_target_get ),
+    .target_dataslot_flush      ( d_target_flush ),
+    .target_dataslot_id         ( d_target_id ),
+    .target_dataslot_slotoffset ( d_target_offset ),
+    .target_dataslot_bridgeaddr ( d_target_bridge ),
+    .target_dataslot_length     ( d_target_length ),
+    .target_buffer_param_struct ( d_target_struct ),
+    .target_buffer_resp_struct  ( d_target_response ),
     .target_dataslot_done       ( target_dataslot_done ),
     .target_dataslot_err        ( target_dataslot_err )
 );
 
+
+// Restore owns both command and cartridge interfaces until its cleanup has
+// finished. Soft reset is cancellation, never an asynchronous pin teardown.
+wire restore_reset_n_s, restore_menu_s;
+synch_3 s_restore_reset (reset_n, restore_reset_n_s, clk_sys);
+synch_3 s_restore_menu (osnotify_inmenu, restore_menu_s, clk_sys);
+synch_3 s_restore_poison (restore_poisoned, restore_poisoned_s, clk_sys);
+synch_3 #(.WIDTH(16)) s_restore_backup (restore_backup_index, restore_backup_index_s, clk_sys);
+wire restore_cancel = cart_mode_change || !restore_reset_n_s || restore_menu_s;
+wire restore_available = id_valid && platform == 3'd2 &&
+    gbid_cart_type == 8'h03 && gbid_ram_size == 8'h02 && gbid_cgb_flag == 0 &&
+    gbid_rom_size <= 4 && !cart_engine_busy && !dump_busy && !action_pending &&
+    !restore_busy && !restore_probe_pending && !restore_poisoned_s && cart_mode_s;
+
+restore_guard restore_lock (
+    .clk(clk_sys), .reset(~pll_core_locked),
+    .key_select(cont1_key_s[14]), .key_x(key_x), .key_y(key_y),
+    .key_a(key_a), .key_b(cont1_key_s[5]), .cancel(restore_cancel),
+    .available(restore_available), .preflight_done(restore_preflight_done),
+    .preflight_ok(restore_preflight_ok), .operation_done(restore_done),
+    .operation_failed(restore_failed && restore_done), .preflight_start(restore_preflight_request),
+    .write_start(restore_commit_request), .unlocked(), .active(restore_active),
+    .busy(), .state(restore_guard_state), .unlock_count(), .authorized(restore_authorized)
+);
+
+// Every preflight begins with the existing GB-first electrical safety probe.
+// A physical swap need not change cart_power, so cached identity is insufficient.
+always @(posedge clk_sys) begin
+    restore_engine_start <= 0;
+    if (~pll_core_locked || restore_cancel || !restore_active)
+        restore_probe_pending <= 0;
+    else if (restore_preflight_request) restore_probe_pending <= 1;
+    else if (restore_probe_pending && probe_done) begin
+        restore_probe_pending <= 0;
+        restore_engine_start <= 1;
+    end
+end
+
+wire restore_io_start_sys, restore_io_done_sys, restore_io_failed_sys;
+wire [1:0] restore_io_op_sys, restore_io_op_74a;
+reg restore_io_request_toggle, restore_io_result_toggle;
+reg restore_io_request_seen, restore_io_result_seen;
+wire restore_io_request_s, restore_io_result_s;
+wire restore_io_done_74a, restore_io_failed_74a;
+wire [3:0] restore_io_err;
+wire [3:0] restore_io_err_s;
+synch_3 #(.WIDTH(4)) s_restore_io_err (restore_io_err, restore_io_err_s, clk_sys);
+always @(posedge clk_sys) begin
+    if (~pll_core_locked) begin
+        restore_io_request_toggle <= 0;
+        restore_io_result_seen <= 0;
+    end else begin
+        if (restore_io_start_sys) restore_io_request_toggle <= ~restore_io_request_toggle;
+        restore_io_result_seen <= restore_io_result_s;
+    end
+end
+always @(posedge clk_74a) begin
+    if (~pll_core_locked_s) begin
+        restore_io_result_toggle <= 0;
+        restore_io_request_seen <= 0;
+    end else begin
+        if (restore_io_done_74a) restore_io_result_toggle <= ~restore_io_result_toggle;
+        restore_io_request_seen <= restore_io_request_s;
+    end
+end
+synch_3 s_restore_request (restore_io_request_toggle, restore_io_request_s, clk_74a);
+synch_3 #(.WIDTH(2)) s_restore_op (restore_io_op_sys, restore_io_op_74a, clk_74a);
+synch_3 s_restore_result (restore_io_result_toggle, restore_io_result_s, clk_sys);
+synch_3 s_restore_failed (restore_io_failed_74a, restore_io_failed_sys, clk_sys);
+assign restore_io_done_sys = restore_io_result_s != restore_io_result_seen;
+wire restore_input_we;
+wire [1:0] restore_input_kind;
+wire [10:0] restore_input_index, restore_backup_addr;
+wire [31:0] restore_input_data, restore_backup_data;
+restore_file_io restore_files (
+    .clk(clk_74a), .reset(~pll_core_locked_s),
+    .start(restore_io_request_s != restore_io_request_seen), .op(restore_io_op_74a),
+    .busy(restore_io_busy), .done(restore_io_done_74a), .failed(restore_io_failed_74a),
+    .err(restore_io_err), .poisoned(restore_poisoned), .backup_index(restore_backup_index),
+    .bridge_addr(bridge_addr), .bridge_rd(bridge_rd), .bridge_wr(bridge_wr),
+    .bridge_wr_data(bridge_wr_data), .bridge_endian_little(bridge_endian_little),
+    .bridge_rd_data(restore_bridge_rd_data), .bridge_rd_hit(restore_bridge_rd_hit),
+    .backup_rd_addr(restore_backup_addr), .backup_rd_q(restore_backup_data),
+    .input_we(restore_input_we), .input_index(restore_input_index),
+    .input_data(restore_input_data), .input_kind(restore_input_kind),
+    .datatable_addr(datatable_addr), .datatable_q(datatable_q),
+    .target_dataslot_read(r_target_read), .target_dataslot_write(r_target_write),
+    .target_dataslot_openfile(r_target_open), .target_dataslot_id(r_target_id),
+    .target_dataslot_slotoffset(r_target_offset), .target_dataslot_bridgeaddr(r_target_bridge),
+    .target_dataslot_length(r_target_length), .target_buffer_param_struct(r_target_struct),
+    .target_dataslot_done(target_dataslot_done), .target_dataslot_err(target_dataslot_err)
+);
+restore_engine #(.WRITE_ENABLED(RESTORE_WRITE_ENABLED)) restore (
+    .clk(clk_sys), .reset(~pll_core_locked), .clk_io(clk_74a),
+    .preflight_start(restore_engine_start), .commit_start(restore_commit_request),
+    .reprobe_start(restore_reprobe_request), .reprobe_done(probe_done),
+    .reprobe_ok(platform == 3'd2 && gbid_checksum_ok),
+    .cancel(restore_cancel || (!restore_active && restore_busy) ||
+            (restore_guard_state == 4'd10) ||
+            (restore_guard_state == 4'd7 && !restore_authorized)),
+    .cart_powered(cart_mode_s), .mode_ready(gb_mode_s),
+    .target_ok(id_valid && platform == 3'd2 && gbid_checksum_ok),
+    .cart_type(gbid_cart_type), .ram_size_code(gbid_ram_size),
+    .rom_size_code(gbid_rom_size), .cgb_flag(gbid_cgb_flag),
+    .header_checksum(gbid_checksum_read), .sw_version(gbid_sw_version),
+    .busy(restore_busy), .want_mode(restore_want_mode),
+    .preflight_done(restore_preflight_done), .preflight_ok(restore_preflight_ok),
+    .done(restore_done), .failed(restore_failed), .phase(restore_phase),
+    .error(restore_error), .rom_crc(restore_rom_crc), .save_crc(restore_save_crc),
+    .mismatch_offset(), .io_start(restore_io_start_sys), .io_op(restore_io_op_sys),
+    .io_done(restore_io_done_sys), .io_failed(restore_io_failed_sys),
+    .input_we(restore_input_we), .input_kind(restore_input_kind),
+    .input_index(restore_input_index), .input_data(restore_input_data),
+    .backup_addr(restore_backup_addr), .backup_data(restore_backup_data),
+    .bus_req(restore_req), .bus_wr(restore_wr), .bus_addr(restore_addr),
+    .bus_wdata(restore_wdata), .bus_rdata(gb_bus_rdata),
+    .bus_done(gb_bus_done), .bus_busy(gb_bus_busy)
+);
 
 // cart_play and cart_power are in the clk_74a domain. The diagnostics page
 // reports them raw rather than as the AND the bus uses.
@@ -1684,10 +1849,28 @@ wire [9:0] tb_addr;
 wire [7:0] tb_char;
 wire [1:0] tb_attr;
 wire       tb_we;
+wire [9:0] dump_tb_addr, restore_tb_addr;
+wire [7:0] dump_tb_char, restore_tb_char;
+wire [1:0] dump_tb_attr, restore_tb_attr;
+wire dump_tb_we, restore_tb_we;
+assign tb_addr = restore_overlay ? restore_tb_addr : dump_tb_addr;
+assign tb_char = restore_overlay ? restore_tb_char : dump_tb_char;
+assign tb_attr = restore_overlay ? restore_tb_attr : dump_tb_attr;
+assign tb_we = restore_overlay ? restore_tb_we : dump_tb_we;
+reg restore_overlay_d;
+always @(posedge clk_sys) restore_overlay_d <= restore_overlay;
+ui_restore_screen restore_screen (
+    .clk(clk_sys), .reset(~pll_core_locked), .active(restore_overlay),
+    .guard_state(restore_guard_state), .phase(restore_phase), .error(restore_error),
+    .io_error(restore_io_err_s),
+    .rom_crc(restore_rom_crc), .save_crc(restore_save_crc),
+    .backup_index(restore_backup_index_s), .write_enabled(RESTORE_WRITE_ENABLED),
+    .tb_addr(restore_tb_addr), .tb_char(restore_tb_char), .tb_attr(restore_tb_attr), .tb_we(restore_tb_we)
+);
 
 ui_screen screen (
     .clk         ( clk_sys ),
-    .reset       ( ~pll_core_locked ),
+    .reset       ( ~pll_core_locked || (restore_overlay_d && !restore_overlay) ),
 
     .valid       ( id_valid ),
     .platform    ( platform ),
@@ -1737,10 +1920,10 @@ ui_screen screen (
     .sum_computed    ( dump_sum_computed ),
     .sum_stored      ( dump_sum_stored ),
 
-    .tb_addr     ( tb_addr ),
-    .tb_char     ( tb_char ),
-    .tb_attr     ( tb_attr ),
-    .tb_we       ( tb_we )
+    .tb_addr     ( dump_tb_addr ),
+    .tb_char     ( dump_tb_char ),
+    .tb_attr     ( dump_tb_attr ),
+    .tb_we       ( dump_tb_we )
 );
 
 

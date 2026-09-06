@@ -30,6 +30,40 @@
         "address": "0x60000000",
         "size_maximum": "0x2000000",
         "filename": "CARTDUMP.gb"
+      },
+      {
+        "name": "Restore Info",
+        "id": 21,
+        "required": false,
+        "parameters": "0x8",
+        "deferload": true,
+        "extensions": ["meta"],
+        "address": "0xB0000000",
+        "size_exact": "0x40",
+        "size_maximum": "0x40",
+        "filename": "RESTORE.meta"
+      },
+      {
+        "name": "Restore Save",
+        "id": 22,
+        "required": false,
+        "parameters": "0x8",
+        "deferload": true,
+        "extensions": ["sav"],
+        "address": "0xB0000000",
+        "size_exact": "0x2000",
+        "size_maximum": "0x2000",
+        "filename": "RESTORE.sav"
+      },
+      {
+        "name": "Recovery Backup",
+        "id": 23,
+        "required": false,
+        "parameters": "0x0",
+        "deferload": true,
+        "extensions": ["sav"],
+        "address": "0xA0000000",
+        "size_maximum": "0x2000"
       }
     ]
   }

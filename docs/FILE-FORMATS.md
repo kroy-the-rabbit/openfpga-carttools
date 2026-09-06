@@ -7,6 +7,13 @@ this: the two are not the same, and the gaps are not small.
 **Status: specification, version 1. Most of it is NOT implemented.** Updated
 2026-09-02.
 
+Experimental restore update, 2026-09-05: the `save-restore-la` branch uses one
+fixed `RESTORE.sav` plus required `RESTORE.meta`, flat in
+`/Assets/carttools/common/`. Its recovery files are `PRE0000.sav` style names.
+[SAVE-RESTORE-PLAN.md](SAVE-RESTORE-PLAN.md) defines this first candidate's
+implemented format and safety gates. Cartridge save writes remain disabled in
+the default build. The older restore layout below is not this candidate's API.
+
 The core writes ROMs on all three platforms and saves on two, flat into
 `/Assets/carttools/common/`. `docs/STATUS.md` carries the file by file record.
 What follows is still the design target for the companion app; the table says
@@ -220,7 +227,13 @@ about where the halt and carry bits live, and a bad conversion corrupts an
 in-game clock. A conversion may be offered; it must be explicit, named after
 its target, and reversible.
 
-## Restore input
+## Restore input (older design target)
+
+For the initial experimental MBC1 implementation, use
+[SAVE-RESTORE-PLAN.md](SAVE-RESTORE-PLAN.md) instead. In particular, metadata
+is required for cartridge writes and an identity mismatch is refused, with no
+override. The raw save remains usable independently in emulators and recovery
+tools; this does not relax the core's authorization checks.
 
 The app writes `Restore/<basename>.sav` and the core reads it. The core
 validates before writing anything to a cartridge:

@@ -4,7 +4,10 @@ What is actually true right now, as opposed to what is written. The plan in
 `plan.md` says where this is going; this file says where it is.
 
 Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
-Development continues from `main`; there is no active hardware candidate.
+Development is on `save-restore-la`. The next candidate qualifies restore
+preflight for the original, non-DX Link's Awakening, with cartridge save
+writes disabled. No hardware restore is verified. See
+`docs/SAVE-RESTORE-PLAN.md` for the retained corpus and acceptance gates.
 
 The rule for this file: nothing moves to **verified** without evidence that
 someone could go and check. For anything touching a cartridge, that evidence
@@ -19,7 +22,7 @@ has to come from a cartridge.
 | v0.3 | GB/GBC cartridge identification | **verified on hardware** |
 | v0.4 | GB/GBC ROM dumping and verification | **verified on hardware** |
 | v0.5 | GB/GBC save backup | **verified on hardware** |
-| v0.6 | GB/GBC save restore | not started |
+| v0.6 | GB/GBC save restore | MBC1 8 KiB implementation in development; staging and recovery need hardware qualification before enabling save writes |
 | v0.7 | GBA SRAM backup and restore | backup **verified on hardware**, Zero Mission's 32 KiB SRAM loaded in mGBA with its file intact. Needs no write. Restore not started |
 | v0.8 | GBA Flash backup and restore | 64 KiB backup **verified on hardware**, Golden Sun loaded in mGBA with its state intact, and it needs no write. 128 KiB blocked on the bank select write. Restore not started |
 | v0.9 | GBA EEPROM backup and restore | backup **verified on hardware**, eight cartridges at 512 bytes and 8 KiB, each loaded in mGBA with its state intact. The read command is the only one the reader can form. Restore not started |

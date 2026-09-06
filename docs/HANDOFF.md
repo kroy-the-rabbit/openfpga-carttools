@@ -3,7 +3,46 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
-## Released baseline and next work, 2026-09-05
+## Save restore development, 2026-09-05
+
+Work is on `save-restore-la`, starting from released-main commit `3b62eac`.
+First target: original GB Link's Awakening, MBC1+RAM+BAT type `03`, RAM code
+`02`, one 8 KiB bank. The verified Batch 6 ROM and save remain intact, with
+matching independent copies in the retained library. Prepared single-save
+input and identity metadata are under ignored `build/restore/la-nondx/`.
+
+`docs/SAVE-RESTORE-PLAN.md` owns the new transaction and hardware gates. The
+first candidate clamps cartridge save writes off. Qualify exact file sizes,
+input byte order, ROM matching, two original-save reads, recovery name collision
+handling, backup preallocation, and reopened SD readback first. Then copy that
+new backup off-card after remount and compare it to the retained original.
+
+Authorization requires five Select press/release cycles, X preflight, Y then X,
+and a continuous three-second A hold. Both preflight and final confirmation
+request the existing GB-first platform safety probe. The staged file is bound
+to a full ROM CRC through `RESTORE.meta`; its filename carries no identity.
+Only after these gates are physically proven should the MBC1 writer be enabled.
+
+APF soft reset and user cancellation must drain operations and disable RAM.
+Cold FPGA reset, clock loss, power loss, and physical cartridge removal cannot
+guarantee an intact last write. APF command timeouts poison the file service
+until core reload so a late reply cannot authorize a subsequent operation.
+
+The automated checks exercise the enabled writer as well as the default
+write-disabled engine, including exact data, ROM identity, staged-buffer
+ownership, recovery-file errors, cartridge changes, cancellation, and two
+post-write comparisons. The pin test sweeps 1,665 cancellation positions
+across abort, authorization loss, and writer reset. Separate top integration
+checks cover the actual action gates and reject eight deliberately broken
+variants. These are simulation evidence, not hardware qualification.
+
+The exact released ZIP, bitstream, and timing report have an additional ignored
+copy in `build/restore/released-baseline/` before candidate outputs replace the
+generic files in `build/cart/`. No card deployment is implied by a local fit.
+
+The release details and dated investigations below remain historical evidence.
+
+## Released baseline, 2026-09-05
 
 `v0.9999.250d6a0` is published from exact commit `250d6a0`. The feature branch
 was fast-forwarded into `main`, the final save-count correction was pushed, and
@@ -11,8 +50,8 @@ this checkout is back on `main`. GitHub runs simulation and release-artifact
 verification only. Quartus fits run on sisko or kira through
 `/home/kroy/Desktop/repos/pocket-dev/tools/runner-build`.
 
-There is no pending hardware candidate. The next implementation should branch
-from current `main`. The open engineering boundaries, in practical order, are:
+At release, there was no pending hardware candidate. The original follow-up
+list was:
 
 1. Add an independent second save read and compare before reporting success.
 2. Add GBA 128 KiB Flash backup only after its bank-select write is fully

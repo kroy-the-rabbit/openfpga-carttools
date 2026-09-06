@@ -861,6 +861,11 @@ set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/dump_path_gen.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/dump_chunk_src.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/dump_checksum.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/dump/dump_engine.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../services/restore/cart_restore_gb.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../services/restore/restore_guard.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../services/restore/restore_engine.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../services/restore/restore_file_io.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../ui/ui_restore_screen.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../ui/ui_textbuf.sv
 # ui_font.vh holds a module, not an include fragment, so it needs an explicit
 # file type: Quartus treats a .vh extension as include-only and would never
