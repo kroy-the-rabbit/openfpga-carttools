@@ -15,9 +15,12 @@ with `SD ERROR: 4`; preflight did not pass. The failure's command and cause
 remain unproven. The next candidate adds retained file/stage/path diagnostics
 and a real command-register integration regression. Exact source `2bdad36`
 passed all 44 checks; its first fit request was refused by sisko's busy lock.
-The user approved kira, where the same candidate is now submitted. It has not
-completed a fit or been installed. Cartridge save writes remain disabled.
-See `docs/HANDOFF.md` for the copied screenshot and candidate
+The user approved kira, where it passed timing: setup `+0.556 ns`, hold
+`+0.065 ns`. The full package is installed and all 14 files byte-verified,
+stamp `2BDA`; the original restore inputs and corpus remain unchanged. This
+is a diagnostic candidate awaiting a new hardware screenshot, not a proven
+fix for error 4. Cartridge save writes remain disabled.
+See `docs/HANDOFF.md` for the copied screenshot, retained artifacts, and candidate
 status, and `docs/SAVE-RESTORE-PLAN.md` for the hardware acceptance gates.
 
 The rule for this file: nothing moves to **verified** without evidence that

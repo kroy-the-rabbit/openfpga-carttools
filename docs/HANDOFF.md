@@ -42,22 +42,42 @@ Exact diagnostic source is `2bdad36f6b68fd6c19778dd32e2d674ea2188a08`, stamp
 The first sisko start attempt was refused before launch because its lock was
 held by `pocket-gba` job `p5cart-seq20-s1` at `85bb71a90452`. That is the
 sibling's new 20/6 sequential timing build, not this restore candidate. The
-user then approved kira; the same exact-source job is now submitted there.
-No restore fit or deployment has completed yet. B458 remained on the card at
-the last hash check, with the prepared input pair unchanged.
+user then approved kira, where the exact-source job completed with `rc=0` in
+790 seconds using Quartus Lite 25.1 build 1129. Worst setup was `+0.556 ns`,
+hold `+0.065 ns`, and minimum pulse width `+0.827 ns`; 6,968 ALMs and 129 RAM
+blocks. No timing constraints changed.
 
-Start or retry through the orchestrator utility when the chosen runner is
-available. Use the exact source commit, not a later documentation-only HEAD:
+Inspect or refetch this completed job with the exact source commit, not a
+later documentation-only HEAD:
 
 ```sh
-../tools/runner-build start kira pocket-cartridge cart la-restore-sd-trace 2bdad36
 ../tools/runner-build job kira pocket-cartridge cart la-restore-sd-trace 2bdad36
 ../tools/runner-build fetch kira pocket-cartridge cart la-restore-sd-trace 2bdad36
 ```
 
-Require a timing-clean fit before installing.
-Keep `RESTORE_WRITE_ENABLED=0`. Then repeat the Select hold, release, A check
-and capture the whole result screen. Preserve any new recovery file locally.
+Artifacts are retained under ignored `build/restore/candidate-2bdad36/`.
+ZIP integrity passed, the packaged bitstream matches the separately fetched
+one, and packaged `data.json` matches committed source.
+
+| Artifact | SHA-256 |
+|---|---|
+| `kroy.CartTools_0.9999.2bdad36.zip` | `1782723ce58035d7af52e040b2908b9a7e2d3dd86a391588461ff0e03d7f279e` |
+| `bitstream.rbf_r` | `abda045f006e0a7a9388a0aa44b34b2952ad1adbbe8dd300d3088ebab690cfb0` |
+| `report.txt` | `7b9d54f7376c4c30ea49fecf572bbbb05fb5d31582e4d0de2a94680b4b946703` |
+| `simulation-2bdad36.log` | `3f45a9955bcd536b9471f747f3c097a8d2765314ddf7bf6645eb49259e7cac3b` |
+
+Installed on 2026-09-06 local time as `0.9999.2bdad36`, stamp `2BDA`.
+The full 14-file package was merged, flushed, and compared byte for byte.
+`RESTORE.sav` and `RESTORE.meta` remain unchanged and match the retained pair.
+Other saves, ROMs, and screenshots were untouched; the card was left mounted.
+Replaced B458 files are retained in
+`build/restore/deploy-2bdad36.TF78ra/before/`, alongside the exact deployed
+files in `package/`.
+
+Keep `RESTORE_WRITE_ENABLED=0`. Hardware verification is next: confirm stamp
+`2BDA`, repeat the Select hold, release, A check, and capture the whole result
+screen. Preserve any new recovery file locally. This is a diagnostic build,
+not a claimed fix for error 4 or a qualified cartridge restore.
 Do not enable save writes until a complete preflight and an independently
 verified recovery backup survive power-cycle and remount.
 
