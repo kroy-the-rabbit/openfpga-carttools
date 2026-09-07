@@ -29,7 +29,16 @@ expected value. It taps the selected top response, not just the file
 service's output. The mismatch remains latched after a subsequent clean
 reread. The UI renders the complete path, NULs, and unread/non-ASCII bytes.
 Both complete-path checks and deliberately corrupted-response tests cover
-this instrumentation. Full-suite and kira fit results are pending.
+this instrumentation. Source is `05af4a96598975de3579136ed2654323afc8c76c`,
+stamp `05AF`. Focused file-service, UI, bridge, and top-integration tests
+passed. The full suite is running with its log retained at
+`build/restore/simulation-05af4a9.log`; the exact-source kira fit is running
+alongside it. Neither result has been claimed complete yet.
+
+```sh
+../tools/runner-build job kira pocket-cartridge cart la-restore-full-path 05af4a9
+../tools/runner-build fetch kira pocket-cartridge cart la-restore-full-path 05af4a9
+```
 
 The deployment below is the still-installed `2BDA` baseline, not this new
 revision. Keep it and all preceding evidence until the next candidate passes

@@ -24,7 +24,9 @@ observed responses and the displayed path words correct. Expanded simulation
 through the actual SPI peripheral reproduces that count with chunked reads
 and a correct complete path, so the count alone does not explain the refusal.
 The next revision adds the complete observed path, duplicate indices, and a
-retained first-word mismatch. Its full-suite and kira fit are pending.
+retained first-word mismatch. Exact source `05af4a9`, stamp `05AF`, passed
+focused tests. Its full suite and kira fit are running; installation awaits
+both results.
 Cartridge save writes remain disabled.
 See `docs/HANDOFF.md` for the copied screenshot, retained artifacts, and candidate
 status, and `docs/SAVE-RESTORE-PLAN.md` for the hardware acceptance gates.
