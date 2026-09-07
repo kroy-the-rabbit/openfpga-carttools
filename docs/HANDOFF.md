@@ -5,6 +5,38 @@ Traps and next steps. Read `docs/STATUS.md` for the current position and
 
 ## Restore SD refusal diagnostics, 2026-09-06
 
+The subsequent `2BDA` screenshot identifies the failure as metadata input
+open: `FILE: RESTORE.meta`, `SD STAGE: OPEN INPUT`, result `4`. It shows
+`PATH WORDS: 46 HEX`, `P0 7373412F`, `P8 74656D2E`, and flags zero.
+The copied screenshot is `build/hardware/2bdad36/20260906_205020.png`, SHA-256
+`b4b760c2d6b21ddd7787fcc8e7987063f99fb93ca6a8b61f6a90ef37ba8ffc8a`.
+No metadata read, save read, or recovery creation was reached. Cartridge save
+writes remain compiled out. The failure is now localized to the first open,
+but its cause is still unproven.
+
+The expanded regression exercises the actual SPI peripheral, command
+registers, and extracted top mux. A 16-word chunk model produces the same
+70 response observations while all 264 structure bytes arrive correctly,
+in both endian modes. Continuous and eight-word chunk tests also pass.
+The extra four observations alone are therefore not evidence of corruption.
+Chunking is a compatible hypothesis, not a capture of Pocket firmware's
+actual read order. Injected error 4 still tests refusal handling only.
+
+The next diagnostic revision changes no file protocol or write gate. It
+captures all 40 path bytes, unique and repeated word counts, the first four
+repeated indices, flags, size, and the first mismatched response with its
+expected value. It taps the selected top response, not just the file
+service's output. The mismatch remains latched after a subsequent clean
+reread. The UI renders the complete path, NULs, and unread/non-ASCII bytes.
+Both complete-path checks and deliberately corrupted-response tests cover
+this instrumentation. Full-suite and kira fit results are pending.
+
+The deployment below is the still-installed `2BDA` baseline, not this new
+revision. Keep it and all preceding evidence until the next candidate passes
+simulation and timing. No malformed-path fix or hardware restore is claimed.
+
+### Retained 2BDA deployment record
+
 Installed `B458` reached the restore stop screen on hardware with
 `SD FILE OPERATION FAILED` / `SD ERROR: 4`. It did not complete preflight.
 The screenshot was copied and hash-verified off-card before analysis:
@@ -74,9 +106,8 @@ Replaced B458 files are retained in
 `build/restore/deploy-2bdad36.TF78ra/before/`, alongside the exact deployed
 files in `package/`.
 
-Keep `RESTORE_WRITE_ENABLED=0`. Hardware verification is next: confirm stamp
-`2BDA`, repeat the Select hold, release, A check, and capture the whole result
-screen. Preserve any new recovery file locally. This is a diagnostic build,
+Keep `RESTORE_WRITE_ENABLED=0`. The subsequent `2BDA` hardware result is
+recorded above. Preserve any new recovery file locally. This is a diagnostic build,
 not a claimed fix for error 4 or a qualified cartridge restore.
 Do not enable save writes until a complete preflight and an independently
 verified recovery backup survive power-cycle and remount.

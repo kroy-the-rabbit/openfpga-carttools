@@ -37,6 +37,9 @@ module restore_file_io #(
     // Retained evidence: operation, last stage, observed struct response count,
     // then the first path word, filename-tail word, and flags word.
     output wire [108:0] debug_status,
+    output wire [475:0] debug_detail,
+    // Tap the selected top-level bridge response, not merely our own output.
+    input wire [31:0] observed_bridge_data,
 
     input wire [31:0] bridge_addr,
     input wire bridge_rd,
@@ -90,8 +93,18 @@ reg receive_bad;
 reg [3:0] debug_stage;
 reg [6:0] debug_reads;
 reg [31:0] debug_first, debug_tail, debug_flags;
+reg [319:0] debug_path;
+reg [65:0] debug_seen;
+reg [6:0] debug_unique, debug_repeats;
+reg [27:0] debug_repeat_indices;
+reg debug_bad;
+reg [6:0] debug_bad_index;
+reg [31:0] debug_bad_word, debug_bad_expected, debug_size;
 assign debug_status = {operation, debug_stage, debug_reads,
                        debug_first, debug_tail, debug_flags};
+assign debug_detail = {debug_path, debug_seen[9:0], debug_unique, debug_repeats,
+                       debug_repeat_indices, debug_bad, debug_bad_index,
+                       debug_bad_word, debug_bad_expected, debug_size};
 
 assign target_dataslot_slotoffset = 32'd0;
 assign target_buffer_param_struct = STRUCT_BASE;
@@ -210,6 +223,9 @@ assign bridge_rd_hit = hit_hold;
 // That is the word the peripheral just sampled, not the new request's word.
 // Track its address independently, including across command/window changes.
 reg reply_is_struct;
+wire [31:0] observed_native = endian_3 ? swap_bytes(observed_bridge_data) : observed_bridge_data;
+wire [31:0] expected_reply = struct_word(reply_word_index);
+integer trace_word;
 always @(posedge clk) begin
     if (reset) begin
         reply_is_struct <= 0;
@@ -217,6 +233,16 @@ always @(posedge clk) begin
         debug_first <= 0;
         debug_tail <= 0;
         debug_flags <= 0;
+        debug_path <= 0;
+        debug_seen <= 0;
+        debug_unique <= 0;
+        debug_repeats <= 0;
+        debug_repeat_indices <= {4{7'h7F}};
+        debug_bad <= 0;
+        debug_bad_index <= 0;
+        debug_bad_word <= 0;
+        debug_bad_expected <= 0;
+        debug_size <= 0;
     end else begin
         if (bridge_rd) reply_is_struct <= struct_hit;
         if ((state == ST_IDLE && start) || target_dataslot_openfile) begin
@@ -224,11 +250,41 @@ always @(posedge clk) begin
             debug_first <= 0;
             debug_tail <= 0;
             debug_flags <= 0;
+            debug_path <= 0;
+            debug_seen <= 0;
+            debug_unique <= 0;
+            debug_repeats <= 0;
+            debug_repeat_indices <= {4{7'h7F}};
+            debug_bad <= 0;
+            debug_bad_index <= 0;
+            debug_bad_word <= 0;
+            debug_bad_expected <= 0;
+            debug_size <= 0;
         end else if (busy && bridge_rd && reply_is_struct) begin
             if (debug_reads != 127) debug_reads <= debug_reads + 1'b1;
-            if (reply_word_index == 0) debug_first <= read_hold;
-            if (reply_word_index == 8) debug_tail <= read_hold;
-            if (reply_word_index == 64) debug_flags <= read_hold;
+            if (reply_word_index == 0) debug_first <= observed_native;
+            if (reply_word_index == 8) debug_tail <= observed_native;
+            if (reply_word_index == 64) debug_flags <= observed_native;
+            if (reply_word_index == 65) debug_size <= observed_native;
+            for (trace_word = 0; trace_word < 10; trace_word = trace_word + 1)
+                if (reply_word_index == trace_word)
+                    debug_path[trace_word*32 +: 32] <= observed_native;
+            if (!debug_seen[reply_word_index]) begin
+                debug_seen[reply_word_index] <= 1;
+                debug_unique <= debug_unique + 1'b1;
+            end else begin
+                if (debug_repeats != 127) debug_repeats <= debug_repeats + 1'b1;
+                if (debug_repeats < 4)
+                    debug_repeat_indices[debug_repeats*7 +: 7] <= reply_word_index;
+            end
+            // Compare every observation, including discarded priming reads.
+            // Keep the first mismatch even if a later reread looks correct.
+            if (!debug_bad && observed_native != expected_reply) begin
+                debug_bad <= 1;
+                debug_bad_index <= reply_word_index;
+                debug_bad_word <= observed_native;
+                debug_bad_expected <= expected_reply;
+            end
         end
     end
 end

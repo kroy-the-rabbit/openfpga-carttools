@@ -1800,6 +1800,8 @@ wire [3:0] restore_io_err_s;
 synch_3 #(.WIDTH(4)) s_restore_io_err (restore_io_err, restore_io_err_s, clk_sys);
 wire [108:0] restore_io_debug, restore_io_debug_s;
 synch_3 #(.WIDTH(109)) s_restore_io_debug (restore_io_debug, restore_io_debug_s, clk_sys);
+wire [475:0] restore_io_detail, restore_io_detail_s;
+synch_3 #(.WIDTH(476)) s_restore_io_detail (restore_io_detail, restore_io_detail_s, clk_sys);
 always @(posedge clk_sys) begin
     if (~pll_core_locked) begin
         restore_io_request_toggle <= 0;
@@ -1833,6 +1835,7 @@ restore_file_io restore_files (
     .busy(restore_io_busy), .done(restore_io_done_74a), .failed(restore_io_failed_74a),
     .err(restore_io_err), .poisoned(restore_poisoned), .backup_index(restore_backup_index),
     .debug_status(restore_io_debug),
+    .debug_detail(restore_io_detail), .observed_bridge_data(bridge_rd_data),
     .bridge_addr(bridge_addr), .bridge_rd(bridge_rd), .bridge_wr(bridge_wr),
     .bridge_wr_data(bridge_wr_data), .bridge_endian_little(bridge_endian_little),
     .bridge_rd_data(restore_bridge_rd_data), .bridge_rd_hit(restore_bridge_rd_hit),
@@ -1898,6 +1901,7 @@ ui_restore_screen restore_screen (
     .clk(clk_sys), .reset(~pll_core_locked), .active(restore_overlay),
     .guard_state(restore_guard_state), .phase(restore_phase), .error(restore_error),
     .io_error(restore_io_err_s), .io_debug(restore_io_debug_s),
+    .io_detail(restore_io_detail_s),
     .hold_progress(restore_hold_progress),
     .rom_crc(restore_rom_crc), .save_crc(restore_save_crc),
     .backup_index(restore_backup_index_s), .write_enabled(RESTORE_WRITE_ENABLED),

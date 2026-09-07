@@ -13,7 +13,18 @@ reg [1:0] hold_progress = 2'd0;
 reg [5:0] phase = 6'd0;
 reg [4:0] error = 5'd0;
 reg [3:0] io_error = 4'hD;
-reg [108:0] io_debug = {2'd0, 4'd1, 7'd66, 32'h7373412F, 32'h74656D2E, 32'd0};
+reg [108:0] io_debug = {2'd0, 4'd1, 7'd70, 32'h7373412F, 32'h74656D2E, 32'd0};
+reg [475:0] io_detail = {320'd0, 10'h3FF, 7'd66, 7'd4,
+                        {7'd64,7'd48,7'd32,7'd16}, 1'b0, 7'd0,
+                        32'd0, 32'd0, 32'd0};
+task set_trace_path(input string path);
+    integer i;
+    begin
+        for (i = 0; i < 40; i = i + 1)
+            io_detail[156+i*8 +: 8] = i < path.len() ? path[i] : 8'd0;
+    end
+endtask
+initial set_trace_path("/Assets/carttools/common/RESTORE.meta");
 reg [31:0] rom_crc = 32'hA1B2C3D4;
 reg [31:0] save_crc = 32'h87654321;
 reg [15:0] backup_index = 16'h012A;
@@ -32,7 +43,7 @@ integer n;
 ui_restore_screen dut (
     .clk(clk), .reset(reset), .active(active), .guard_state(guard_state),
     .hold_progress(hold_progress),
-    .phase(phase), .error(error), .io_error(io_error), .io_debug(io_debug),
+    .phase(phase), .error(error), .io_error(io_error), .io_debug(io_debug), .io_detail(io_detail),
     .rom_crc(rom_crc), .save_crc(save_crc),
     .backup_index(backup_index), .write_enabled(write_enabled),
     .tb_addr(tb_addr), .tb_char(tb_char), .tb_attr(tb_attr), .tb_we(tb_we)
@@ -102,6 +113,9 @@ task expect_hidden_evidence;
         expect_row(13, "                              ");
         expect_row(14, "                              ");
         expect_row(15, "                              ");
+        expect_row(16, "                              ");
+        expect_row(3, "FIRST TARGET: MBC1 8K         ");
+        expect_row(4, "LINK'S AWAKENING (NON-DX)     ");
     end
 endtask
 
@@ -259,9 +273,12 @@ initial begin
             expect_row(2, "FILE: RESTORE.meta            ");
             expect_row(11, "SD ERROR: D                   ");
             expect_row(12, "SD STAGE: OPEN INPUT          ");
-            expect_row(13, "PATH WORDS: 42 HEX            ");
-            expect_row(14, "P0 7373412F P8 74656D2E       ");
-            expect_row(15, "FLAGS: 00000000               ");
+            expect_row(3, "PATH /Assets/carttools/common/");
+            expect_row(4, "NAME RESTORE.meta~~~          ");
+            expect_row(13, "READS 46 UNIQUE 42 RPT 04     ");
+            expect_row(14, "REPEAT 10 20 30 40            ");
+            expect_row(15, "FLAGS 00000000 SIZE 00000000  ");
+            expect_row(16, "NO OBSERVED WORD MISMATCH     ");
         end else begin
             expect_hidden_evidence();
             expect_row(11, "                              ");
@@ -280,11 +297,23 @@ initial begin
     settle();
     expect_row(11, "SD ERROR: A                   ");
     io_debug = {2'd2, 4'd7, 7'd66, 32'h7373412F, 32'h7661732E, 32'd2};
+    set_trace_path("/Assets/carttools/common/PRE012A.sav");
+    io_detail[31:0] = 8192;
     settle();
     expect_row(2, "FILE: PRE012A.sav             ");
     expect_row(12, "SD STAGE: SIZE NEW BACKUP     ");
-    expect_row(14, "P0 7373412F P8 7661732E       ");
-    expect_row(15, "FLAGS: 00000002               ");
+    expect_row(4, "NAME PRE012A.sav~~~~          ");
+    expect_row(15, "FLAGS 00000002 SIZE 00002000  ");
+    io_detail[103:0] = {1'b1, 7'd5, 32'h6E6F6D6C, 32'h6E6F6D6D, 32'd8192};
+    settle();
+    expect_row(16, "BAD 05 GOT 6E6F6D6C           ");
+    expect_row(17, "EXP 6E6F6D6D                  ");
+    io_debug[102:96] = 127;
+    io_detail[138:132] = 127;
+    io_detail[131:104] = {4{7'h7F}};
+    settle();
+    expect_row(13, "READS 7F UNIQUE 42 RPT 7F     ");
+    expect_row(14, "REPEAT -- -- -- --            ");
     for (n = 1; n <= 10; n = n + 1) begin
         io_debug[106:103] = n;
         settle();

@@ -1,17 +1,58 @@
 // Harness compiled by check_restore_bridge.py, with actual core_top muxes.
 `default_nettype none
 `timescale 1ns/1ps
-module tb_restore_bridge;
+module tb_restore_bridge #(
+    parameter integer CHUNK_WORDS = 66,
+    parameter integer USE_SPI = 0,
+    parameter integer INJECT_WORD = 0
+);
 reg clk = 0;
 always #5 clk = ~clk;
 reg reset = 1, start = 0;
 reg [1:0] op = 0;
-reg [31:0] bridge_addr = 0, bridge_wr_data = 0;
-reg bridge_rd = 0, bridge_wr = 0, bridge_endian_little = 0;
+reg [31:0] model_addr = 0, model_wr_data = 0;
+reg model_rd = 0, model_wr = 0, bridge_endian_little = 0;
+wire [31:0] bridge_addr, bridge_wr_data;
+wire bridge_rd, bridge_wr;
+wire spi_clk, spi_mosi, spi_miso;
+reg spi_ss = 0, spi_host_oe = 0, spi_host_clk = 0;
+reg [1:0] spi_host_data = 0;
+assign spi_clk = spi_host_oe ? spi_host_clk : 1'bz;
+assign spi_mosi = spi_host_oe ? spi_host_data[1] : 1'bz;
+assign spi_miso = spi_host_oe ? spi_host_data[0] : 1'bz;
+generate if (USE_SPI) begin : actual_peripheral
+    io_bridge_peripheral peripheral (
+        .clk(clk), .reset_n(~reset), .endian_little(bridge_endian_little),
+        .pmp_addr(bridge_addr), .pmp_rd(bridge_rd), .pmp_wr(bridge_wr),
+        .pmp_rd_data(bridge_rd_data), .pmp_wr_data(bridge_wr_data),
+        .phy_spimosi(spi_mosi), .phy_spimiso(spi_miso),
+        .phy_spiclk(spi_clk), .phy_spiss(spi_ss)
+    );
+end else begin : modeled_peripheral
+    assign bridge_addr = model_addr;
+    assign bridge_wr_data = model_wr_data;
+    assign bridge_rd = model_rd;
+    assign bridge_wr = model_wr;
+end endgenerate
 wire [31:0] bridge_rd_data, cmd_bridge_rd_data, restore_bridge_rd_data;
+reg inject_active = 0;
+wire [31:0] injected_response = restore_bridge_rd_data ^
+    ((inject_active && files.reply_word_index == 5) ?
+     (bridge_endian_little ? 32'h01000000 : 32'h00000001) : 32'd0);
 wire restore_bridge_rd_hit, restore_io_busy, done, failed;
 wire [3:0] err;
 wire [108:0] debug_status;
+wire [475:0] debug_detail;
+wire [319:0] observed_path;
+wire [9:0] observed_path_seen;
+wire [6:0] observed_unique, observed_repeats;
+wire [27:0] observed_repeat_indices;
+wire observed_bad;
+wire [6:0] observed_bad_index;
+wire [31:0] observed_bad_word, observed_bad_expected, observed_size;
+assign {observed_path, observed_path_seen, observed_unique, observed_repeats,
+        observed_repeat_indices, observed_bad, observed_bad_index,
+        observed_bad_word, observed_bad_expected, observed_size} = debug_detail;
 wire [9:0] table_address;
 wire [31:0] table_data;
 wire r_target_read, r_target_write, r_target_open;
@@ -37,6 +78,7 @@ always @(posedge clk) if (done) completions = completions + 1;
 restore_file_io #(.TIMEOUT_CYCLES(20000)) files (
     .clk(clk), .reset(reset), .start(start), .op(op), .busy(restore_io_busy),
     .done(done), .failed(failed), .err(err), .debug_status(debug_status),
+    .debug_detail(debug_detail), .observed_bridge_data(bridge_rd_data),
     .bridge_addr(bridge_addr), .bridge_rd(bridge_rd), .bridge_wr(bridge_wr),
     .bridge_wr_data(bridge_wr_data), .bridge_endian_little(bridge_endian_little),
     .bridge_rd_data(restore_bridge_rd_data), .bridge_rd_hit(restore_bridge_rd_hit),
@@ -69,29 +111,76 @@ endfunction
 task tick(input integer count);
     repeat(count) @(negedge clk);
 endtask
+task spi_send(input [31:0] value);
+    integer bit_pair;
+    begin
+        for (bit_pair = 15; bit_pair >= 0; bit_pair = bit_pair - 1) begin
+            spi_host_clk = 0;
+            spi_host_data = value[bit_pair*2 +: 2];
+            tick(1);
+            spi_host_clk = 1;
+            tick(1);
+        end
+    end
+endtask
+task spi_begin;
+    begin
+        spi_ss = 1;
+        tick(8);
+        spi_host_clk = 0;
+        spi_host_oe = 1;
+        spi_ss = 0;
+        tick(8);
+    end
+endtask
 // APF samples the old held response before pulsing bridge_rd. Every burst
 // primes once, then consumes that first word on its next bus transaction.
 task host_read(input [31:0] address, output [31:0] value);
     begin
-        bridge_addr = address;
+        if (USE_SPI) begin
+            spi_begin();
+            spi_send(address);
+            spi_host_oe = 0;
+            #1; // let resolved nets float before waiting for FPGA turnaround
+            wait (spi_clk === 1'b1);
+            repeat (16) begin
+                @(negedge spi_clk); #1;
+                value = {value[29:0], spi_mosi, spi_miso};
+            end
+            tick(4);
+            spi_ss = 1;
+            tick(8);
+        end else begin
+        model_addr = address;
         tick(4);
         value = bridge_endian_little ? swap(bridge_rd_data) : bridge_rd_data;
         tick(1);
-        bridge_rd = 1;
+        model_rd = 1;
         tick(1);
-        bridge_rd = 0;
+        model_rd = 0;
         tick(1);
+        end
     end
 endtask
 task host_write(input [31:0] address, input [31:0] value);
     begin
-        bridge_addr = address;
-        bridge_wr_data = bridge_endian_little ? swap(value) : value;
+        if (USE_SPI) begin
+            spi_begin();
+            spi_send(address | 32'd1);
+            spi_send(value);
+            tick(10);
+            spi_ss = 1;
+            spi_host_oe = 0;
+            tick(8);
+        end else begin
+        model_addr = address;
+        model_wr_data = bridge_endian_little ? swap(value) : value;
         tick(2);
-        bridge_wr = 1;
+        model_wr = 1;
         tick(1);
-        bridge_wr = 0;
+        model_wr = 0;
         tick(4);
+        end
     end
 endtask
 task register_read(input [31:0] address, output [31:0] value);
@@ -103,10 +192,12 @@ reg [7:0] path [0:263];
 reg [7:0] expected;
 string expected_path;
 integer endian_mode, operation, w, b, polls, before_completion;
+integer chunk, chunk_end;
 initial begin
     // Cyclone registers without explicit initializers power up at zero.
     // Model only that startup here, not a runtime reset or a command response.
     #1;
+    spi_ss = 1; // reset the peripheral's asynchronous receive counter
     command.hstate = 0;
     command.tstate = 0;
     command.host_cmd_start = 0;
@@ -117,6 +208,7 @@ initial begin
         bridge_endian_little = endian_mode;
         tick(8);
         for (operation = 0; operation < 3; operation = operation + 1) begin
+            inject_active = INJECT_WORD;
             op = operation;
             before_completion = completions;
             start = 1;
@@ -128,24 +220,47 @@ initial begin
                 register_read(32'hF8001000, value);
                 polls = polls + 1;
             end
-            if (value != 32'h636D0192) $fatal(1, "real command register did not publish open");
+            if (value != 32'h636D0192)
+                $fatal(1, "real command register did not publish open: observed=%h register=%h address=%h",
+                       value, command.target_0, bridge_addr);
             register_read(32'hF8001020, value);
             if (value != 21 + operation) $fatal(1, "open command selected wrong slot");
             register_read(32'hF8001024, pointer);
             if (pointer != 32'h90000000) $fatal(1, "open command selected wrong struct pointer");
             host_write(32'hF8001000, 32'h62750000);
-            host_read(pointer, ignored_word);
-            for (w = 0; w < 66; w = w + 1) begin
-                host_read(pointer + 4*(w+1), value);
-                for (b = 0; b < 4; b = b + 1) path[w*4+b] = value[b*8 +: 8];
+            // Chunk priming adds duplicate observed responses, but not bytes
+            // to the host's retained structure. Sixteen-word chunks produce
+            // 70 observations, as in the 2BDA screen. This is a compatible
+            // hypothesis for the count, not a measured firmware read order.
+            for (chunk = 0; chunk < 66; chunk = chunk + CHUNK_WORDS) begin
+                host_read(pointer + chunk*4, ignored_word);
+                chunk_end = chunk + CHUNK_WORDS;
+                if (chunk_end > 66) chunk_end = 66;
+                for (w = chunk; w < chunk_end; w = w + 1) begin
+                    host_read(pointer + 4*(w+1), value);
+                    for (b = 0; b < 4; b = b + 1) path[w*4+b] = value[b*8 +: 8];
+                end
             end
             expected_path = operation == 0 ? "/Assets/carttools/common/RESTORE.meta" :
                             operation == 1 ? "/Assets/carttools/common/RESTORE.sav" :
                                              "/Assets/carttools/common/PRE0000.sav";
             for (b = 0; b < 264; b = b + 1) begin
                 expected = b < expected_path.len() ? expected_path[b] : 8'd0;
+                if (INJECT_WORD && b == 20) expected = expected ^ 8'd1;
                 if (path[b] !== expected)
                     $fatal(1, "delivered open structure byte %0d expected %02x got %02x", b, expected, path[b]);
+            end
+            if (INJECT_WORD) begin
+                if (!observed_bad || observed_bad_index != 5 ||
+                    observed_bad_word != 32'h6E6F6D6C || observed_bad_expected != 32'h6E6F6D6D)
+                    $fatal(1, "observer missed actual selected-response corruption");
+                inject_active = 0;
+                host_read(pointer + 5*4, ignored_word);
+                host_read(pointer + 6*4, value);
+                if (value != 32'h6E6F6D6D || observed_path[20*8 +: 32] != value)
+                    $fatal(1, "clean reread did not replace path word");
+                if (!observed_bad || observed_bad_word != 32'h6E6F6D6C || observed_bad_index != 5)
+                    $fatal(1, "clean reread erased the first bad response");
             end
             // This is an injected firmware refusal, not a reproduced parser.
             host_write(32'hF8001000, 32'h6F6B0004);
@@ -153,13 +268,26 @@ initial begin
             while (completions == before_completion && polls < 20) begin tick(1); polls = polls + 1; end
             if (completions != before_completion + 1 || !failed || err != 4 || restore_io_busy)
                 $fatal(1, "real command refusal did not reach file-service result");
-            if (debug_status[108:107] != operation || debug_status[102:96] != 66 ||
+            if (debug_status[108:107] != operation ||
+                debug_status[102:96] != 66 + (65 / CHUNK_WORDS) + INJECT_WORD ||
                 debug_status[95:64] != 32'h7373412F)
-                $fatal(1, "refusal lost delivered-path evidence");
+                $fatal(1, "refusal lost delivered-path evidence: op=%h reads=%h first=%h",
+                       debug_status[108:107], debug_status[102:96], debug_status[95:64]);
+            if (observed_unique != 66 || observed_repeats != 65 / CHUNK_WORDS + INJECT_WORD ||
+                observed_bad != INJECT_WORD || observed_size != 0 || observed_path_seen != 10'h3FF)
+                $fatal(1, "full response trace disagrees with transferred structure");
+            for (b = 0; b < 40; b = b + 1)
+                if (observed_path[b*8 +: 8] !== (INJECT_WORD && b == 20 ? path[b] ^ 8'd1 : path[b]))
+                    $fatal(1, "observed path byte %0d differs from host byte", b);
+            if (CHUNK_WORDS == 16 && observed_repeat_indices != {7'd64,7'd48,7'd32,7'd16})
+                $fatal(1, "chunk priming did not retain repeated indices");
             tick(4);
+            // End the optional clean reread's pipeline while the service is
+            // idle, so its held word is not counted in the next operation.
+            host_read(32'hF8001000, ignored_word);
         end
     end
-    $display("TB PASS: restore bridge command integration");
+    $display("TB PASS: restore bridge command integration (chunk=%0d SPI=%0d)", CHUNK_WORDS, USE_SPI);
     $finish;
 end
 initial begin #2000000; $fatal(1, "restore bridge watchdog"); end

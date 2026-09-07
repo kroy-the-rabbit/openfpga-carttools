@@ -11,6 +11,7 @@ wire busy, done, failed, poisoned;
 wire [3:0] err;
 wire [15:0] backup_index;
 wire [108:0] debug_status;
+wire [475:0] debug_detail;
 wire [1:0] debug_op;
 wire [3:0] debug_stage;
 wire [6:0] debug_reads;
@@ -39,6 +40,7 @@ restore_file_io #(.TIMEOUT_CYCLES(30000)) dut (
     .busy(busy), .done(done), .failed(failed), .err(err),
     .poisoned(poisoned), .backup_index(backup_index),
     .debug_status(debug_status),
+    .debug_detail(debug_detail), .observed_bridge_data(bridge_rd_data),
     .bridge_addr(bridge_addr), .bridge_rd(bridge_rd), .bridge_wr(bridge_wr),
     .bridge_wr_data(bridge_wr_data), .bridge_endian_little(bridge_endian_little),
     .bridge_rd_data(bridge_rd_data), .bridge_rd_hit(bridge_rd_hit),
@@ -169,6 +171,13 @@ task automatic check_open_struct(output integer flags, output integer name);
         check(debug_tail === (t_id == 21 ? 32'h74656D2E : 32'h7661732E),
               "trace observed filename tail rather than the requested next word");
         check(debug_flags === flags, "trace observed actual flag response");
+        check(debug_detail[145:139] == 66 && debug_detail[138:132] == 0,
+              "complete unique structure trace with no repeat");
+        check(debug_detail[103] == 0, "correct responses never set mismatch latch");
+        check(debug_detail[31:0] == (flags ? 8192 : 0), "trace observed actual desired size");
+        check(debug_detail[155:146] == 10'h3FF, "trace retained every path word");
+        for (j = 0; j < 40; j = j + 1)
+            check(debug_detail[156+j*8 +: 8] === structure[j], "full observed path matches host");
     end
 endtask
 

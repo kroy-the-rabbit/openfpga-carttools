@@ -78,8 +78,9 @@ def elaboration_copy(path, directory):
 
     Quartus permits omitted trailing positional synchronizer outputs. Icarus
     requires explicit empty arguments. Its treatment of generated tri0/tri1
-    port defaults also changes port direction. No functional simulation uses
-    these copies; they exist solely to check all instantiated interfaces.
+    port defaults also changes port direction. Vendor primitive copies are
+    for elaboration only. Command/peripheral functional tests use only the
+    empty positional-output normalization, which does not change logic.
     """
     content = path.read_text()
     sync_call = re.compile(
@@ -88,8 +89,9 @@ def elaboration_copy(path, directory):
 
     def trailing_outputs(match):
         arguments = match.group(2)
-        if len(arguments.split(",")) == 3 and not arguments.lstrip().startswith("."):
-            return match.group(1) + arguments + ", , " + match.group(3)
+        count = len(arguments.split(","))
+        if count in (3, 4) and not arguments.lstrip().startswith("."):
+            return match.group(1) + arguments + ", " * (5 - count) + match.group(3)
         return match.group(0)
 
     normalized = sync_call.sub(trailing_outputs, content)

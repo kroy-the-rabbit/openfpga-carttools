@@ -18,8 +18,14 @@ passed all 44 checks; its first fit request was refused by sisko's busy lock.
 The user approved kira, where it passed timing: setup `+0.556 ns`, hold
 `+0.065 ns`. The full package is installed and all 14 files byte-verified,
 stamp `2BDA`; the original restore inputs and corpus remain unchanged. This
-is a diagnostic candidate awaiting a new hardware screenshot, not a proven
-fix for error 4. Cartridge save writes remain disabled.
+is a diagnostic candidate, not a proven fix for error 4. Its hardware
+screenshot identifies metadata input open as the failing stage, with 70
+observed responses and the displayed path words correct. Expanded simulation
+through the actual SPI peripheral reproduces that count with chunked reads
+and a correct complete path, so the count alone does not explain the refusal.
+The next revision adds the complete observed path, duplicate indices, and a
+retained first-word mismatch. Its full-suite and kira fit are pending.
+Cartridge save writes remain disabled.
 See `docs/HANDOFF.md` for the copied screenshot, retained artifacts, and candidate
 status, and `docs/SAVE-RESTORE-PLAN.md` for the hardware acceptance gates.
 

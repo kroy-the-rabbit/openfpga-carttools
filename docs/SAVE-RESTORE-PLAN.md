@@ -227,3 +227,37 @@ in a hardware transfer or proof that firmware accepted the path. Capture the
 entire screen, including stage and filename, before retrying. New attempts
 clear the trace, and SD failure diagnostics do not display the success-only
 ROM/save CRCs or `RECOVERY FILE VERIFIED` message.
+
+### Complete path trace after the 2BDA result
+
+Hardware localized error `4` to `RESTORE.meta` / `OPEN INPUT`. It observed
+`46` hexadecimal responses, or 70, with the two displayed path words correct.
+The actual SPI peripheral regression produces that count with 16-word chunks
+and re-priming, while delivering all 264 bytes correctly. This demonstrates
+why the response count alone cannot diagnose malformed data; it does not
+prove that Pocket firmware uses this chunk pattern.
+
+The next diagnostic screen includes the complete observed 40-byte path and
+additional fields, all numbers hexadecimal:
+
+| Field | Interpretation |
+|---|---|
+| `PATH`, `NAME` | Observed prefix and filename; `~` marks NUL and `?` marks an unread word or non-ASCII byte |
+| `READS`, `UNIQUE`, `RPT` | Total observations, distinct word indices, and repeats; counters saturate at `7F` |
+| `REPEAT` | First four repeated word indices, or `--` for unused positions |
+| `FLAGS`, `SIZE` | Observed words 64 and 65; input open expects both zero |
+| `BAD`, `GOT`, `EXP` | First mismatched word index, observed value, and generated expected value, retained even after a clean reread |
+
+A complete structure has `42` unique words. The tested 16-word chunk pattern
+reports `READS 46 UNIQUE 42 RPT 04`, repeats `10 20 30 40`, and no mismatch.
+The observed metadata filename should render `RESTORE.meta~~~`; all three
+trailing bytes are NUL. Recovery create and resize request size `00002000`.
+
+The observer checks every returned structure word, including padding, against
+the file service's generator and captures the selected top-level response.
+Its first 40 bytes cover all current paths and terminators, not arbitrary
+256-byte names. A shared path-generator mistake can agree with itself, and a
+bridge observation does not prove firmware acceptance or physical SPI signal
+integrity. The host regression separately checks literal expected bytes and
+tests injected selected-response corruption through both modeled reads and
+the actual SPI peripheral. No cartridge write is enabled by these diagnostics.

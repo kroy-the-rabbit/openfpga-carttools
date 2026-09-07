@@ -17,6 +17,7 @@ module ui_restore_screen (
     input  wire [4:0]  error,
     input  wire [3:0]  io_error,
     input  wire [108:0] io_debug,
+    input  wire [475:0] io_detail,
     input  wire [31:0] rom_crc,
     input  wire [31:0] save_crc,
     input  wire [15:0] backup_index,
@@ -43,6 +44,32 @@ function [63:0] hex_word(input [31:0] value);
                 hex_digit(value[23:20]), hex_digit(value[19:16]),
                 hex_digit(value[15:12]), hex_digit(value[11:8]),
                 hex_digit(value[7:4]), hex_digit(value[3:0])};
+endfunction
+
+function [15:0] hex_count(input [6:0] value);
+    hex_count = {hex_digit({1'b0, value[6:4]}), hex_digit(value[3:0])};
+endfunction
+function [15:0] hex_index(input [6:0] value);
+    hex_index = value == 7'h7F ? "--" : hex_count(value);
+endfunction
+
+// Forty observed bytes cover all three fixed paths and their terminators.
+// Missing words and non-ASCII bytes are visible, not silently blanked.
+function [199:0] path_text(input [319:0] bytes, input [9:0] seen,
+                           input integer first, input integer count);
+    integer i, offset;
+    reg [7:0] ch;
+    begin
+        path_text = "                         ";
+        for (i = 0; i < 25; i = i + 1) begin
+            offset = first + i;
+            if (i < count && offset < 40) begin
+                ch = bytes[offset*8 +: 8];
+                path_text[199-i*8 -: 8] = !seen[offset/4] ? "?" :
+                    ch == 0 ? "~" : ch >= 8'h20 && ch <= 8'h7E ? ch : "?";
+            end
+        end
+    end
 endfunction
 
 function [LW-1:0] io_stage_line(input [3:0] stage);
@@ -166,9 +193,9 @@ function [LW-1:0] error_line(input [4:0] current_error);
     end
 endfunction
 
-wire [211:0] snapshot = {active, guard_state, hold_progress, phase, error, io_error, io_debug, rom_crc,
+wire [687:0] snapshot = {active, guard_state, hold_progress, phase, error, io_error, io_debug, io_detail, rom_crc,
                        save_crc, backup_index, write_enabled};
-reg [211:0] shown;
+reg [687:0] shown;
 reg dirty;
 reg was_active;
 wire shown_active;
@@ -181,12 +208,21 @@ wire [1:0] shown_io_op;
 wire [3:0] shown_io_stage;
 wire [6:0] shown_io_reads;
 wire [31:0] shown_io_first, shown_io_tail, shown_io_flags;
+wire [319:0] shown_path;
+wire [9:0] shown_path_seen;
+wire [6:0] shown_unique, shown_repeats;
+wire [27:0] shown_repeat_indices;
+wire shown_bad;
+wire [6:0] shown_bad_index;
+wire [31:0] shown_bad_word, shown_bad_expected, shown_size;
 wire [31:0] shown_rom;
 wire [31:0] shown_save;
 wire [15:0] shown_backup;
 wire shown_writes;
 assign {shown_active, shown_guard, shown_progress, shown_phase, shown_error, shown_io_error,
-        shown_io_op, shown_io_stage, shown_io_reads, shown_io_first, shown_io_tail, shown_io_flags, shown_rom,
+        shown_io_op, shown_io_stage, shown_io_reads, shown_io_first, shown_io_tail, shown_io_flags,
+        shown_path, shown_path_seen, shown_unique, shown_repeats, shown_repeat_indices,
+        shown_bad, shown_bad_index, shown_bad_word, shown_bad_expected, shown_size, shown_rom,
         shown_save, shown_backup, shown_writes} = shown;
 
 wire sd_failure = shown_guard == 4'd9 && shown_error == 5'd6;
@@ -234,8 +270,10 @@ always @* begin
                          {"FILE: PRE", hex_digit(shown_backup[15:12]), hex_digit(shown_backup[11:8]),
                           hex_digit(shown_backup[7:4]), hex_digit(shown_backup[3:0]), ".sav             "} :
                          "FILE: RESTORE.sav             ";
-        5'd3: line_next = "FIRST TARGET: MBC1 8K         ";
-        5'd4: line_next = "LINK'S AWAKENING (NON-DX)     ";
+        5'd3: line_next = sd_failure ? {"PATH ", path_text(shown_path, shown_path_seen, 0, 25)} :
+                                     "FIRST TARGET: MBC1 8K         ";
+        5'd4: line_next = sd_failure ? {"NAME ", path_text(shown_path, shown_path_seen, 25, 15)} :
+                                     "LINK'S AWAKENING (NON-DX)     ";
         5'd5: line_next = shown_writes ? "CARTRIDGE WRITES ENABLED      " :
                                          "CORE WRITES DISABLED          ";
         5'd7: line_next = status_line(shown_guard, shown_phase, shown_error, shown_writes);
@@ -257,15 +295,25 @@ always @* begin
                           io_error_line : BLANK;
         5'd12: line_next = sd_failure ? io_stage_line(shown_io_stage) :
                           checks_passed ? rom_line : BLANK;
-        5'd13: line_next = sd_failure ? {"PATH WORDS: ", hex_digit({1'b0, shown_io_reads[6:4]}),
-                                         hex_digit(shown_io_reads[3:0]), " HEX            "} :
+        5'd13: line_next = sd_failure ? {"READS ", hex_count(shown_io_reads),
+                                         " UNIQUE ", hex_count(shown_unique),
+                                         " RPT ", hex_count(shown_repeats), "     "} :
                           checks_passed ? save_line : BLANK;
-        5'd14: line_next = sd_failure ? {"P0 ", hex_word(shown_io_first), " P8 ",
-                                        hex_word(shown_io_tail), "       "} :
+        5'd14: line_next = sd_failure ? {"REPEAT ", hex_index(shown_repeat_indices[6:0]), " ",
+                                        hex_index(shown_repeat_indices[13:7]), " ",
+                                        hex_index(shown_repeat_indices[20:14]), " ",
+                                        hex_index(shown_repeat_indices[27:21]), "            "} :
                           checks_passed ? recovery_line : BLANK;
-        5'd15: line_next = sd_failure ? {"FLAGS: ", hex_word(shown_io_flags), "               "} :
+        5'd15: line_next = sd_failure ? {"FLAGS ", hex_word(shown_io_flags),
+                                         " SIZE ", hex_word(shown_size), "  "} :
                           checks_passed ? "RECOVERY FILE VERIFIED        " : BLANK;
-        5'd17: line_next = shown_guard >= 4'd2 ?
+        5'd16: line_next = sd_failure ? (shown_bad ? {"BAD ", hex_index(shown_bad_index),
+                                      " GOT ", hex_word(shown_bad_word), "           "} :
+                                      "NO OBSERVED WORD MISMATCH     ") : BLANK;
+        5'd17: line_next = sd_failure ? (shown_bad ? {"EXP ", hex_word(shown_bad_expected),
+                                                    "                  "} :
+                                      "PATH: ~ NUL  ? UNREAD/NONASCII") :
+                          shown_guard >= 4'd2 ?
                               "RESTORE PAGE STAYS OPEN       " : BLANK;
         5'd18: line_next = shown_guard == 4'd3 || shown_guard == 4'd6 ||
                           shown_guard == 4'd7 || shown_guard == 4'd10 ?
@@ -284,7 +332,7 @@ end
 
 always @(posedge clk) begin
     if (reset) begin
-        shown      <= 212'b0;
+        shown      <= 688'b0;
         dirty      <= 1'b1;
         was_active <= 1'b0;
         painting   <= 1'b0;
