@@ -15,11 +15,39 @@ show progress. Wrong buttons keep the page open; B closes or safely stops it.
 All buttons must be released before normal scan/dump controls can resume.
 The main screen now advertises restore only for supported cartridge geometry.
 
-Focused guard, overlay, normal-screen, and top integration checks pass,
-including nine deliberately broken integration variants. Full regression and
-a new sisko fit are pending. `RESTORE_WRITE_ENABLED` remains zero. The card's
-last verified installation is still `54CB`; no replacement is installed yet.
-Use `docs/SAVE-RESTORE-PLAN.md` for current controls and hardware gates.
+Candidate `b458927`, package `0.9999.b458927`, stamp `B458`, passed all 43
+simulation and structural checks, including nine deliberately broken
+integration variants. Sisko job `la-restore-hold-gates`, through
+`../tools/runner-build`, returned `rc=0` after 447 seconds. Quartus Lite 25.1
+build 1129 reported setup `+0.895 ns`, hold `+0.102 ns`, minimum pulse width
+`+0.827 ns`, 6,456 ALMs and 129 RAM blocks. No timing constraints changed.
+
+The full package was installed on 2026-09-06, flushed, and all 14 files compared
+byte for byte. The existing `RESTORE.sav` and `RESTORE.meta` were not replaced;
+their hashes still match the retained prepared corpus pair. Other saves,
+dumps, and screenshots were untouched. Replaced files are retained under
+ignored `build/restore/deploy-b458927.AEpxhJ/before/`, with deployed files in
+`package/`. The card was left mounted.
+
+Artifacts and logs are retained under ignored `build/restore/candidate-b458927/`.
+ZIP integrity passed, its bitstream matches the separately fetched artifact,
+and its data-slot definition matches committed source.
+
+| Artifact | SHA-256 |
+|---|---|
+| `kroy.CartTools_0.9999.b458927.zip` | `cf1c97b59f472b387f4a9159d646f6db13b4b82933b189ff94878609675c7a85` |
+| `bitstream.rbf_r` | `32bd83e2917348ec628c138896df58390723e6bdd1a9a0fc7aacb2798bce26a6` |
+| `report.txt` | `34f91ef2a4ad11c4460ec9eb0f396ff2b9ec87dd5917c8e98a38ad6f16b64d3a` |
+| `simulation-b458927.log` | `8f49ce8a5cd1cd4d2203221fa048dea5344f4b254d92745f8ea86f10b70ea5b3` |
+
+`RESTORE_WRITE_ENABLED` remains zero. Next is hardware verification of the
+new controls and write-disabled preflight on the original non-DX cartridge.
+Confirm stamp `B458` and `CORE WRITES DISABLED`; use the hold-based flow above.
+Expected completion is `CHECK COMPLETE` / `WRITES DISABLED`. After power-cycle
+and remount, copy the new `PREhhhh.sav` off-card and compare all bytes before
+enabling any save writes. No actual hardware restore is qualified yet.
+Use `docs/SAVE-RESTORE-PLAN.md` for the remaining original/different/original
+restore acceptance sequence.
 
 ## Previous restore preflight candidate, 2026-09-06
 

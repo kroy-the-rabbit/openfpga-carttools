@@ -57,14 +57,13 @@ Awakening. Its retained Batch 6 corpus has ROM CRC32 `8CF27C90` and an 8 KiB
 save with CRC32 `19CCD1B4`. Read `docs/SAVE-RESTORE-PLAN.md` before changing
 the cartridge write gate.
 
-Candidate `54cb159`, stamp `54CB`, is built on sisko and retained locally at
-`build/restore/candidate-54cb159/`. All 43 checks pass; setup is `+0.795 ns`,
-hold `+0.122 ns`. It was installed with the prepared restore pair on
-2026-09-06, flushed, and byte-verified. Hardware feedback rejected its five-tap
-UI, so the controls are being replaced with a latched hold-based page. Focused
-tests pass; full regression and a new sisko fit are pending. Hardware preflight
-is still unverified. `docs/HANDOFF.md` records the previous artifact hashes
-and current status.
+Candidate `b458927`, stamp `B458`, is built on sisko and retained locally at
+`build/restore/candidate-b458927/`. All 43 checks pass; setup is `+0.895 ns`,
+hold `+0.102 ns`. It replaces the `54CB` five-tap UI rejected by hardware
+feedback with a latched hold-based page. It was installed on 2026-09-06,
+flushed, and all 14 package files byte-verified. The prepared restore pair
+was left unchanged. New controls and hardware preflight still need Pocket
+verification. `docs/HANDOFF.md` records artifact hashes and current status.
 The preceding `13fd4c6` package failed timing and must not be installed.
 
 The first candidate keeps `RESTORE_WRITE_ENABLED = 0`. It must prove the
