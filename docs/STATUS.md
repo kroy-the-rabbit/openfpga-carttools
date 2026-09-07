@@ -10,9 +10,12 @@ installed and byte-verified on 2026-09-06. It replaces the `54CB` UI rejected
 by hardware feedback with a three-second Select hold, A for checks/backup,
 then a fresh three-second A hold. Wrong buttons retain the page; exiting
 requires full button release before dumping resumes. The restore input is
-unchanged. Cartridge save writes remain disabled, and the new controls and
-hardware preflight are not yet verified on the Pocket. See
-`docs/SAVE-RESTORE-PLAN.md` for the retained corpus and acceptance gates.
+unchanged. The next hardware screenshot reached `SD FILE OPERATION FAILED`
+with `SD ERROR: 4`; preflight did not pass. The failure's command and cause
+remain unproven. The next candidate adds retained file/stage/path diagnostics
+and a real command-register integration regression. Cartridge save writes
+remain disabled. See `docs/HANDOFF.md` for the copied screenshot and candidate
+status, and `docs/SAVE-RESTORE-PLAN.md` for the hardware acceptance gates.
 
 The rule for this file: nothing moves to **verified** without evidence that
 someone could go and check. For anything touching a cartridge, that evidence

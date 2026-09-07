@@ -3,6 +3,44 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## Restore SD refusal diagnostics, 2026-09-06
+
+Installed `B458` reached the restore stop screen on hardware with
+`SD FILE OPERATION FAILED` / `SD ERROR: 4`. It did not complete preflight.
+The screenshot was copied and hash-verified off-card before analysis:
+`build/hardware/b458927/20260906_194810.png`, SHA-256
+`9c38bc14fc60b3026691a0a10b9411b5262627d3e2a34c813378b8af5f03bc10`.
+Both prepared restore inputs still matched the retained originals at that
+read. Cartridge save writes were compiled out and remain so.
+
+The failed command is not identified by B458's screen. APF error 4 on an
+open-file command means malformed path, but the screen alone does not prove
+which operation failed or why. Do not rename files or change byte order on
+that evidence alone. No root cause has been reproduced yet.
+
+The next candidate adds retained file-operation diagnostics without changing
+the file protocol or write gate: build stamp on the restore page, the actual
+input or recovery filename on SD failure, the last operation stage, observed
+path-response count, path words 0 and 8, and flags. The observer samples the
+held response before `bridge_rd`, matching the existing peripheral contract;
+the hex words use the internal byte-zero-low representation. Trace details
+remain visible after refusal and are hidden when a new attempt starts.
+`docs/SAVE-RESTORE-PLAN.md` explains the expected values and their limits.
+
+The new `check_restore_bridge` runs the actual command registers and file
+service with command/response mux expressions extracted from `core_top`.
+It checks all 264 path-structure bytes in both endian modes, all three file
+operations, refusal propagation, and two deliberately broken mux variants.
+Injected APF refusals test containment, not a reproduction of the firmware
+failure. File-service and UI regressions also check retained trace output.
+
+Build this diagnostic candidate on sisko through `../tools/runner-build` only
+after the full suite passes. Require a timing-clean fit before installing.
+Keep `RESTORE_WRITE_ENABLED=0`. Then repeat the Select hold, release, A check
+and capture the whole result screen. Preserve any new recovery file locally.
+Do not enable save writes until a complete preflight and an independently
+verified recovery backup survive power-cycle and remount.
+
 ## Restore controls revised, 2026-09-06
 
 Hardware feedback on installed `54CB`: the five-tap/button-sequence path
@@ -40,10 +78,10 @@ and its data-slot definition matches committed source.
 | `report.txt` | `34f91ef2a4ad11c4460ec9eb0f396ff2b9ec87dd5917c8e98a38ad6f16b64d3a` |
 | `simulation-b458927.log` | `8f49ce8a5cd1cd4d2203221fa048dea5344f4b254d92745f8ea86f10b70ea5b3` |
 
-`RESTORE_WRITE_ENABLED` remains zero. Next is hardware verification of the
-new controls and write-disabled preflight on the original non-DX cartridge.
-Confirm stamp `B458` and `CORE WRITES DISABLED`; use the hold-based flow above.
-Expected completion is `CHECK COMPLETE` / `WRITES DISABLED`. After power-cycle
+`RESTORE_WRITE_ENABLED` remains zero. The subsequent hardware attempt reached
+an SD error rather than the expected preflight completion; see the diagnostic
+entry above. Expected completion remains `CHECK COMPLETE` / `WRITES DISABLED`.
+After power-cycle
 and remount, copy the new `PREhhhh.sav` off-card and compare all bytes before
 enabling any save writes. No actual hardware restore is qualified yet.
 Use `docs/SAVE-RESTORE-PLAN.md` for the remaining original/different/original

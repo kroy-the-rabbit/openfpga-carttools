@@ -13,6 +13,7 @@ reg [1:0] hold_progress = 2'd0;
 reg [5:0] phase = 6'd0;
 reg [4:0] error = 5'd0;
 reg [3:0] io_error = 4'hD;
+reg [108:0] io_debug = {2'd0, 4'd1, 7'd66, 32'h7373412F, 32'h74656D2E, 32'd0};
 reg [31:0] rom_crc = 32'hA1B2C3D4;
 reg [31:0] save_crc = 32'h87654321;
 reg [15:0] backup_index = 16'h012A;
@@ -31,7 +32,8 @@ integer n;
 ui_restore_screen dut (
     .clk(clk), .reset(reset), .active(active), .guard_state(guard_state),
     .hold_progress(hold_progress),
-    .phase(phase), .error(error), .io_error(io_error), .rom_crc(rom_crc), .save_crc(save_crc),
+    .phase(phase), .error(error), .io_error(io_error), .io_debug(io_debug),
+    .rom_crc(rom_crc), .save_crc(save_crc),
     .backup_index(backup_index), .write_enabled(write_enabled),
     .tb_addr(tb_addr), .tb_char(tb_char), .tb_attr(tb_attr), .tb_we(tb_we)
 );
@@ -252,9 +254,18 @@ initial begin
         expect_row(8, "NO SUCCESS REPORTED           ");
         expect_row(18, "B: CLOSE  HOLD SELECT: RETRY  ");
         expect_nonblank(10);
-        expect_hidden_evidence();
-        if (n == 6) expect_row(11, "SD ERROR: D                   ");
-        else expect_row(11, "                              ");
+        if (n == 6) begin
+            expect_row(1, "BUILD 0000                    ");
+            expect_row(2, "FILE: RESTORE.meta            ");
+            expect_row(11, "SD ERROR: D                   ");
+            expect_row(12, "SD STAGE: OPEN INPUT          ");
+            expect_row(13, "PATH WORDS: 42 HEX            ");
+            expect_row(14, "P0 7373412F P8 74656D2E       ");
+            expect_row(15, "FLAGS: 00000000               ");
+        end else begin
+            expect_hidden_evidence();
+            expect_row(11, "                              ");
+        end
     end
     expect_row(10, "CARTRIDGE WRITER FAILED       ");
     error = 0;
@@ -268,10 +279,23 @@ initial begin
     io_error = 10;
     settle();
     expect_row(11, "SD ERROR: A                   ");
+    io_debug = {2'd2, 4'd7, 7'd66, 32'h7373412F, 32'h7661732E, 32'd2};
+    settle();
+    expect_row(2, "FILE: PRE012A.sav             ");
+    expect_row(12, "SD STAGE: SIZE NEW BACKUP     ");
+    expect_row(14, "P0 7373412F P8 7661732E       ");
+    expect_row(15, "FLAGS: 00000002               ");
+    for (n = 1; n <= 10; n = n + 1) begin
+        io_debug[106:103] = n;
+        settle();
+        expect_nonblank(12);
+    end
     guard_state = 1;
     hold_progress = 0;
     settle();
     expect_row(11, "                              ");
+    expect_row(2, "FILE: RESTORE.sav             ");
+    expect_hidden_evidence();
     guard_state = 3;
     settle();
     expect_row(11, "                              ");

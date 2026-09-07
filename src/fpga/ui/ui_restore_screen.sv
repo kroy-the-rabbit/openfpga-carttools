@@ -16,6 +16,7 @@ module ui_restore_screen (
     input  wire [5:0]  phase,
     input  wire [4:0]  error,
     input  wire [3:0]  io_error,
+    input  wire [108:0] io_debug,
     input  wire [31:0] rom_crc,
     input  wire [31:0] save_crc,
     input  wire [15:0] backup_index,
@@ -30,10 +31,34 @@ localparam integer COLS = 30;
 localparam integer ROWS = 20;
 localparam integer LW = COLS * 8;
 localparam [LW-1:0] BLANK = "                              ";
+`include "build_stamp.vh"
 
 function [7:0] hex_digit(input [3:0] value);
     hex_digit = value < 4'd10 ? 8'h30 + {4'b0, value} :
                                8'h41 + {4'b0, value} - 8'd10;
+endfunction
+
+function [63:0] hex_word(input [31:0] value);
+    hex_word = {hex_digit(value[31:28]), hex_digit(value[27:24]),
+                hex_digit(value[23:20]), hex_digit(value[19:16]),
+                hex_digit(value[15:12]), hex_digit(value[11:8]),
+                hex_digit(value[7:4]), hex_digit(value[3:0])};
+endfunction
+
+function [LW-1:0] io_stage_line(input [3:0] stage);
+    case (stage)
+        1: io_stage_line = "SD STAGE: OPEN INPUT          ";
+        2: io_stage_line = "SD STAGE: CHECK SLOT ID       ";
+        3: io_stage_line = "SD STAGE: CHECK FILE SIZE     ";
+        4: io_stage_line = "SD STAGE: READ INPUT          ";
+        5: io_stage_line = "SD STAGE: PROBE BACKUP NAME   ";
+        6: io_stage_line = "SD STAGE: CREATE BACKUP       ";
+        7: io_stage_line = "SD STAGE: SIZE NEW BACKUP     ";
+        8: io_stage_line = "SD STAGE: WRITE BACKUP        ";
+        9: io_stage_line = "SD STAGE: REOPEN BACKUP       ";
+        10: io_stage_line = "SD STAGE: READ BACKUP         ";
+        default: io_stage_line = "SD STAGE: NOT STARTED         ";
+    endcase
 endfunction
 
 function [LW-1:0] status_line(input [3:0] guard, input [5:0] current_phase,
@@ -141,9 +166,9 @@ function [LW-1:0] error_line(input [4:0] current_error);
     end
 endfunction
 
-wire [102:0] snapshot = {active, guard_state, hold_progress, phase, error, io_error, rom_crc,
+wire [211:0] snapshot = {active, guard_state, hold_progress, phase, error, io_error, io_debug, rom_crc,
                        save_crc, backup_index, write_enabled};
-reg [102:0] shown;
+reg [211:0] shown;
 reg dirty;
 reg was_active;
 wire shown_active;
@@ -152,12 +177,19 @@ wire [1:0] shown_progress;
 wire [5:0] shown_phase;
 wire [4:0] shown_error;
 wire [3:0] shown_io_error;
+wire [1:0] shown_io_op;
+wire [3:0] shown_io_stage;
+wire [6:0] shown_io_reads;
+wire [31:0] shown_io_first, shown_io_tail, shown_io_flags;
 wire [31:0] shown_rom;
 wire [31:0] shown_save;
 wire [15:0] shown_backup;
 wire shown_writes;
-assign {shown_active, shown_guard, shown_progress, shown_phase, shown_error, shown_io_error, shown_rom,
+assign {shown_active, shown_guard, shown_progress, shown_phase, shown_error, shown_io_error,
+        shown_io_op, shown_io_stage, shown_io_reads, shown_io_first, shown_io_tail, shown_io_flags, shown_rom,
         shown_save, shown_backup, shown_writes} = shown;
+
+wire sd_failure = shown_guard == 4'd9 && shown_error == 5'd6;
 
 wire checks_passed = shown_error == 5'd0 &&
                      ((shown_guard == 4'd6 || shown_guard == 4'd7) ||
@@ -194,7 +226,14 @@ always @* begin
     line_next = BLANK;
     case (row_c)
         5'd0: line_next = "CARTRIDGE SAVE RESTORE        ";
-        5'd2: line_next = "FILE: RESTORE.sav             ";
+        5'd1: line_next = {"BUILD ", hex_digit(BUILD_STAMP[15:12]), hex_digit(BUILD_STAMP[11:8]),
+                           hex_digit(BUILD_STAMP[7:4]), hex_digit(BUILD_STAMP[3:0]),
+                           "                    "};
+        5'd2: line_next = sd_failure && shown_io_op == 0 ? "FILE: RESTORE.meta            " :
+                         sd_failure && shown_io_op == 2 ?
+                         {"FILE: PRE", hex_digit(shown_backup[15:12]), hex_digit(shown_backup[11:8]),
+                          hex_digit(shown_backup[7:4]), hex_digit(shown_backup[3:0]), ".sav             "} :
+                         "FILE: RESTORE.sav             ";
         5'd3: line_next = "FIRST TARGET: MBC1 8K         ";
         5'd4: line_next = "LINK'S AWAKENING (NON-DX)     ";
         5'd5: line_next = shown_writes ? "CARTRIDGE WRITES ENABLED      " :
@@ -216,10 +255,16 @@ always @* begin
         end
         5'd11: line_next = shown_guard == 4'd9 && shown_error == 5'd6 ?
                           io_error_line : BLANK;
-        5'd12: line_next = checks_passed ? rom_line : BLANK;
-        5'd13: line_next = checks_passed ? save_line : BLANK;
-        5'd14: line_next = checks_passed ? recovery_line : BLANK;
-        5'd15: line_next = checks_passed ? "RECOVERY FILE VERIFIED        " : BLANK;
+        5'd12: line_next = sd_failure ? io_stage_line(shown_io_stage) :
+                          checks_passed ? rom_line : BLANK;
+        5'd13: line_next = sd_failure ? {"PATH WORDS: ", hex_digit({1'b0, shown_io_reads[6:4]}),
+                                         hex_digit(shown_io_reads[3:0]), " HEX            "} :
+                          checks_passed ? save_line : BLANK;
+        5'd14: line_next = sd_failure ? {"P0 ", hex_word(shown_io_first), " P8 ",
+                                        hex_word(shown_io_tail), "       "} :
+                          checks_passed ? recovery_line : BLANK;
+        5'd15: line_next = sd_failure ? {"FLAGS: ", hex_word(shown_io_flags), "               "} :
+                          checks_passed ? "RECOVERY FILE VERIFIED        " : BLANK;
         5'd17: line_next = shown_guard >= 4'd2 ?
                               "RESTORE PAGE STAYS OPEN       " : BLANK;
         5'd18: line_next = shown_guard == 4'd3 || shown_guard == 4'd6 ||
@@ -239,7 +284,7 @@ end
 
 always @(posedge clk) begin
     if (reset) begin
-        shown      <= 103'b0;
+        shown      <= 212'b0;
         dirty      <= 1'b1;
         was_active <= 1'b0;
         painting   <= 1'b0;

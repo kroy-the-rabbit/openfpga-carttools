@@ -123,6 +123,15 @@ that never fires would make every other testbench weaker than it looks.
 
 ### What each testbench covers
 
+Restore SD diagnostics are covered by `tb_restore_file_io` and
+`tb_ui_restore_screen`. `check_restore_bridge` additionally compiles the real
+file service and APF command-register RTL, with the command and response muxes
+extracted from `core_top`. It checks the complete open structure in both
+endian modes and rejects deliberately wrong pointer/response mux variants.
+Its host model injects the firmware error to test refusal and retained trace
+output; it does not reproduce the B458 hardware failure or emulate firmware's
+path parser.
+
 | | |
 |---|---|
 | `tb_gba_cart_bus` | Inherited from Rai's fork with the module, at the shortened timing parameters. State machine reaches its states, read data comes back, a 32-bit ROM read uses two RD pulses without lifting CS between them, EEPROM chip select is held across serial bits and dropped on a direction change, EEPROM write data settles before WR# falls, no bidirectional pin is driven outside `cart_mode`. |

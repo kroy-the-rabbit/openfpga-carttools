@@ -175,7 +175,8 @@ Expand mapper and save-technology coverage only after this complete cycle.
 
 The first candidate must say `CORE WRITES DISABLED`. A successful complete
 check says `CHECK COMPLETE`, never `RESTORE VERIFIED`. Capture the displayed
-ROM CRC, save CRC, and recovery ID along with the normal screen's build stamp.
+ROM CRC, save CRC, and recovery ID along with the build stamp. The diagnostic
+candidate after B458 displays that stamp on the restore page as well.
 Recovery ID `0000` identifies `Assets/carttools/common/PRE0000.sav`.
 
 For an SD failure, the result screen includes `SD ERROR: x`. Codes `1` through
@@ -194,3 +195,35 @@ The file service adds these hexadecimal diagnostic codes:
 An error may leave a partial new recovery file on SD. Preserve it for analysis;
 the next attempt must choose a new name, not overwrite that file. No error
 authorizes a cartridge save write.
+
+### Retained SD trace after the B458 failure
+
+B458 stopped with SD error `4` before completing checks. For APF open-file
+command `0192`, that code means malformed path, but B458 did not display the
+failed command. The diagnostic candidate does not assume a cause or alter the
+protocol: it identifies the file and last stage on the failure screen.
+The [APF command reference](https://www.analogue.co/developer/docs/host-target-commands)
+defines each command's result codes separately.
+
+Stages distinguish input open, slot-ID check, length check, input read,
+recovery-name probe, create, resize, write, reopen, and recovery readback.
+The trace captures the responses actually held by the file service before
+`bridge_rd`, not just the requested pathname. Values are normalized to the
+service's internal byte-zero-low word representation:
+
+| Field | Expected in the complete simulated open-structure read |
+|---|---|
+| `PATH WORDS` | `42 HEX`, 66 returned words for the 264-byte structure |
+| `P0` | `7373412F`, first four path bytes `/Ass` |
+| `P8`, metadata | `74656D2E`, filename bytes `.met` |
+| `P8`, save or recovery | `7661732E`, filename bytes `.sav` |
+| `FLAGS`, open/probe/reopen | `00000000` |
+| `FLAGS`, create | `00000001` |
+| `FLAGS`, resize new recovery | `00000002` |
+
+The count saturates at `7F`; firmware rereads or a different access pattern
+can change it. These few words are diagnostic clues, not proof of every byte
+in a hardware transfer or proof that firmware accepted the path. Capture the
+entire screen, including stage and filename, before retrying. New attempts
+clear the trace, and SD failure diagnostics do not display the success-only
+ROM/save CRCs or `RECOVERY FILE VERIFIED` message.

@@ -34,6 +34,9 @@ module restore_file_io #(
     output reg [3:0] err,
     output reg poisoned,
     output reg [15:0] backup_index,
+    // Retained evidence: operation, last stage, observed struct response count,
+    // then the first path word, filename-tail word, and flags word.
+    output wire [108:0] debug_status,
 
     input wire [31:0] bridge_addr,
     input wire bridge_rd,
@@ -84,6 +87,11 @@ reg saw_busy;
 reg [31:0] timeout;
 reg [11:0] received_words;
 reg receive_bad;
+reg [3:0] debug_stage;
+reg [6:0] debug_reads;
+reg [31:0] debug_first, debug_tail, debug_flags;
+assign debug_status = {operation, debug_stage, debug_reads,
+                       debug_first, debug_tail, debug_flags};
 
 assign target_dataslot_slotoffset = 32'd0;
 assign target_buffer_param_struct = STRUCT_BASE;
@@ -164,6 +172,7 @@ reg [31:0] struct_q;
 reg select_struct_1, select_struct_2;
 reg [31:0] read_hold;
 reg hit_hold;
+reg [6:0] reply_word_index;
 wire struct_hit = bridge_addr[31:28] == STRUCT_BASE[31:28]
                   && bridge_addr[27:9] == 0 && bridge_addr[8:0] < 264
                   && bridge_addr[1:0] == 0;
@@ -179,6 +188,7 @@ always @(posedge clk) begin
         select_struct_2 <= 0;
         read_hold <= 0;
         hit_hold <= 0;
+        reply_word_index <= 0;
     end else begin
         backup_rd_addr <= bridge_addr[12:2];
         struct_addr <= bridge_addr[8:2];
@@ -188,12 +198,40 @@ always @(posedge clk) begin
         if (bridge_rd) begin
             read_hold <= select_struct_2 ? struct_q : backup_rd_q;
             hit_hold <= struct_hit || backup_hit;
+            reply_word_index <= bridge_addr[8:2];
         end
     end
 end
 
 assign bridge_rd_data = endian_3 ? swap_bytes(read_hold) : read_hold;
 assign bridge_rd_hit = hit_hold;
+
+// Like the working dumper, observe the response held BEFORE bridge_rd.
+// That is the word the peripheral just sampled, not the new request's word.
+// Track its address independently, including across command/window changes.
+reg reply_is_struct;
+always @(posedge clk) begin
+    if (reset) begin
+        reply_is_struct <= 0;
+        debug_reads <= 0;
+        debug_first <= 0;
+        debug_tail <= 0;
+        debug_flags <= 0;
+    end else begin
+        if (bridge_rd) reply_is_struct <= struct_hit;
+        if ((state == ST_IDLE && start) || target_dataslot_openfile) begin
+            debug_reads <= 0;
+            debug_first <= 0;
+            debug_tail <= 0;
+            debug_flags <= 0;
+        end else if (busy && bridge_rd && reply_is_struct) begin
+            if (debug_reads != 127) debug_reads <= debug_reads + 1'b1;
+            if (reply_word_index == 0) debug_first <= read_hold;
+            if (reply_word_index == 8) debug_tail <= read_hold;
+            if (reply_word_index == 64) debug_flags <= read_hold;
+        end
+    end
+end
 
 wire receive_write = bridge_wr && bridge_addr[31:28] == BUF_BASE[31:28]
                      && state == ST_READ_WAIT;
@@ -227,6 +265,7 @@ always @(posedge clk) begin
     if (reset) begin
         state <= ST_IDLE;
         operation <= 0;
+        debug_stage <= 0;
         busy <= 0;
         failed <= 0;
         err <= 0;
@@ -266,6 +305,7 @@ always @(posedge clk) begin
                 failed <= 0;
                 err <= 0;
                 operation <= op;
+                debug_stage <= 0;
                 input_kind <= op;
                 open_flags <= 0;
                 created_owned <= 0;
@@ -278,6 +318,7 @@ always @(posedge clk) begin
                 else state <= op == 2 ? ST_PROBE : ST_OPEN;
             end
             ST_OPEN: begin
+                debug_stage <= operation == 2 ? 4'd9 : 4'd1;
                 open_flags <= 0;
                 check_before_write <= 0;
                 target_dataslot_openfile <= 1;
@@ -298,7 +339,10 @@ always @(posedge clk) begin
                     fail_command(ERR_TIMEOUT);
                 end
             end
-            ST_ID_WAIT: state <= ST_ID_CHECK;
+            ST_ID_WAIT: begin
+                debug_stage <= 2;
+                state <= ST_ID_CHECK;
+            end
             ST_ID_CHECK: begin
                 if (datatable_q != {16'd0, target_dataslot_id}) fail_command(ERR_TABLE);
                 else begin
@@ -306,12 +350,16 @@ always @(posedge clk) begin
                     state <= ST_SIZE_WAIT;
                 end
             end
-            ST_SIZE_WAIT: state <= ST_SIZE_CHECK;
+            ST_SIZE_WAIT: begin
+                debug_stage <= 3;
+                state <= ST_SIZE_CHECK;
+            end
             ST_SIZE_CHECK: begin
                 if (datatable_q != expected_bytes) fail_command(ERR_TABLE);
                 else state <= check_before_write ? ST_WRITE : ST_READ;
             end
             ST_READ: begin
+                debug_stage <= operation == 2 ? 4'd10 : 4'd4;
                 target_dataslot_bridgeaddr <= BUF_BASE;
                 target_dataslot_length <= expected_bytes;
                 target_dataslot_read <= 1;
@@ -335,6 +383,7 @@ always @(posedge clk) begin
                 end
             end
             ST_PROBE: begin
+                debug_stage <= 5;
                 open_flags <= 0;
                 target_dataslot_openfile <= 1;
                 begin_wait();
@@ -358,6 +407,7 @@ always @(posedge clk) begin
                 end
             end
             ST_CREATE: begin
+                debug_stage <= 6;
                 open_flags <= 1;
                 target_dataslot_openfile <= 1;
                 begin_wait();
@@ -381,6 +431,7 @@ always @(posedge clk) begin
                 end
             end
             ST_RESIZE: begin
+                debug_stage <= 7;
                 // Only the exact name just proven newly created may be
                 // preallocated. Never combine create+resize: result 0 from
                 // that combined command would already have truncated an
@@ -409,6 +460,7 @@ always @(posedge clk) begin
                 end
             end
             ST_WRITE: begin
+                debug_stage <= 8;
                 if (!created_owned) fail_command(ERR_CREATE_RACE);
                 else begin
                     target_dataslot_bridgeaddr <= BACKUP_BASE;

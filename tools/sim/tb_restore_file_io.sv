@@ -10,6 +10,12 @@ reg [1:0] op = 0;
 wire busy, done, failed, poisoned;
 wire [3:0] err;
 wire [15:0] backup_index;
+wire [108:0] debug_status;
+wire [1:0] debug_op;
+wire [3:0] debug_stage;
+wire [6:0] debug_reads;
+wire [31:0] debug_first, debug_tail, debug_flags;
+assign {debug_op, debug_stage, debug_reads, debug_first, debug_tail, debug_flags} = debug_status;
 reg [31:0] bridge_addr = 0, bridge_wr_data = 0;
 reg bridge_rd = 0, bridge_wr = 0, bridge_endian_little = 0;
 wire [31:0] bridge_rd_data;
@@ -32,6 +38,7 @@ restore_file_io #(.TIMEOUT_CYCLES(30000)) dut (
     .clk(clk), .reset(reset), .start(start), .op(op),
     .busy(busy), .done(done), .failed(failed), .err(err),
     .poisoned(poisoned), .backup_index(backup_index),
+    .debug_status(debug_status),
     .bridge_addr(bridge_addr), .bridge_rd(bridge_rd), .bridge_wr(bridge_wr),
     .bridge_wr_data(bridge_wr_data), .bridge_endian_little(bridge_endian_little),
     .bridge_rd_data(bridge_rd_data), .bridge_rd_hit(bridge_rd_hit),
@@ -157,6 +164,11 @@ task automatic check_open_struct(output integer flags, output integer name);
         end
         for (j = expected_length; j < 256; j = j + 1)
             check(structure[j] == 0, "path termination and zero padding");
+        check(debug_reads == 66, "trace counted responses including the final delayed word");
+        check(debug_first === 32'h7373412F, "trace observed first delivered path word");
+        check(debug_tail === (t_id == 21 ? 32'h74656D2E : 32'h7661732E),
+              "trace observed filename tail rather than the requested next word");
+        check(debug_flags === flags, "trace observed actual flag response");
     end
 endtask
 
@@ -376,6 +388,18 @@ initial begin
     open_error = 1;
     run(0);
     check(failed && err == 1 && n_read == 0, "created result on input is refused");
+    for (i = 0; i < 3; i = i + 1) begin
+        fresh();
+        open_error = 4;
+        run(i);
+        check(failed && err == 4 && n_read == 0 && n_write == 0,
+              "malformed path refuses all input and recovery operations");
+        check(debug_op == i && debug_stage == (i == 2 ? 5 : 1),
+              "failure retains the exact operation and failed open stage");
+        repeat (5) @(negedge clk);
+        check(debug_reads == 66 && debug_first == 32'h7373412F,
+              "failure trace survives return to idle");
+    end
     fresh();
     short_words = 1;
     run(1);
