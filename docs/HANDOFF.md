@@ -34,8 +34,28 @@ operations, refusal propagation, and two deliberately broken mux variants.
 Injected APF refusals test containment, not a reproduction of the firmware
 failure. File-service and UI regressions also check retained trace output.
 
-Build this diagnostic candidate on sisko through `../tools/runner-build` only
-after the full suite passes. Require a timing-clean fit before installing.
+Exact diagnostic source is `2bdad36f6b68fd6c19778dd32e2d674ea2188a08`, stamp
+`2BDA`. All 44 simulation and structural checks passed. The retained log is
+`build/restore/simulation-2bdad36.log`, SHA-256
+`3f45a9955bcd536b9471f747f3c097a8d2765314ddf7bf6645eb49259e7cac3b`.
+
+The first sisko start attempt was refused before launch because its lock was
+held by `pocket-gba` job `p5cart-seq20-s1` at `85bb71a90452`. That is the
+sibling's new 20/6 sequential timing build, not this restore candidate. The
+user then approved kira; the same exact-source job is now submitted there.
+No restore fit or deployment has completed yet. B458 remained on the card at
+the last hash check, with the prepared input pair unchanged.
+
+Start or retry through the orchestrator utility when the chosen runner is
+available. Use the exact source commit, not a later documentation-only HEAD:
+
+```sh
+../tools/runner-build start kira pocket-cartridge cart la-restore-sd-trace 2bdad36
+../tools/runner-build job kira pocket-cartridge cart la-restore-sd-trace 2bdad36
+../tools/runner-build fetch kira pocket-cartridge cart la-restore-sd-trace 2bdad36
+```
+
+Require a timing-clean fit before installing.
 Keep `RESTORE_WRITE_ENABLED=0`. Then repeat the Select hold, release, A check
 and capture the whole result screen. Preserve any new recovery file locally.
 Do not enable save writes until a complete preflight and an independently

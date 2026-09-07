@@ -13,8 +13,11 @@ requires full button release before dumping resumes. The restore input is
 unchanged. The next hardware screenshot reached `SD FILE OPERATION FAILED`
 with `SD ERROR: 4`; preflight did not pass. The failure's command and cause
 remain unproven. The next candidate adds retained file/stage/path diagnostics
-and a real command-register integration regression. Cartridge save writes
-remain disabled. See `docs/HANDOFF.md` for the copied screenshot and candidate
+and a real command-register integration regression. Exact source `2bdad36`
+passed all 44 checks; its first fit request was refused by sisko's busy lock.
+The user approved kira, where the same candidate is now submitted. It has not
+completed a fit or been installed. Cartridge save writes remain disabled.
+See `docs/HANDOFF.md` for the copied screenshot and candidate
 status, and `docs/SAVE-RESTORE-PLAN.md` for the hardware acceptance gates.
 
 The rule for this file: nothing moves to **verified** without evidence that
