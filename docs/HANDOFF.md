@@ -3,6 +3,116 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## Paused for tomorrow, 2026-09-06 local time
+
+The user explicitly stopped work. Resume from this section, not the older
+"next screenshot" instructions below. No new test, source change, build, or
+card deployment was started during the investigation after the latest
+screenshot. The only new changes at this stop are documentation. Do not
+automatically resume work until asked.
+
+### Current position
+
+- Branch: `save-restore-la`. Installed source:
+  `05af4a96598975de3579136ed2654323afc8c76c`, package `0.9999.05af4a9`,
+  on-screen stamp `05AF`. Later commits are documentation only.
+- All 44 checks passed. Kira completed the exact-source fit with setup
+  `+0.664 ns`, hold `+0.123 ns`, and pulse width `+0.827 ns`. Full package
+  installation was byte-verified. Detailed artifacts and hashes follow below.
+- Hardware preflight still fails at the first metadata open. No metadata
+  content read, staged save read, recovery creation, or cartridge save write
+  was reached. This is not a working restore yet.
+- `RESTORE_WRITE_ENABLED=1'b0` in `src/fpga/core/core_top.sv`. Keep it zero.
+  Preserve the prepared inputs in `build/restore/la-nondx/` and the original
+  non-DX Link's Awakening Batch 6 corpus in `build/evidence/batch-6/`.
+- The card was last observed mounted after screenshot capture. No unmount
+  command was issued. The user specifically requested that it stay mounted
+  after writing. Recheck the mount on resume, since it can disappear at any
+  time. Copy new evidence to ignored local storage before analysis.
+
+### Latest hardware evidence
+
+`build/hardware/05af4a9/20260906_213648.png` was copied from the card and
+SHA-256 compared before inspection:
+`506d2a456133d9c8af5c7cecfa129729831fd2661c76e5528e489e63f6ffcd4f`.
+An ignored text transcription is retained beside it. The important fields:
+
+```text
+BUILD 05AF
+FILE: RESTORE.meta
+PATH /Assets/carttools/common/
+NAME RESTORE.meta~~~
+CORE WRITES DISABLED
+SD ERROR: 4
+SD STAGE: OPEN INPUT
+READS 46 UNIQUE 42 RPT 04
+REPEAT 40 40 41 41
+FLAGS 00000000 SIZE 00000000
+NO OBSERVED WORD MISMATCH
+```
+
+Numbers are hexadecimal. The trace has 70 observations, all 66 unique
+structure indices, and four repeats. Flags at index 64 and size at index 65
+were each observed three times. The complete visible path and three NUL
+bytes match the expected metadata path. This is NOT the simulated 16-word
+chunk pattern, whose repeat indices are `10 20 30 40`.
+
+The observation is at the selected FPGA bridge response before `bridge_rd`.
+It does not show which responses firmware retained versus discarded during
+pipeline priming. Thus, no mismatch does not establish that the firmware's
+path buffer contains those same bytes. Neither a firmware defect nor a
+remaining core pipeline defect has been demonstrated.
+
+### First work on resume
+
+1. Extend `tools/sim/restore_bridge_model.sv` and
+   `tools/sim/check_restore_bridge.py` with separate 256-byte path reads and
+   scalar flag/size accesses that reproduce repeats `40 40 41 41`. Exercise
+   both endian modes through the actual SPI peripheral, including command
+   register transitions. Existing tests prime each modeled burst correctly;
+   they do not reproduce the latest access pattern.
+2. Track the host's retained byte buffer separately from FPGA observations.
+   Test deliberate stale-first-word/incorrect-prime consumption as negative
+   controls. It is a hypothesis that a shifted retained buffer can coexist
+   with this complete, mismatch-free trace. That hypothesis has NOT yet been
+   implemented or tested. Do not report it as the reproduced hardware cause.
+3. Consider verifying the existing fixed input slots instead of reopening
+   them. `RESTORE.meta` and `RESTORE.sav` are already declared as read-only,
+   deferred-load slots 21 and 22. APF documents direct target reads from such
+   slots and `0190` to retrieve their associated filenames. This is an
+   alternative under consideration, not an implemented fix or approval to
+   remove identity checks. If adopted, validate the returned canonical path,
+   exact slot ID and size, complete ordered transfer, and existing metadata,
+   ROM and save checks before accepting anything. Missing/mismatched inputs
+   must fail closed. Recovery still needs collision-safe `0192` creation,
+   resize, write, reopen and independent readback; none may be bypassed.
+4. Update the handoff with what the new tests actually prove before choosing
+   another hardware change. Avoid another diagnostic fit without a specific
+   discriminating question. Any candidate still needs full regressions,
+   timing approval, retained artifacts, and guarded full-package deployment.
+
+Relevant implementation: `src/fpga/services/restore/restore_file_io.sv`,
+`src/fpga/core/core_top.sv`, and `src/fpga/ui/ui_restore_screen.sv`.
+`tools/sim/tb_restore_file_io.sv` covers file-service error containment.
+The working dumper's held bridge response and existing `0190` capture are in
+`src/fpga/services/dump/dump_engine.sv`. Preserve the established asymmetric
+byte order: outbound byte zero is low, incoming APF byte arrays put it high
+after the conditional bridge swap is undone. Do not free-run the response
+output; that caused the historical one-word path shift.
+
+Official references rechecked during the paused investigation:
+[APF commands](https://www.analogue.co/developer/docs/host-target-commands)
+and [data slots](https://www.analogue.co/developer/docs/core-definition-files/data-json).
+The current absolute path is consistent with the declared `carttools`
+platform. Parameter bit 3 is read-only, and extensions may have up to seven
+characters, so `.meta` being four characters is not a documented violation.
+Do not rename inputs or weaken the read-only settings based on speculation.
+
+Use `../tools/runner-build` for every fit, with a committed exact source.
+Kira is the most recently requested runner. Do not interfere with the
+sibling GBA work. Container tests must run outside the process sandbox to
+avoid the known AVC transition denial; see `RUNNERS.local.md`.
+
 ## Restore SD refusal diagnostics, 2026-09-06
 
 The subsequent `2BDA` screenshot identifies the failure as metadata input
@@ -61,14 +171,13 @@ both prepared inputs still matched their recorded hashes. The complete
 restore inputs remain unchanged; no ROMs, saves, or screenshots were removed.
 Replaced files are retained under
 `build/restore/deploy-05af4a9.R04WMw/before/`, alongside the exact deployed
-files in `package/`. The card remains mounted as requested.
+files in `package/`. The installer left the card mounted as requested.
 
-Next hardware step: confirm `05AF`, hold Select three seconds, release,
-press/release A for checks, and capture the entire result screen. Keep
-cartridge save writes compiled out. A matching complete path and no observed
-word mismatch would narrow the investigation toward firmware path acceptance
-or its dataslot contract, not prove either one faulty. Preserve any new
-recovery file locally. No malformed-path fix or hardware restore is claimed.
+That hardware check is now complete: `05AF` still reports metadata-open
+error `4`, with the full path trace recorded in the pause section above.
+Do not ask for the same screenshot again as if it were pending. Cartridge
+save writes stay compiled out. No malformed-path fix or hardware restore is
+claimed, and any new recovery file must still be preserved locally.
 
 ### Retained 2BDA deployment record
 

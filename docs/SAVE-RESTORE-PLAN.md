@@ -253,6 +253,14 @@ reports `READS 46 UNIQUE 42 RPT 04`, repeats `10 20 30 40`, and no mismatch.
 The observed metadata filename should render `RESTORE.meta~~~`; all three
 trailing bytes are NUL. Recovery create and resize request size `00002000`.
 
+The subsequent `05AF` hardware screenshot has the same counts, but repeats
+`40 40 41 41`: flags and size each observed three times. It shows the correct
+complete metadata path, NULs, zero flags and size, and no word mismatch, yet
+still fails at metadata open with error `4`. It is not a preflight pass.
+The simulation has not yet reproduced this access pattern or established
+which returned words firmware consumes at the bulk/scalar read boundaries.
+See the paused-work section in `docs/HANDOFF.md` before another candidate.
+
 The observer checks every returned structure word, including padding, against
 the file service's generator and captures the selected top-level response.
 Its first 40 bytes cover all current paths and terminators, not arbitrary

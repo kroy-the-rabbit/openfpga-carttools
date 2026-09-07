@@ -17,8 +17,18 @@ Expanded simulation through the actual SPI peripheral reproduces that count
 with chunked reads and a correct complete path. The count alone therefore
 does not explain the refusal. `05AF` adds the complete observed path,
 duplicate indices, flags, size, and a retained first-word mismatch.
-Hardware verification of this diagnostic build is next; no malformed-path
-fix or cartridge restore is claimed.
+Its hardware screenshot still reports metadata-open error `4`. The complete
+path and termination are correct in the FPGA trace, all 66 unique words were
+observed, and no mismatch was detected. Repeats are `40 40 41 41`, not the
+simulated chunk pattern. The trace does not establish which responses
+firmware retained in its path buffer. No malformed-path fix or cartridge
+restore is claimed.
+
+Work is paused at the user's request on 2026-09-06 local time. No new source
+change, test run, or fit followed that screenshot. `docs/HANDOFF.md` records
+the next read-boundary tests and the unimplemented option of validating and
+reading the already assigned fixed input slots. Keep save writes disabled
+and do not automatically resume until asked.
 
 Controls remain a three-second Select hold, release, A for checks/backup,
 then a fresh three-second A hold after preflight passes. Wrong buttons retain
