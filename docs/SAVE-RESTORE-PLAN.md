@@ -237,7 +237,7 @@ and re-priming, while delivering all 264 bytes correctly. This demonstrates
 why the response count alone cannot diagnose malformed data; it does not
 prove that Pocket firmware uses this chunk pattern.
 
-The next diagnostic screen includes the complete observed 40-byte path and
+The `05AF` diagnostic screen includes the complete observed 40-byte path and
 additional fields, all numbers hexadecimal:
 
 | Field | Interpretation |

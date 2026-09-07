@@ -22,7 +22,7 @@ The extra four observations alone are therefore not evidence of corruption.
 Chunking is a compatible hypothesis, not a capture of Pocket firmware's
 actual read order. Injected error 4 still tests refusal handling only.
 
-The next diagnostic revision changes no file protocol or write gate. It
+The installed diagnostic revision changes no file protocol or write gate. It
 captures all 40 path bytes, unique and repeated word counts, the first four
 repeated indices, flags, size, and the first mismatched response with its
 expected value. It taps the selected top response, not just the file
@@ -30,19 +30,45 @@ service's output. The mismatch remains latched after a subsequent clean
 reread. The UI renders the complete path, NULs, and unread/non-ASCII bytes.
 Both complete-path checks and deliberately corrupted-response tests cover
 this instrumentation. Source is `05af4a96598975de3579136ed2654323afc8c76c`,
-stamp `05AF`. Focused file-service, UI, bridge, and top-integration tests
-passed. The full suite is running with its log retained at
-`build/restore/simulation-05af4a9.log`; the exact-source kira fit is running
-alongside it. Neither result has been claimed complete yet.
+stamp `05AF`. All 44 simulation and structural checks passed. The retained
+log is `build/restore/simulation-05af4a9.log`, also copied into
+`build/restore/candidate-05af4a9/`, SHA-256
+`155a177b4aa250c1a668342c8400a9bd6e3da6accf8e6a4ea1732b87cacfcb91`.
+The exact-source kira fit completed with `rc=0` in 957 seconds using Quartus
+Lite 25.1 build 1129. Setup `+0.664 ns`, hold `+0.123 ns`, minimum pulse
+width `+0.827 ns`; 7,944 ALMs and 129 RAM blocks. No timing constraints changed.
 
 ```sh
 ../tools/runner-build job kira pocket-cartridge cart la-restore-full-path 05af4a9
 ../tools/runner-build fetch kira pocket-cartridge cart la-restore-full-path 05af4a9
 ```
 
-The deployment below is the still-installed `2BDA` baseline, not this new
-revision. Keep it and all preceding evidence until the next candidate passes
-simulation and timing. No malformed-path fix or hardware restore is claimed.
+Artifacts are retained under ignored `build/restore/candidate-05af4a9/`,
+including ZIP, bitstream, report, build log, simulation log, and extracted
+package. ZIP integrity passed, the packaged bitstream matches the fetched
+one, and packaged `data.json` matches committed source.
+
+| Artifact | SHA-256 |
+|---|---|
+| `kroy.CartTools_0.9999.05af4a9.zip` | `ee9e95a597a64841123bc45558c372dfce755d317c729f12094b6b6eba0359fb` |
+| `bitstream.rbf_r` | `9890f45be68d08515e31a319073e198a5b11e190b0f17fe41b53f6bfff3c8d30` |
+| `report.txt` | `af7d78e41d65b50c7469029f186def73bdd5b45156ef0ab50f6d04b90d722c44` |
+
+Installed on 2026-09-06 local time as `0.9999.05af4a9`, stamp `05AF`.
+The card was remounted during the build. Before installation, `2BDA` and
+both prepared inputs still matched their recorded hashes. The complete
+14-file package was merged, flushed, and compared byte for byte. Both
+restore inputs remain unchanged; no ROMs, saves, or screenshots were removed.
+Replaced files are retained under
+`build/restore/deploy-05af4a9.R04WMw/before/`, alongside the exact deployed
+files in `package/`. The card remains mounted as requested.
+
+Next hardware step: confirm `05AF`, hold Select three seconds, release,
+press/release A for checks, and capture the entire result screen. Keep
+cartridge save writes compiled out. A matching complete path and no observed
+word mismatch would narrow the investigation toward firmware path acceptance
+or its dataslot contract, not prove either one faulty. Preserve any new
+recovery file locally. No malformed-path fix or hardware restore is claimed.
 
 ### Retained 2BDA deployment record
 

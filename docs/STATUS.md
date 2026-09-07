@@ -4,30 +4,25 @@ What is actually true right now, as opposed to what is written. The plan in
 `plan.md` says where this is going; this file says where it is.
 
 Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
-Development is on `save-restore-la`. Candidate `b458927` (stamp `B458`) passed
-all 43 checks and sisko timing: setup `+0.895 ns`, hold `+0.102 ns`. It was
-installed and byte-verified on 2026-09-06. It replaces the `54CB` UI rejected
-by hardware feedback with a three-second Select hold, A for checks/backup,
-then a fresh three-second A hold. Wrong buttons retain the page; exiting
-requires full button release before dumping resumes. The restore input is
-unchanged. The next hardware screenshot reached `SD FILE OPERATION FAILED`
-with `SD ERROR: 4`; preflight did not pass. The failure's command and cause
-remain unproven. The next candidate adds retained file/stage/path diagnostics
-and a real command-register integration regression. Exact source `2bdad36`
-passed all 44 checks; its first fit request was refused by sisko's busy lock.
-The user approved kira, where it passed timing: setup `+0.556 ns`, hold
-`+0.065 ns`. The full package is installed and all 14 files byte-verified,
-stamp `2BDA`; the original restore inputs and corpus remain unchanged. This
-is a diagnostic candidate, not a proven fix for error 4. Its hardware
-screenshot identifies metadata input open as the failing stage, with 70
-observed responses and the displayed path words correct. Expanded simulation
-through the actual SPI peripheral reproduces that count with chunked reads
-and a correct complete path, so the count alone does not explain the refusal.
-The next revision adds the complete observed path, duplicate indices, and a
-retained first-word mismatch. Exact source `05af4a9`, stamp `05AF`, passed
-focused tests. Its full suite and kira fit are running; installation awaits
-both results.
-Cartridge save writes remain disabled.
+Development is on `save-restore-la`. Installed diagnostic source `05af4a9`,
+stamp `05AF`, passed all 44 simulation and structural checks and kira timing:
+setup `+0.664 ns`, hold `+0.123 ns`. The full 14-file package was installed
+and byte-verified on 2026-09-06 local time. Restore inputs and corpus are
+unchanged. Replaced files and all build evidence are retained locally, and
+the card was left mounted as requested. Cartridge save writes remain disabled.
+
+The previous `2BDA` screenshot localized APF error `4` to metadata input
+open, with 70 observed responses and its two displayed path words correct.
+Expanded simulation through the actual SPI peripheral reproduces that count
+with chunked reads and a correct complete path. The count alone therefore
+does not explain the refusal. `05AF` adds the complete observed path,
+duplicate indices, flags, size, and a retained first-word mismatch.
+Hardware verification of this diagnostic build is next; no malformed-path
+fix or cartridge restore is claimed.
+
+Controls remain a three-second Select hold, release, A for checks/backup,
+then a fresh three-second A hold after preflight passes. Wrong buttons retain
+the page; exiting requires full button release before dumping resumes.
 See `docs/HANDOFF.md` for the copied screenshot, retained artifacts, and candidate
 status, and `docs/SAVE-RESTORE-PLAN.md` for the hardware acceptance gates.
 
