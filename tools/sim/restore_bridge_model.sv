@@ -5,7 +5,9 @@ module tb_restore_bridge #(
     parameter integer CHUNK_WORDS = 66,
     parameter integer USE_SPI = 0,
     parameter integer INJECT_WORD = 0,
-    parameter integer SPLIT_FIELDS = 0
+    parameter integer SPLIT_FIELDS = 0,
+    parameter integer RECOVERY_SUCCESS = 0,
+    parameter integer BAD_PATH_ORDER = 0
 );
 localparam integer EXPECTED_REPEATS = SPLIT_FIELDS ? 4 : 65 / CHUNK_WORDS;
 reg clk = 0;
@@ -40,7 +42,7 @@ wire [31:0] bridge_rd_data, cmd_bridge_rd_data, restore_bridge_rd_data;
 reg inject_active = 0;
 wire [31:0] injected_response = restore_bridge_rd_data ^
     ((inject_active && files.reply_word_index == 5) ?
-     (bridge_endian_little ? 32'h01000000 : 32'h00000001) : 32'd0);
+     (bridge_endian_little ? 32'h00000001 : 32'h01000000) : 32'd0);
 wire restore_bridge_rd_hit, restore_io_busy, done, failed;
 wire [3:0] err;
 wire [108:0] debug_status;
@@ -68,8 +70,18 @@ integer input_count = 0;
 function [31:0] payload_word(input integer index);
     payload_word = 32'h873421AD ^ (index * 32'h05130711);
 endfunction
+function [31:0] backup_word(input integer index);
+    backup_word = 32'h4937A2E8 ^ (index * 32'h03210517);
+endfunction
+wire [10:0] backup_rd_addr;
+reg [31:0] backup_q1, backup_q;
+always @(posedge clk) begin
+    backup_q1 <= backup_word(backup_rd_addr);
+    backup_q <= backup_q1;
+end
 always @(posedge clk) if (input_we) begin
-    if (input_index != input_count || input_data !== payload_word(input_count))
+    if (input_index != input_count || input_data !==
+        (op == 2 ? backup_word(input_count) : payload_word(input_count)))
         $fatal(1, "real bridge input payload arrived in wrong byte order or sequence");
     input_count = input_count + 1;
 end
@@ -84,8 +96,15 @@ wire d_target_write = 0, d_target_open = 0, d_target_get = 0, d_target_flush = 0
 wire [15:0] d_target_id = 20;
 wire [31:0] d_target_offset = 32'hCAFE, d_target_bridge = 32'h60000000;
 wire [31:0] d_target_length = 32'h8000, d_target_struct = 32'h70000000;
-wire [31:0] d_target_response = 32'h80000000, dump_bridge_rd_data = 32'hBAD0BAD0;
-wire dump_bridge_rd_hit = 0;
+wire [31:0] d_target_response = 32'h80000000;
+reg [31:0] dump_bridge_rd_data = 32'hBAD0BAD0;
+reg dump_bridge_rd_hit = 0;
+// An idle but electrically live dumper retains its previous read response.
+// Seed this window between operations to exercise the real held-hit mux.
+always @(posedge clk) if (bridge_rd) begin
+    dump_bridge_rd_hit <= bridge_addr[31:28] == 6 || bridge_addr[31:28] == 7;
+    dump_bridge_rd_data <= 32'hBAD0BAD0 ^ bridge_addr;
+end
 integer completions = 0;
 always @(posedge clk) if (done) completions = completions + 1;
 // TOP_MUX
@@ -97,7 +116,8 @@ restore_file_io #(.TIMEOUT_CYCLES(1000000)) files (
     .bridge_addr(bridge_addr), .bridge_rd(bridge_rd), .bridge_wr(bridge_wr),
     .bridge_wr_data(bridge_wr_data), .bridge_endian_little(bridge_endian_little),
     .bridge_rd_data(restore_bridge_rd_data), .bridge_rd_hit(restore_bridge_rd_hit),
-    .backup_rd_q(32'h12345678), .datatable_addr(table_address), .datatable_q(table_data),
+    .backup_rd_addr(backup_rd_addr), .backup_rd_q(backup_q),
+    .datatable_addr(table_address), .datatable_q(table_data),
     .target_dataslot_read(r_target_read), .target_dataslot_write(r_target_write),
     .target_dataslot_openfile(r_target_open), .target_dataslot_id(r_target_id),
     .target_dataslot_getfile(r_target_get), .target_buffer_resp_struct(r_target_response),
@@ -212,6 +232,7 @@ reg [7:0] expected;
 string expected_path;
 integer endian_mode, operation, w, b, polls, before_completion;
 integer chunk, chunk_end;
+reg path_bad;
 task await_command(input [31:0] wanted);
     begin
         polls = 0;
@@ -270,6 +291,105 @@ task fixed_input;
         end
     end
 endtask
+
+reg [31:0] recovery_disk [0:2047];
+integer recovery_opens, recovery_writes, recovery_reads;
+task recovery_open(input [31:0] wanted_flags, input [31:0] wanted_size,
+                   input [15:0] result_code);
+    integer word_index, byte_index;
+    reg [31:0] structure_pointer, response, expected_word, discarded;
+    begin
+        await_command(32'h636D0192);
+        recovery_opens = recovery_opens + 1;
+        register_read(32'hF8001024, structure_pointer);
+        if (structure_pointer != 32'h90000000)
+            $fatal(1, "recovery open selected wrong struct pointer");
+        host_write(32'hF8001000, 32'h62750000);
+        host_read(structure_pointer, response);
+        for (word_index = 0; word_index < 66; word_index = word_index + 1) begin
+            if (SPLIT_FIELDS && word_index >= 64) begin
+                // Scalars are separate repeated reads, matching the probe
+                // trace. Keep the second response, after priming this field.
+                host_read(structure_pointer + 4*word_index, discarded);
+                host_read(structure_pointer + 4*word_index, response);
+                host_read(structure_pointer + 4*word_index, discarded);
+            end else begin
+                // Flush the path's last word while returning to commands,
+                // before issuing the independently primed scalar reads.
+                host_read(SPLIT_FIELDS && word_index == 63 ? 32'hF8001000 :
+                          structure_pointer + 4*(word_index+1), response);
+            end
+            expected_word = 0;
+            if (word_index < 64) begin
+                for (byte_index = 0; byte_index < 4; byte_index = byte_index + 1)
+                    if (word_index*4+byte_index < expected_path.len())
+                        expected_word[31-byte_index*8 -: 8] = expected_path[word_index*4+byte_index];
+            end else if (word_index == 64) expected_word = wanted_flags;
+            else expected_word = wanted_size;
+            if (response !== expected_word)
+                $fatal(1, "recovery structure word %0d expected %08x got %08x",
+                       word_index, expected_word, response);
+        end
+        if (SPLIT_FIELDS) host_read(32'hF8001000, discarded);
+        // APF publishes slot identity and exact resulting length. A newly
+        // created file remains empty until a separately checked resize.
+        host_write(32'hF8002020, 32'd23);
+        host_write(32'hF8002024, result_code == 1 ? 32'd0 : 32'd8192);
+        host_write(32'hF8001000, 32'h6F6B0000 | result_code);
+    end
+endtask
+
+task recovery_success;
+    integer word_index;
+    reg [31:0] transfer_pointer, response;
+    begin
+        recovery_opens = 1; // The validated, absent-name probe above.
+        recovery_writes = 0;
+        recovery_reads = 0;
+        host_write(32'hF8001000, 32'h6F6B0003);
+        recovery_open(32'd1, 32'd8192, 16'd1);
+        recovery_open(32'd2, 32'd8192, 16'd0);
+        await_command(32'h636D0184);
+        recovery_writes = recovery_writes + 1;
+        register_read(32'hF8001024, response);
+        if (response != 0) $fatal(1, "recovery write used nonzero file offset");
+        register_read(32'hF8001028, transfer_pointer);
+        if (transfer_pointer != 32'hA0000000) $fatal(1, "recovery write used wrong buffer");
+        register_read(32'hF800102C, response);
+        if (response != 8192) $fatal(1, "recovery write used wrong exact length");
+        host_write(32'hF8001000, 32'h62750000);
+        host_read(transfer_pointer, response);
+        for (word_index = 0; word_index < 2048; word_index = word_index + 1) begin
+            host_read(transfer_pointer + 4*(word_index+1), response);
+            // Outbound file bytes are intentionally not path-string bytes.
+            // Byte zero remains low-first for the 0184 save payload.
+            if (response !== backup_word(word_index))
+                $fatal(1, "recovery payload word %0d expected %08x got %08x",
+                       word_index, backup_word(word_index), response);
+            recovery_disk[word_index] = response;
+        end
+        host_write(32'hF8001000, 32'h6F6B0000);
+        recovery_open(32'd0, 32'd0, 16'd0);
+        await_command(32'h636D0180);
+        recovery_reads = recovery_reads + 1;
+        register_read(32'hF8001024, response);
+        if (response != 0) $fatal(1, "recovery reread used nonzero file offset");
+        register_read(32'hF8001028, transfer_pointer);
+        if (transfer_pointer != 32'hB0000000) $fatal(1, "recovery reread used wrong buffer");
+        register_read(32'hF800102C, response);
+        if (response != 8192) $fatal(1, "recovery reread used wrong exact length");
+        input_count = 0;
+        host_write(32'hF8001000, 32'h62750000);
+        for (word_index = 0; word_index < 2048; word_index = word_index + 1)
+            host_write(transfer_pointer + 4*word_index, swap(recovery_disk[word_index]));
+        host_write(32'hF8001000, 32'h6F6B0000);
+        polls = 0;
+        while (completions == before_completion && polls < 20) begin tick(1); polls = polls + 1; end
+        if (completions != before_completion + 1 || failed || err || restore_io_busy ||
+            input_count != 2048 || recovery_opens != 4 || recovery_writes != 1 || recovery_reads != 1)
+            $fatal(1, "full recovery command/SPI round trip did not complete");
+    end
+endtask
 initial begin
     // Cyclone registers without explicit initializers power up at zero.
     // Model only that startup here, not a runtime reset or a command response.
@@ -287,6 +407,8 @@ initial begin
         bridge_endian_little = endian_mode;
         tick(8);
         for (operation = 0; operation < 3; operation = operation + 1) begin
+            host_read(32'h70000000, ignored_word);
+            if (!dump_bridge_rd_hit) $fatal(1, "dumper held-response precondition missing");
             inject_active = INJECT_WORD;
             op = operation;
             before_completion = completions;
@@ -320,15 +442,15 @@ initial begin
                 // a hypothesis: the screenshot records response counts only.
                 host_read(pointer, prime_word);
                 for (b = 0; b < 4; b = b + 1)
-                    stale_path[b] = prime_word[b*8 +: 8];
+                    stale_path[b] = prime_word[31-b*8 -: 8];
                 for (w = 0; w < 64; w = w + 1) begin
                     // Flush the last path word while returning to commands.
                     host_read(w == 63 ? 32'hF8001000 : pointer + 4*(w+1), value);
                     for (b = 0; b < 4; b = b + 1) begin
-                        path[w*4+b] = value[b*8 +: 8];
+                        path[w*4+b] = value[31-b*8 -: 8];
                         // Deliberately wrong consumer: keeps the stale prime
                         // and discards the final response, with identical I/O.
-                        if (w < 63) stale_path[(w+1)*4+b] = value[b*8 +: 8];
+                        if (w < 63) stale_path[(w+1)*4+b] = value[31-b*8 -: 8];
                     end
                 end
                 for (w = 64; w < 66; w = w + 1) begin
@@ -338,8 +460,8 @@ initial begin
                     host_read(pointer + 4*w, ignored_word);
                 end
                 host_read(32'hF8001000, ignored_word);
-                if ({stale_path[3],stale_path[2],stale_path[1],stale_path[0]} !== prime_word ||
-                    {stale_path[3],stale_path[2],stale_path[1],stale_path[0]} === 32'h7373412F)
+                if ({stale_path[0],stale_path[1],stale_path[2],stale_path[3]} !== prime_word ||
+                    {stale_path[0],stale_path[1],stale_path[2],stale_path[3]} === 32'h2F417373)
                     $fatal(1, "stale-prime control did not retain the previous command response");
                 for (b = 4; b < 256; b = b + 1)
                     if (stale_path[b] !== path[b-4])
@@ -350,39 +472,43 @@ initial begin
                 if (chunk_end > 66) chunk_end = 66;
                 for (w = chunk; w < chunk_end; w = w + 1) begin
                     host_read(pointer + 4*(w+1), value);
-                    for (b = 0; b < 4; b = b + 1) path[w*4+b] = value[b*8 +: 8];
+                    for (b = 0; b < 4; b = b + 1)
+                        path[w*4+b] = w < 64 ? value[31-b*8 -: 8] : value[b*8 +: 8];
                 end
             end
             expected_path = operation == 0 ? "/Assets/carttools/common/RESTORE.meta" :
                             operation == 1 ? "/Assets/carttools/common/RESTORE.sav" :
                                              "/Assets/carttools/common/PRE0000.sav";
+            // Independently follows the hardware-proven pocket-pcengine
+            // Open File path representation: high byte first for strings,
+            // native numeric words for flags and size. Save bytes use their
+            // separate low-first outbound data-transfer convention.
+            path_bad = 0;
             for (b = 0; b < 264; b = b + 1) begin
                 expected = b < expected_path.len() ? expected_path[b] : 8'd0;
                 if (INJECT_WORD && b == 20) expected = expected ^ 8'd1;
-                if (path[b] !== expected)
+                if (path[b] !== expected && BAD_PATH_ORDER) path_bad = 1;
+                else if (path[b] !== expected)
                     $fatal(1, "delivered open structure byte %0d expected %02x got %02x", b, expected, path[b]);
             end
+            if (BAD_PATH_ORDER && !path_bad)
+                $fatal(1, "opposite-order path unexpectedly passed independent host parser");
             if (INJECT_WORD) begin
                 if (!observed_bad || observed_bad_index != 5 ||
-                    observed_bad_word != 32'h6E6F6D6C || observed_bad_expected != 32'h6E6F6D6D)
+                    observed_bad_word != 32'h6C6D6F6E || observed_bad_expected != 32'h6D6D6F6E)
                     $fatal(1, "observer missed actual selected-response corruption");
                 inject_active = 0;
                 host_read(pointer + 5*4, ignored_word);
                 host_read(pointer + 6*4, value);
-                if (value != 32'h6E6F6D6D || observed_path[20*8 +: 32] != value)
+                if (value != 32'h6D6D6F6E || observed_path[20*8 +: 32] != swap(value))
                     $fatal(1, "clean reread did not replace path word");
-                if (!observed_bad || observed_bad_word != 32'h6E6F6D6C || observed_bad_index != 5)
+                if (!observed_bad || observed_bad_word != 32'h6C6D6F6E || observed_bad_index != 5)
                     $fatal(1, "clean reread erased the first bad response");
             end
-            // This is an injected firmware refusal, not a reproduced parser.
-            host_write(32'hF8001000, 32'h6F6B0004);
-            polls = 0;
-            while (completions == before_completion && polls < 20) begin tick(1); polls = polls + 1; end
-            if (completions != before_completion + 1 || !failed || err != 4 || restore_io_busy)
-                $fatal(1, "real command refusal did not reach file-service result");
+            if (!BAD_PATH_ORDER) begin
             if (debug_status[108:107] != operation ||
                 debug_status[102:96] != 66 + EXPECTED_REPEATS + INJECT_WORD ||
-                debug_status[95:64] != 32'h7373412F)
+                debug_status[95:64] != 32'h2F417373)
                 $fatal(1, "refusal lost delivered-path evidence: op=%h reads=%h first=%h",
                        debug_status[108:107], debug_status[102:96], debug_status[95:64]);
             if (observed_unique != 66 || observed_repeats != EXPECTED_REPEATS + INJECT_WORD ||
@@ -396,17 +522,34 @@ initial begin
             if (SPLIT_FIELDS && observed_repeat_indices != {7'd65,7'd65,7'd64,7'd64})
                 $fatal(1, "split path and scalar reads did not reproduce 05AF repeat indices");
             end
+            if (RECOVERY_SUCCESS && !BAD_PATH_ORDER) recovery_success();
+            else begin
+                // Normal refusal is synthetic. BAD_PATH_ORDER instead derives
+                // this refusal from the independent high-first host parser.
+                host_write(32'hF8001000, 32'h6F6B0004);
+                polls = 0;
+                while (completions == before_completion && polls < 20) begin tick(1); polls = polls + 1; end
+                if (completions != before_completion + 1 || !failed || err != 4 || restore_io_busy ||
+                    r_target_write || r_target_read || r_target_open)
+                    $fatal(1, "real command refusal did not reach file-service result without further I/O");
+                if (BAD_PATH_ORDER) begin
+                    tick(16);
+                    if (command.target_0[31:16] == 16'h636D)
+                        $fatal(1, "bad path refusal allowed another recovery command");
+                end
+            end
+            end
             tick(4);
             // End the optional clean reread's pipeline while the service is
             // idle, so its held word is not counted in the next operation.
             host_read(32'hF8001000, ignored_word);
         end
     end
-    $display("TB PASS: restore bridge command integration (chunk=%0d SPI=%0d split=%0d)",
-             CHUNK_WORDS, USE_SPI, SPLIT_FIELDS);
+    $display("TB PASS: restore bridge command integration (chunk=%0d SPI=%0d split=%0d success=%0d badpath=%0d)",
+             CHUNK_WORDS, USE_SPI, SPLIT_FIELDS, RECOVERY_SUCCESS, BAD_PATH_ORDER);
     $finish;
 end
-initial begin #20000000; $fatal(1, "restore bridge watchdog"); end
+initial begin #100000000; $fatal(1, "restore bridge watchdog"); end
 endmodule
 
 // Vendor RAM replacement only. Match mf_datatable's 256-word depth and

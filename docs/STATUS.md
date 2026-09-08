@@ -39,7 +39,7 @@ The full package and logs are verified and retained under ignored
 byte comparison after filesystem flush, the installed bitstream hash matches
 the candidate, and the restore inputs and new Zelda dumps are unchanged.
 The replaced package is retained under `build/restore/deploy-ac63333.3bqba2/`.
-The latest screenshot, `20260907_212906.png`, now shows AC63. Metadata filename
+The AC63 screenshot, `20260907_212906.png`, shows metadata filename
 retrieval and exact-path validation passed, then error `9` stopped preflight
 at `CHECK SLOT ID`. The actual compared table value is not displayed. No
 metadata/save payload read, recovery creation, or cartridge save write was
@@ -64,8 +64,29 @@ passed byte comparison after filesystem flush; the installed bitstream hash
 matches the verified candidate. Every common file, including saves, dumps, and
 restore inputs, is unchanged. Prior files and the new package are retained
 under `build/restore/deploy-154097c.LNFWmR/`. The card was left mounted as
-requested. Next: reload, confirm stamp 1540, then run the same write-disabled
-preflight and capture the result. No 1540 hardware pass is claimed yet.
+requested.
+
+The latest screenshot, `20260907_224214.png`, confirms 1540 gets past the
+slot-ID failure but stops at `PROBE BACKUP NAME` for `PRE0000.sav`, error `4`.
+By controller flow, metadata/save loading and validation, full ROM identity,
+and the two matching original RAM reads completed before that stage. The
+initial recovery `0192` probe was refused before file creation. No recovery
+file or cartridge save write occurred. The intended path is correct in the
+FPGA trace, with the same `46/42/04` read/unique/repeat counts and no observed
+word mismatch, but the firmware's retained path is still unknown.
+Evidence is retained under `build/hardware/1540-result-20260907.HKV47R/`;
+fresh Zelda dumps still match the verified corpus. The card was unchanged
+and left mounted. Next: investigate recovery Open File delivery/path refusal
+without weakening the mandatory backup gate. Restore still does not work.
+
+Parallel review found that the Open File tests decoded strings using the
+producer's own low-byte-first assumption. The independent hardware-tested
+PC Engine implementation sends these command strings high byte first while
+keeping flags and size numeric. The new candidate changes only recovery path
+packing, leaves input validation and backup payload bytes unchanged, and expands
+the real command/SPI regression to cover successful recovery. Sisko is the
+requested build runner. Verification and hardware testing of this candidate
+are pending; 1540 remains the last installed build.
 
 Controls remain a three-second Select hold, release, A for checks/backup,
 then a fresh three-second A hold after preflight passes. Wrong buttons retain

@@ -314,7 +314,9 @@ initial begin
     settle();
     expect_row(11, "SD ERROR: E                   ");
     expect_row(12, "SD STAGE: CHECK INPUT PATH    ");
-    io_debug = {2'd2, 4'd7, 7'd66, 32'h7373412F, 32'h7661732E, 32'd2};
+    // Recovery raw words retain the high-byte-first 0192 path convention.
+    // Character snapshots stay normalized low first for the UI renderer.
+    io_debug = {2'd2, 4'd7, 7'd66, 32'h2F417373, 32'h2E736176, 32'd2};
     io_detail[145:139] = 66;
     set_trace_path("/Assets/carttools/common/PRE012A.sav");
     io_detail[31:0] = 8192;
@@ -323,10 +325,10 @@ initial begin
     expect_row(12, "SD STAGE: SIZE NEW BACKUP     ");
     expect_row(4, "NAME PRE012A.sav~~~~          ");
     expect_row(15, "FLAGS 00000002 SIZE 00002000  ");
-    io_detail[103:0] = {1'b1, 7'd5, 32'h6E6F6D6C, 32'h6E6F6D6D, 32'd8192};
+    io_detail[103:0] = {1'b1, 7'd5, 32'h6C6D6F6E, 32'h6D6D6F6E, 32'd8192};
     settle();
-    expect_row(16, "BAD 05 GOT 6E6F6D6C           ");
-    expect_row(17, "EXP 6E6F6D6D                  ");
+    expect_row(16, "BAD 05 GOT 6C6D6F6E           ");
+    expect_row(17, "EXP 6D6D6F6E                  ");
     io_debug[102:96] = 127;
     io_detail[138:132] = 127;
     io_detail[131:104] = {4{7'h7F}};

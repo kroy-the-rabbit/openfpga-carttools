@@ -6,10 +6,12 @@
 // this service until hard reset, because APF commands cannot be cancelled and
 // a late completion must never be consumed by a subsequent transaction.
 //
-// Internal and outbound memory words have byte zero in bits 7:0, matching
-// the measured dump output. Incoming APF byte arrays have byte zero in bits
-// 31:24 after the bridge's conditional endian swap is undone. The directions
-// are asymmetric; do not infer the output layout from a captured input word.
+// Internal save words and outbound file payloads have byte zero in bits 7:0,
+// matching the measured dump output. Open File path strings instead put byte
+// zero in bits 31:24, as the hardware-tested PC Engine command path does.
+// Flags and size are native numeric words, not byte-swapped strings. Incoming
+// APF byte arrays also arrive high-byte-first after undoing bridge endianness.
+// Do not infer command-structure packing from file-payload packing.
 // Reads use the established free-running address / bridge_rd-held response
 // shape. See dump_engine's bridge window and docs/APF-NOTES.md.
 // Fixed read-only input slots are verified through Get Filename, slot ID,
@@ -176,17 +178,24 @@ function automatic [7:0] path_byte(input [8:0] offset);
     end
 endfunction
 
-function automatic [31:0] struct_word(input [6:0] index);
+// Canonical character order for input validation and the UI: byte zero low.
+function automatic [31:0] path_word(input [6:0] index);
     reg [8:0] offset;
     begin
         offset = {index, 2'b00};
+        path_word = {path_byte(offset + 9'd3), path_byte(offset + 9'd2),
+                     path_byte(offset + 9'd1), path_byte(offset)};
+    end
+endfunction
+
+function automatic [31:0] struct_word(input [6:0] index);
+    begin
         if (index < 64)
-            struct_word = {path_byte(offset + 9'd3), path_byte(offset + 9'd2),
-                           path_byte(offset + 9'd1), path_byte(offset)};
+            struct_word = swap_bytes(path_word(index));
         else if (index == 64)
             struct_word = {30'd0, open_flags};
         else if (index == 65)
-            // Byte-array little-endian 8192, used for the new backup only.
+            // Numeric field, independent of the preceding string's packing.
             struct_word = open_flags != 0 ? 32'd8192 : 32'd0;
         else struct_word = 0;
     end
@@ -247,7 +256,7 @@ wire name_in_order = bridge_addr[27:8] == 0 && bridge_addr[1:0] == 0
                     && {1'b0, bridge_addr[7:2]} == name_words && name_words < 64;
 wire [6:0] name_word_index = {1'b0, bridge_addr[7:2]};
 wire [31:0] name_native = swap_bytes(receive_native);
-wire [31:0] name_expected = struct_word(name_word_index);
+wire [31:0] name_expected = path_word(name_word_index);
 wire [31:0] name_mask = name_word_index < 9 ? 32'hFFFFFFFF :
                         name_word_index == 9 ? (operation == 0 ? 32'h0000FFFF : 32'h000000FF) :
                         32'd0;
@@ -255,6 +264,7 @@ wire name_mismatch = (name_native & name_mask) != (name_expected & name_mask);
 wire trace_event = operation < 2 ? name_write : busy && bridge_rd && reply_is_struct;
 wire [6:0] trace_index = operation < 2 ? name_word_index : reply_word_index;
 wire [31:0] trace_native = operation < 2 ? name_native : observed_native;
+wire [31:0] trace_path = operation < 2 ? trace_native : swap_bytes(trace_native);
 wire [31:0] trace_expected = operation < 2 ? name_expected : expected_reply;
 wire trace_mismatch = operation < 2 ? name_mismatch : observed_native != expected_reply;
 wire [31:0] table_expected = state == ST_ID_CHECK ? {16'd0, target_dataslot_id} : expected_bytes;
@@ -309,7 +319,7 @@ always @(posedge clk) begin
             if (trace_index == 65) debug_size <= trace_native;
             for (trace_word = 0; trace_word < 10; trace_word = trace_word + 1)
                 if (trace_index == trace_word)
-                    debug_path[trace_word*32 +: 32] <= trace_native;
+                    debug_path[trace_word*32 +: 32] <= trace_path;
             if (!debug_seen[trace_index]) begin
                 debug_seen[trace_index] <= 1;
                 debug_unique <= debug_unique + 1'b1;

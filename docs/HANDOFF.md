@@ -3,6 +3,40 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## Recovery Open File path candidate
+
+The user requested parallel investigation and the next build on sisko after
+1540 reached `PROBE BACKUP NAME` and returned error `4` for `PRE0000.sav`.
+Independent reviews found the restore tests assumed that the Open File path
+used the same low-byte-first packing as file payloads. Their host decoder
+therefore agreed with the producer without independently testing that contract.
+
+The sibling PC Engine implementation provides a hardware-tested comparison:
+source `5ec086d55cada4676998b70263fa3401e1b73974` places Open File path byte
+zero in bits 31:24. Its P1 result `G0 O0 R0 L033 P62696E00` confirms opening
+and reading the derived file. Source `b86a38b0e07120fbbc58a1b1c61a271c17c16786`
+adds hardware-tested save creation with native numeric flags 1/2 and size 2048.
+Its SPI peripheral is functionally identical. Evidence is documented in the
+sibling `docs/CD-PLAN.md` P1 section and `docs/CD-HANDOFF.md` p21 results.
+
+The candidate changes recovery command path words only, from byte-zero-low to
+byte-zero-high. Flags and size remain native numeric words. Backup payloads
+remain low-byte-first, and Get Filename input validation retains its existing
+normalized character order. The diagnostic path display normalizes characters
+separately; raw first/tail and mismatch words describe actual outgoing words.
+No command sequence, path, slot, package setting, cartridge bus behavior,
+identity check, backup-ownership guard, or save-write permission changes.
+
+Focused tests pass with independent command-string decoding, rejection of the
+old per-word reversal, and successful recovery creation, resize, write, reopen,
+and full 8192-byte readback through the actual command/SPI path. Both endian
+modes pass, including separate repeated reads of native flags and size during
+probe, create, resize, and reopen. File-service and UI tests also pass.
+The complete suite and sisko fit through runner-build are next, using the exact
+committed candidate. No installation is permitted unless both pass.
+1540 remains installed until a new deployment is recorded. This is a strongly
+supported compatibility fix to test on hardware, not a confirmed restore.
+
 ## Verified slot-table latency candidate, 2026-09-07
 
 The user requested the fix after AC63 stopped at `CHECK SLOT ID`, error `9`.
@@ -69,13 +103,31 @@ Deployment evidence is retained under ignored
 all prior common files in `common-before/`, and the extracted new `package/`.
 The installer is `build/restore/install-154097c.sh`; its AC63 precondition
 means it is not a command to rerun blindly after this completed deployment.
-AC63's error-9 screenshot remains the latest hardware result. No 1540
-preflight or cartridge restore has been confirmed yet.
+The latest hardware result is now 1540, retained under ignored
+`build/hardware/1540-result-20260907.HKV47R/`. Screenshot
+`20260907_224214.png`, SHA-256
+`cc5b8eb67f65c5bbf21ba5c435bb72a74e0a475649c50acd32d9410f06088558`,
+shows error `4` at `PROBE BACKUP NAME`, file `PRE0000.sav`, intended path
+`/Assets/carttools/common/PRE0000.sav`, flags/size zero, and writes disabled.
+The trace shows `READS 46 UNIQUE 42 RPT 04`, repeats `40 40 41 41`, and no
+observed word mismatch. The card bitstream still matches the 1540 artifact.
 
-Next: reload, confirm `1540`, hold Select three seconds, release, press/release
-A, and capture the complete preflight result. Keep cartridge save writes
-disabled. This is a reproduced RTL defect with a verified candidate, not a
-completed hardware restore or a claimed repair of the recovery `0192` path.
+This result gets past the previous slot-ID failure. By the controller's
+control flow, reaching this recovery stage means metadata validation, save
+staging/CRC, full ROM identity, and two matching original RAM reads completed.
+It is not a completed preflight or an independent intermediate-buffer check.
+The recovery probe's `0192` call returns malformed-path error `4`, not the
+file-not-found result `3` required to proceed to creation. No recovery file
+was created, and no cartridge save write occurred. The fresh Zelda ROM and
+save still match the verified corpus; the ROM also passes No-Intro CRC/size.
+All evidence was copied and verified locally. The card was left unchanged
+and mounted during this intake.
+
+Next: investigate recovery `0192` request delivery and path acceptance.
+The observed FPGA words do not prove which bytes firmware retained, and this
+screenshot does not establish the underlying rejection cause. Do not bypass
+recovery creation/readback or enable cartridge save writes. The slot-table
+change has hardware evidence of progress, but restore still does not work.
 
 ## Resumed restore input work, 2026-09-07
 
@@ -286,10 +338,12 @@ Relevant implementation: `src/fpga/services/restore/restore_file_io.sv`,
 `src/fpga/core/core_top.sv`, and `src/fpga/ui/ui_restore_screen.sv`.
 `tools/sim/tb_restore_file_io.sv` covers file-service error containment.
 The working dumper's held bridge response and existing `0190` capture are in
-`src/fpga/services/dump/dump_engine.sv`. Preserve the established asymmetric
-byte order: outbound byte zero is low, incoming APF byte arrays put it high
-after the conditional bridge swap is undone. Do not free-run the response
-output; that caused the historical one-word path shift.
+`src/fpga/services/dump/dump_engine.sv`. At this historical pause, the measured
+low-byte-first outbound payload order was incorrectly generalized to command
+strings. The newer recovery-path section above corrects that assumption:
+payloads stay low-first, Open File strings use high-first, and numeric fields
+remain numeric. Do not free-run the response output; that caused the historical
+one-word path shift.
 
 Official references rechecked during the paused investigation:
 [APF commands](https://www.analogue.co/developer/docs/host-target-commands)

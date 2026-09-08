@@ -114,6 +114,15 @@ words. CRC32 is the standard reflected CRC used by `zlib.crc32` and the core's
 
 ## Mandatory recovery and write containment
 
+Open File command paths and file payloads have different packing contracts.
+Recovery path bytes occupy each word high byte first, matching the independently
+hardware-tested PC Engine Open File implementation. Flags and size remain native
+numeric words. The 8 KiB recovery payload remains low byte first, matching the
+verified dumper. Get Filename input-path comparisons use normalized character
+order and are not changed by the outgoing command-string correction. Tests must
+decode path words independently of the producer and check nonzero scalar fields
+separately from both path bytes and payload bytes.
+
 ID and size validation must respect the shipped data-table RAM latency. Its
 synchronous read has an additional registered output. After changing the
 word address, allow both clock edges to propagate the value before comparing
@@ -236,6 +245,11 @@ service's internal byte-zero-low word representation:
 | `FLAGS`, open/probe/reopen | `00000000` |
 | `FLAGS`, create | `00000001` |
 | `FLAGS`, resize new recovery | `00000002` |
+
+These historical path-word expectations used the same byte-zero-low assumption
+as the producer. The subsequent recovery-path correction uses raw `P0=2F417373`
+and recovery `P8=2E736176`; flags and size do not change. The character-oriented
+`PATH` and `NAME` display is normalized separately and still reads normally.
 
 The count saturates at `7F`; firmware rereads or a different access pattern
 can change it. These few words are diagnostic clues, not proof of every byte

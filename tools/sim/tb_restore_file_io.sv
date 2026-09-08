@@ -61,7 +61,7 @@ reg [31:0] datatable_read;
 reg [31:0] backup_memory [0:2047];
 reg [31:0] written_file [0:2047];
 reg [31:0] received [0:2047];
-reg [7:0] structure [0:263];
+reg [7:0] structure [0:255];
 integer errors = 0, n_open = 0, n_read = 0, n_write = 0, n_inputs = 0, n_resize = 0;
 integer n_get = 0, name_error = 0, name_fault = 0, name_transfer_fault = 0;
 integer name_length_words = 64, name_padding = 0, name_done_with_last = 0;
@@ -83,6 +83,22 @@ function automatic integer unhex(input [7:0] character);
         if (character >= "0" && character <= "9") unhex = character - "0";
         else if (character >= "A" && character <= "F") unhex = character - "A" + 10;
         else unhex = -100000;
+    end
+endfunction
+// The firmware path is a byte buffer, unlike the numeric flags and size.
+// Match against an independent canonical string, never the producer's
+// struct_word function. Reversing each word must not produce the same path.
+function automatic integer path_matches(input string canonical,
+                                         input integer reverse_words);
+    integer offset, source_offset;
+    reg [7:0] expected_byte;
+    begin
+        path_matches = 1;
+        for (offset = 0; offset < 256; offset = offset + 1) begin
+            source_offset = reverse_words ? (offset / 4)*4 + 3 - (offset % 4) : offset;
+            expected_byte = offset < canonical.len() ? canonical[offset] : 8'd0;
+            if (structure[source_offset] !== expected_byte) path_matches = 0;
+        end
     end
 endfunction
 
@@ -107,9 +123,10 @@ task automatic check(input integer condition, input [511:0] label_text);
     end
 endtask
 
-// Reproduce the empirically established tb_dump_engine APF model: settle
-// address, sample BEFORE bridge_rd, then pulse. A burst primes its first
-// address, discards that response, and consumes it on the next transaction.
+// Reproduce the peripheral's buffered-word timing: settle address, sample
+// BEFORE bridge_rd, then pulse. A burst primes its first address, discards
+// that response, and consumes it on the next transaction. The interpretation
+// of the returned numeric word belongs to the command's consumer below.
 task automatic host_word(input [31:0] address, output [31:0] stream_word,
                          input check_previous);
     reg [31:0] held_before;
@@ -132,37 +149,52 @@ endtask
 
 task automatic check_open_struct(output integer flags, output integer name);
     integer w, j, expected_length;
-    reg [31:0] word_value;
+    reg [31:0] word_value, desired_size;
     reg [199:0] prefix;
     reg [95:0] meta_name;
     reg [87:0] save_name;
+    string canonical;
+    string digits;
     begin
         check(t_struct === 32'h90000000, "open struct address");
         host_word(t_struct, word_value, 0);
         for (w = 0; w < 66; w = w + 1) begin
             host_word(t_struct + (w+1)*4, word_value, 1);
-            for (j = 0; j < 4; j = j + 1)
-                structure[w*4+j] = word_value[j*8 +: 8];
+            // 0192 bulk path bytes retain SPI order, first byte high.
+            // Its scalar flags and size are separately read numeric words.
+            // This differs from 0184's measured file-payload convention.
+            if (w < 64) begin
+                for (j = 0; j < 4; j = j + 1)
+                    structure[w*4+j] = word_value[31-j*8 -: 8];
+            end else if (w == 64) flags = word_value;
+            else desired_size = word_value;
+            if (w == 0) check(word_value === 32'h2F417373, "raw path starts with /Ass in SPI order");
         end
         prefix = "/Assets/carttools/common/";
         for (j = 0; j < 25; j = j + 1)
             check(structure[j] === prefix[199-j*8 -: 8], "correct absolute Assets prefix");
-        flags = {structure[259], structure[258], structure[257], structure[256]};
         check(flags == 0 || flags == 1 || flags == 2, "never combine create and resize");
-        check({structure[263], structure[262], structure[261], structure[260]}
-              == (flags ? 8192 : 0), "little-endian desired size");
+        check(desired_size == (flags ? 8192 : 0), "native numeric desired size");
         name = -1;
         if (t_id == 21) begin
             meta_name = "RESTORE.meta";
+            canonical = "/Assets/carttools/common/RESTORE.meta";
             expected_length = 37;
             for (j = 0; j < 12; j = j + 1)
                 check(structure[25+j] === meta_name[95-j*8 -: 8], "metadata basename");
         end else if (t_id == 22) begin
             save_name = "RESTORE.sav";
+            canonical = "/Assets/carttools/common/RESTORE.sav";
             expected_length = 36;
             for (j = 0; j < 11; j = j + 1)
                 check(structure[25+j] === save_name[87-j*8 -: 8], "single save basename");
         end else begin
+            canonical = "/Assets/carttools/common/PRE0000.sav";
+            digits = "0123456789ABCDEF";
+            canonical[28] = digits[backup_index[15:12]];
+            canonical[29] = digits[backup_index[11:8]];
+            canonical[30] = digits[backup_index[7:4]];
+            canonical[31] = digits[backup_index[3:0]];
             check(t_id == 23, "recovery slot identity");
             check({structure[25],structure[26],structure[27]} == "PRE", "recovery prefix");
             check({structure[32],structure[33],structure[34],structure[35]} == ".sav", "recovery extension");
@@ -171,11 +203,13 @@ task automatic check_open_struct(output integer flags, output integer name);
             check(name >= 0 && name <= 65535, "four hexadecimal recovery digits");
             expected_length = 36;
         end
+        check(path_matches(canonical, 0), "0192 byte-buffer parser accepts canonical path");
+        check(!path_matches(canonical, 1), "0192 parser rejects legacy word-reversed path");
         for (j = expected_length; j < 256; j = j + 1)
             check(structure[j] == 0, "path termination and zero padding");
         check(debug_reads == 66, "trace counted responses including the final delayed word");
-        check(debug_first === 32'h7373412F, "trace observed first delivered path word");
-        check(debug_tail === (t_id == 21 ? 32'h74656D2E : 32'h7661732E),
+        check(debug_first === 32'h2F417373, "trace observed first delivered path word");
+        check(debug_tail === (t_id == 21 ? 32'h2E6D6574 : 32'h2E736176),
               "trace observed filename tail rather than the requested next word");
         check(debug_flags === flags, "trace observed actual flag response");
         check(debug_detail[145:139] == 66 && debug_detail[138:132] == 0,
@@ -516,7 +550,7 @@ initial begin
                   "recovery open refusal still prevents all backup writes");
             check(debug_op == 2 && debug_stage == 5, "failed recovery open stage retained");
             repeat (5) @(negedge clk);
-            check(debug_reads == 66 && debug_first == 32'h7373412F,
+            check(debug_reads == 66 && debug_first == 32'h2F417373,
                   "failure trace survives return to idle");
         end else begin
             check(!failed && n_open == 0 && n_get == 1 && n_read == 1 && n_write == 0,
