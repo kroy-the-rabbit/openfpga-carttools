@@ -17,6 +17,7 @@ reg [108:0] io_debug = {2'd0, 4'd11, 7'd64, 32'h7373412F, 32'h74656D2E, 32'd0};
 reg [475:0] io_detail = {320'd0, 10'h3FF, 7'd64, 7'd0,
                         {4{7'h7F}}, 1'b0, 7'd0,
                         32'd0, 32'd0, 32'd0};
+reg [99:0] io_sequence = {4'd0,32'hFFFFFFFF,64'd0};
 task set_trace_path(input string path);
     integer i;
     begin
@@ -44,6 +45,7 @@ ui_restore_screen dut (
     .clk(clk), .reset(reset), .active(active), .guard_state(guard_state),
     .hold_progress(hold_progress),
     .phase(phase), .error(error), .io_error(io_error), .io_debug(io_debug), .io_detail(io_detail),
+    .io_sequence(io_sequence),
     .rom_crc(rom_crc), .save_crc(save_crc),
     .backup_index(backup_index), .write_enabled(write_enabled),
     .tb_addr(tb_addr), .tb_char(tb_char), .tb_attr(tb_attr), .tb_we(tb_we)
@@ -109,6 +111,7 @@ endtask
 
 task expect_hidden_evidence;
     begin
+        expect_row(6, "                              ");
         expect_row(12, "                              ");
         expect_row(13, "                              ");
         expect_row(14, "                              ");
@@ -275,6 +278,8 @@ initial begin
             expect_row(12, "SD STAGE: GET INPUT PATH      ");
             expect_row(3, "PATH /Assets/carttools/common/");
             expect_row(4, "NAME RESTORE.meta~~~          ");
+            expect_row(6, "SEQ P---- C---- N---- R----   ");
+            expect_row(9, "NEW SIZE FFFFFFFF             ");
             expect_row(13, "RX    40 UNIQUE 40 RPT 00     ");
             expect_row(14, "REPEAT -- -- -- --            ");
             expect_row(15, "FLAGS 00000000 SIZE 00000000  ");
@@ -317,6 +322,7 @@ initial begin
     // Recovery raw words retain the high-byte-first 0192 path convention.
     // Character snapshots stay normalized low first for the UI renderer.
     io_debug = {2'd2, 4'd7, 7'd66, 32'h2F417373, 32'h2E736176, 32'd2};
+    io_sequence = {4'hF,32'd0,16'd3,16'd1,16'd0,16'd3};
     io_detail[145:139] = 66;
     set_trace_path("/Assets/carttools/common/PRE012A.sav");
     io_detail[31:0] = 8192;
@@ -324,7 +330,44 @@ initial begin
     expect_row(2, "FILE: PRE012A.sav             ");
     expect_row(12, "SD STAGE: SIZE NEW BACKUP     ");
     expect_row(4, "NAME PRE012A.sav~~~~          ");
+    expect_row(6, "SEQ P0003 C0001 N0000 R0003   ");
+    expect_row(9, "NEW SIZE 00000000             ");
     expect_row(15, "FLAGS 00000002 SIZE 00002000  ");
+
+    // Sequence changes alone repaint. Unseen results are not confused with
+    // actual zero, an undocumented full-width value, or observed FFFF.
+    io_sequence = {4'hE,32'd37,16'd3,16'd1,16'd0,16'h9999};
+    settle();
+    expect_row(6, "SEQ P0003 C0001 N0000 R----   ");
+    expect_row(9, "NEW SIZE 00000025             ");
+    io_sequence = {4'hC,32'hFFFFFFFF,16'd3,16'd9,16'd0,16'd0};
+    settle();
+    expect_row(6, "SEQ P0003 C0009 N---- R----   ");
+    expect_row(9, "NEW SIZE FFFFFFFF             ");
+    io_sequence = {4'hF,32'd0,16'hABCD,16'hFFFF,16'd8,16'd9};
+    settle();
+    expect_row(6, "SEQ PABCD CFFFF N0008 R0009   ");
+    io_sequence[99:96] = 0;
+    settle();
+    expect_row(6, "SEQ P---- C---- N---- R----   ");
+
+    io_sequence = {4'hE,32'd0,16'd3,16'd1,16'd0,16'd0};
+    io_debug[106:103] = 13;
+    io_debug[102:96] = 64;
+    io_detail[145:139] = 64;
+    settle();
+    expect_row(12, "SD STAGE: GET BACKUP PATH     ");
+    expect_row(13, "RX    40 UNIQUE 40 RPT 00     ");
+    io_debug[106:103] = 14;
+    settle();
+    expect_row(12, "SD STAGE: CHECK BACKUP PATH   ");
+    io_debug[106:103] = 2;
+    settle();
+    expect_row(13, "RX    40 UNIQUE 40 RPT 00     ");
+    io_debug[106:103] = 7;
+    io_debug[102:96] = 66;
+    io_detail[145:139] = 66;
+    io_sequence = {4'hF,32'd0,16'd3,16'd1,16'd0,16'd3};
     io_detail[103:0] = {1'b1, 7'd5, 32'h6C6D6F6E, 32'h6D6D6F6E, 32'd8192};
     settle();
     expect_row(16, "BAD 05 GOT 6C6D6F6E           ");
@@ -335,7 +378,7 @@ initial begin
     settle();
     expect_row(13, "READS 7F UNIQUE 42 RPT 7F     ");
     expect_row(14, "REPEAT -- -- -- --            ");
-    for (n = 1; n <= 10; n = n + 1) begin
+    for (n = 1; n <= 14; n = n + 1) begin
         io_debug[106:103] = n;
         settle();
         expect_nonblank(12);

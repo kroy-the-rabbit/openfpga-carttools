@@ -18,6 +18,7 @@ module ui_restore_screen (
     input  wire [3:0]  io_error,
     input  wire [108:0] io_debug,
     input  wire [475:0] io_detail,
+    input  wire [99:0] io_sequence,
     input  wire [31:0] rom_crc,
     input  wire [31:0] save_crc,
     input  wire [15:0] backup_index,
@@ -51,6 +52,10 @@ function [15:0] hex_count(input [6:0] value);
 endfunction
 function [15:0] hex_index(input [6:0] value);
     hex_index = value == 7'h7F ? "--" : hex_count(value);
+endfunction
+function [31:0] result_text(input [15:0] value, input seen);
+    result_text = seen ? {hex_digit(value[15:12]), hex_digit(value[11:8]),
+                          hex_digit(value[7:4]), hex_digit(value[3:0])} : "----";
 endfunction
 
 // Forty observed bytes cover all three fixed paths and their terminators.
@@ -86,6 +91,8 @@ function [LW-1:0] io_stage_line(input [3:0] stage);
         10: io_stage_line = "SD STAGE: READ BACKUP         ";
         11: io_stage_line = "SD STAGE: GET INPUT PATH      ";
         12: io_stage_line = "SD STAGE: CHECK INPUT PATH    ";
+        13: io_stage_line = "SD STAGE: GET BACKUP PATH     ";
+        14: io_stage_line = "SD STAGE: CHECK BACKUP PATH   ";
         default: io_stage_line = "SD STAGE: NOT STARTED         ";
     endcase
 endfunction
@@ -195,9 +202,9 @@ function [LW-1:0] error_line(input [4:0] current_error);
     end
 endfunction
 
-wire [687:0] snapshot = {active, guard_state, hold_progress, phase, error, io_error, io_debug, io_detail, rom_crc,
+wire [787:0] snapshot = {active, guard_state, hold_progress, phase, error, io_error, io_debug, io_detail, io_sequence, rom_crc,
                        save_crc, backup_index, write_enabled};
-reg [687:0] shown;
+reg [787:0] shown;
 reg dirty;
 reg was_active;
 wire shown_active;
@@ -217,6 +224,9 @@ wire [27:0] shown_repeat_indices;
 wire shown_bad;
 wire [6:0] shown_bad_index;
 wire [31:0] shown_bad_word, shown_bad_expected, shown_size;
+wire [3:0] shown_sequence_seen;
+wire [31:0] shown_created_size;
+wire [15:0] shown_probe_result, shown_create_result, shown_name_result, shown_resize_result;
 wire [31:0] shown_rom;
 wire [31:0] shown_save;
 wire [15:0] shown_backup;
@@ -224,10 +234,15 @@ wire shown_writes;
 assign {shown_active, shown_guard, shown_progress, shown_phase, shown_error, shown_io_error,
         shown_io_op, shown_io_stage, shown_io_reads, shown_io_first, shown_io_tail, shown_io_flags,
         shown_path, shown_path_seen, shown_unique, shown_repeats, shown_repeat_indices,
-        shown_bad, shown_bad_index, shown_bad_word, shown_bad_expected, shown_size, shown_rom,
+        shown_bad, shown_bad_index, shown_bad_word, shown_bad_expected, shown_size,
+        shown_sequence_seen, shown_created_size, shown_probe_result, shown_create_result,
+        shown_name_result, shown_resize_result, shown_rom,
         shown_save, shown_backup, shown_writes} = shown;
 
 wire sd_failure = shown_guard == 4'd9 && shown_error == 5'd6;
+wire shown_name_trace = shown_io_op < 2 || shown_io_stage == 13 || shown_io_stage == 14 ||
+                       ((shown_io_stage == 2 || shown_io_stage == 3) &&
+                        shown_sequence_seen[1] && !shown_sequence_seen[0]);
 
 wire checks_passed = shown_error == 5'd0 &&
                      ((shown_guard == 4'd6 || shown_guard == 4'd7) ||
@@ -278,10 +293,15 @@ always @* begin
                                      "LINK'S AWAKENING (NON-DX)     ";
         5'd5: line_next = shown_writes ? "CARTRIDGE WRITES ENABLED      " :
                                          "CORE WRITES DISABLED          ";
+        5'd6: line_next = sd_failure ? {"SEQ P", result_text(shown_probe_result, shown_sequence_seen[3]),
+                         " C", result_text(shown_create_result, shown_sequence_seen[2]),
+                         " N", result_text(shown_name_result, shown_sequence_seen[1]),
+                         " R", result_text(shown_resize_result, shown_sequence_seen[0]), "   "} : BLANK;
         5'd7: line_next = status_line(shown_guard, shown_phase, shown_error, shown_writes);
         5'd8: line_next = action_line(shown_guard, shown_phase, shown_error, shown_writes);
         5'd9: line_next = shown_guard == 4'd1 || shown_guard == 4'd6 ?
-                         progress_line(shown_progress) : BLANK;
+                         progress_line(shown_progress) : sd_failure ?
+                         {"NEW SIZE ", hex_word(shown_created_size), "             "} : BLANK;
         5'd10: begin
             if (shown_guard == 4'd3)
                 line_next = shown_phase >= 6'd1 && shown_phase <= 6'd11 ?
@@ -297,7 +317,7 @@ always @* begin
                           io_error_line : BLANK;
         5'd12: line_next = sd_failure ? io_stage_line(shown_io_stage) :
                           checks_passed ? rom_line : BLANK;
-        5'd13: line_next = sd_failure ? {shown_io_op < 2 ? "RX    " : "READS ", hex_count(shown_io_reads),
+        5'd13: line_next = sd_failure ? {shown_name_trace ? "RX    " : "READS ", hex_count(shown_io_reads),
                                          " UNIQUE ", hex_count(shown_unique),
                                          " RPT ", hex_count(shown_repeats), "     "} :
                           checks_passed ? save_line : BLANK;
@@ -334,7 +354,7 @@ end
 
 always @(posedge clk) begin
     if (reset) begin
-        shown      <= 688'b0;
+        shown      <= 788'b0;
         dirty      <= 1'b1;
         was_active <= 1'b0;
         painting   <= 1'b0;

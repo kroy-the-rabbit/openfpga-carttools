@@ -3,6 +3,73 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## Latest hardware result: 12CD still fails, 2026-09-08
+
+Screenshot `20260908_000409.png` confirms stamp 12CD and stops at
+`SIZE NEW BACKUP`, error `3` (file not found), for `PRE0000.sav`.
+Flags are `00000002`, size `00002000`, reads/unique/repeats `46/42/04`,
+repeat indices `40 40 41 41`, with no observed word mismatch.
+This is later than 1540's malformed-path refusal at the initial name probe.
+By controller flow, reaching resize requires accepting probe result 3 and
+create result 1. It does not independently prove file creation: no `PRE*.sav`
+is present in the copied common directory. No recovery payload write or
+cartridge save write was reached. Cartridge writes remain disabled.
+
+All screenshots, common files, and the installed core are copied and
+byte-verified under ignored `build/hardware/12cd-result-20260908.u0JBfV/`.
+The installed bitstream matches 12CD. Fresh Zelda ROM/save dumps still match
+the verified corpus, and restore inputs are unchanged. The screenshot hash is
+`f3b20c3882d613b70729eeb21c8858ef52226360159bf62f68082819312e3fce`.
+The card was unchanged and left mounted. Next: investigate the create-to-resize
+sequence, completion attribution, and firmware's retained file identity.
+Do not weaken the recovery gate. No implementation or new build was started
+during this screenshot check.
+
+## Post-create identity candidate in progress
+
+The user requested maximum-effort parallel investigation after that failure.
+Independent byte-level simulation covered 69 literal paths, all 256 path bytes,
+128 structure indices, and all three flags without finding a path-generator
+defect. A cycle trace through the actual command FSM found no normal stale-done
+race: each new command clears done before the restore service accepts a new
+result. Those tests do not establish what firmware retained or wrote to disk.
+
+The hardware-tested PC Engine flow sends size zero during create-only. Our
+12CD flow sent 8192 even though the resize flag was clear. The API documents
+size as relevant only during resize, so zeroing this unused field removes an
+unnecessary difference but is not a proven repair of the hardware failure.
+PC Engine also uses a different slot type and accepts resize result 0 or 1;
+its file-level hardware evidence does not prove each intermediate result or
+zero-length file persistence for our deferred asset slot. Do not change our
+slot parameters, path root, or resize acceptance based on that comparison.
+
+The candidate retains create-only and resize as separate commands. After
+exact create result 1 it queries Get Filename for slot 23, validates the entire
+intended recovery path through NUL, and checks slot ID before any resize.
+The reported creation size is retained, not required to be zero, because the
+API does not promise a zero-size value. Both exact 8192-byte gates after resize
+and reopen, and the full payload reread comparison, remain mandatory.
+
+A separate safety gap was found in result handling: the shared command service
+exposed only three bits of the 16-bit APF result. The candidate adds a full-width
+result beside that legacy interface and restore checks the complete value.
+An unsupported result cannot alias success or newly-created ownership; unknown
+results fail as error 15. Legacy dumper behavior is unchanged. This is a
+defensive correction, not evidence that the failing hardware returned such a
+result. Probe/create/Get Filename/resize full results and creation table size
+are retained across commands for the next screenshot.
+
+Independent RTL review found the new filename and slot gates fail closed and
+the registered table latency is preserved. Expanded unit/UI tests and the
+complete actual-command/SPI regression pass. The latter covers an independent
+created-file association, both endian modes, bulk/split reads, wrong returned
+names, and full results 0009/0008. Deliberately restoring result truncation
+breaks the rejection test. Actual top-level result and diagnostic wiring are
+checked separately with truncation mutations. Full-top elaboration and nine
+control negative tests also pass. The complete suite and exact-source FPGA
+build are next. Sisko is temporarily occupied by a sibling GBA build; do not
+interrupt it. Cartridge writes stay disabled and 12CD remains installed.
+
 ## Recovery Open File path candidate installed, 2026-09-07
 
 The user requested parallel investigation and the next build on sisko after
@@ -71,7 +138,10 @@ package files passed byte comparison after filesystem flush. Every common file
 is byte-identical to its pre-install copy. The card was left mounted as requested.
 Recovery evidence is retained in `build/restore/deploy-12cd3c1.e9fT7Q/`:
 replaced package files in `before/`, all common files in `common-before/`,
-screenshots in `screenshots-before/`, and the new `package/`. The guarded
+and the new `package/`. The earlier claim of `screenshots-before/` was wrong:
+the installer checked root `Screenshots/`, not `Memories/Screenshots/`.
+Screenshots were untouched and are now retained by the 2026-09-08 intake above.
+The guarded
 installer is `build/restore/install-12cd3c1.sh`; its old-bitstream precondition
 intentionally prevents blindly running it again after this successful install.
 
@@ -81,8 +151,8 @@ recovery backup. Capture the result. A successful attempt must create a fresh
 8192-byte `PRExxxx.sav` and reread all bytes. Preserve it locally, then verify
 it survives a power cycle and matches the original RAM dump before considering
 any cartridge-write-enabled candidate. `RESTORE_WRITE_ENABLED` remains zero.
-The latest hardware result is still 1540's failed probe. No 12CD hardware pass
-or cartridge restore is claimed.
+The subsequent 12CD hardware attempt failed at resize, as recorded above.
+No recovery success or cartridge restore is claimed.
 
 ## Verified slot-table latency candidate, 2026-09-07
 

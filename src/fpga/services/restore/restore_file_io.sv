@@ -44,6 +44,8 @@ module restore_file_io #(
     // data; recovery trace observes transmitted Open File responses.
     output wire [108:0] debug_status,
     output wire [475:0] debug_detail,
+    // Seen mask P/C/N/R, creation table size, full probe/create/name/resize results.
+    output reg [99:0] debug_sequence,
     // Tap the selected top-level bridge response, not merely our own output.
     input wire [31:0] observed_bridge_data,
 
@@ -76,7 +78,8 @@ module restore_file_io #(
     output wire [31:0] target_buffer_param_struct,
     output wire [31:0] target_buffer_resp_struct,
     input wire target_dataslot_done,
-    input wire [2:0] target_dataslot_err
+    input wire [2:0] target_dataslot_err, // legacy summary, never used for authorization
+    input wire [15:0] target_dataslot_result
 );
 
 localparam [4:0] ST_IDLE = 0, ST_OPEN = 1, ST_OPEN_WAIT = 2,
@@ -88,7 +91,7 @@ localparam [4:0] ST_IDLE = 0, ST_OPEN = 1, ST_OPEN_WAIT = 2,
     ST_ID_SETTLE = 21, ST_SIZE_SETTLE = 22;
 localparam [3:0] ERR_TIMEOUT = 8, ERR_TABLE = 9, ERR_TRANSFER = 10,
     ERR_NAMES_FULL = 11, ERR_OPERATION = 12, ERR_CREATE_RACE = 13,
-    ERR_INPUT_PATH = 14;
+    ERR_INPUT_PATH = 14, ERR_RESULT = 15;
 
 reg [4:0] state;
 reg [1:0] operation;
@@ -97,6 +100,8 @@ reg [9:0] table_base;
 reg [1:0] open_flags;
 reg created_owned;
 reg check_before_write;
+reg checking_created;
+reg trace_name;
 reg saw_busy;
 reg [31:0] timeout;
 reg [11:0] received_words;
@@ -196,7 +201,7 @@ function automatic [31:0] struct_word(input [6:0] index);
             struct_word = {30'd0, open_flags};
         else if (index == 65)
             // Numeric field, independent of the preceding string's packing.
-            struct_word = open_flags != 0 ? 32'd8192 : 32'd0;
+            struct_word = open_flags[1] ? 32'd8192 : 32'd0;
         else struct_word = 0;
     end
 endfunction
@@ -261,18 +266,19 @@ wire [31:0] name_mask = name_word_index < 9 ? 32'hFFFFFFFF :
                         name_word_index == 9 ? (operation == 0 ? 32'h0000FFFF : 32'h000000FF) :
                         32'd0;
 wire name_mismatch = (name_native & name_mask) != (name_expected & name_mask);
-wire trace_event = operation < 2 ? name_write : busy && bridge_rd && reply_is_struct;
-wire [6:0] trace_index = operation < 2 ? name_word_index : reply_word_index;
-wire [31:0] trace_native = operation < 2 ? name_native : observed_native;
-wire [31:0] trace_path = operation < 2 ? trace_native : swap_bytes(trace_native);
-wire [31:0] trace_expected = operation < 2 ? name_expected : expected_reply;
-wire trace_mismatch = operation < 2 ? name_mismatch : observed_native != expected_reply;
+wire trace_event = trace_name ? name_write : busy && bridge_rd && reply_is_struct;
+wire [6:0] trace_index = trace_name ? name_word_index : reply_word_index;
+wire [31:0] trace_native = trace_name ? name_native : observed_native;
+wire [31:0] trace_path = trace_name ? trace_native : swap_bytes(trace_native);
+wire [31:0] trace_expected = trace_name ? name_expected : expected_reply;
+wire trace_mismatch = trace_name ? name_mismatch : observed_native != expected_reply;
 wire [31:0] table_expected = state == ST_ID_CHECK ? {16'd0, target_dataslot_id} : expected_bytes;
-wire table_mismatch = (state == ST_ID_CHECK || state == ST_SIZE_CHECK)
+wire table_mismatch = (state == ST_ID_CHECK || (state == ST_SIZE_CHECK && !checking_created))
                       && datatable_q != table_expected;
 integer trace_word;
 always @(posedge clk) begin
     if (reset) begin
+        trace_name <= 0;
         reply_is_struct <= 0;
         debug_reads <= 0;
         debug_first <= 0;
@@ -291,6 +297,7 @@ always @(posedge clk) begin
     end else begin
         if (bridge_rd) reply_is_struct <= struct_hit;
         if ((state == ST_IDLE && start) || target_dataslot_openfile || target_dataslot_getfile) begin
+            trace_name <= target_dataslot_getfile || (state == ST_IDLE && start && op < 2);
             debug_reads <= 0;
             debug_first <= 0;
             debug_tail <= 0;
@@ -347,6 +354,10 @@ wire receive_in_order = bridge_addr[27:13] == 0 && bridge_addr[1:0] == 0
                         && received_words < expected_bytes[13:2];
 wire [31:0] receive_native = endian_3 ? swap_bytes(bridge_wr_data) : bridge_wr_data;
 wire [11:0] received_after = received_words + (receive_write && receive_in_order ? 12'd1 : 12'd0);
+// Preserve known firmware errors, but never alias an unsupported 16-bit result
+// onto success or newly-created ownership through the legacy three-bit summary.
+wire [3:0] command_error = target_dataslot_result <= 16'd5 ?
+                           target_dataslot_result[3:0] : ERR_RESULT;
 
 task automatic fail_command(input [3:0] code);
     begin
@@ -384,6 +395,8 @@ always @(posedge clk) begin
         open_flags <= 0;
         created_owned <= 0;
         check_before_write <= 0;
+        checking_created <= 0;
+        debug_sequence <= {4'd0, 32'hFFFFFFFF, 64'd0};
         saw_busy <= 0;
         timeout <= 0;
         received_words <= 0;
@@ -428,6 +441,8 @@ always @(posedge clk) begin
                 open_flags <= 0;
                 created_owned <= 0;
                 check_before_write <= 0;
+                checking_created <= 0;
+                debug_sequence <= {4'd0, 32'hFFFFFFFF, 64'd0};
                 expected_bytes <= op == 0 ? 32'd64 : 32'd8192;
                 target_dataslot_id <= op == 0 ? META_SLOT : op == 1 ? SAVE_SLOT : BACKUP_SLOT;
                 table_base <= op == 0 ? META_TABLE : op == 1 ? SAVE_TABLE : BACKUP_TABLE;
@@ -436,10 +451,9 @@ always @(posedge clk) begin
                 else state <= op == 2 ? ST_PROBE : ST_NAME;
             end
             ST_NAME: begin
-                // Fixed, read-only deferload inputs already belong to these
-                // slots. Ask APF which path is associated, rather than
-                // reopening it. No recovery-file operation uses this path.
-                debug_stage <= 11;
+                // Fixed inputs already belong to their slots. For recovery,
+                // query the actual association after create and before resize.
+                debug_stage <= operation == 2 ? 4'd13 : 4'd11;
                 target_dataslot_getfile <= 1;
                 name_words <= 0;
                 name_transfer_bad <= 0;
@@ -451,7 +465,11 @@ always @(posedge clk) begin
                 timeout <= timeout - 1;
                 if (!target_dataslot_done) saw_busy <= 1;
                 if (saw_busy && target_dataslot_done) begin
-                    if (target_dataslot_err != 0) fail_command({1'b0, target_dataslot_err});
+                    if (operation == 2) begin
+                        debug_sequence[97] <= 1;
+                        debug_sequence[31:16] <= target_dataslot_result;
+                    end
+                    if (target_dataslot_result != 0) fail_command(command_error);
                     else state <= ST_NAME_CHECK;
                 end else if (timeout == 0) begin
                     poisoned <= 1;
@@ -460,7 +478,7 @@ always @(posedge clk) begin
             end
             ST_NAME_CHECK: begin
                 // Separate cycle includes a final write coincident with done.
-                debug_stage <= 12;
+                debug_stage <= operation == 2 ? 4'd14 : 4'd12;
                 if (name_transfer_bad || name_words < 10) fail_command(ERR_TRANSFER);
                 else if (name_path_bad) fail_command(ERR_INPUT_PATH);
                 else begin
@@ -480,7 +498,7 @@ always @(posedge clk) begin
                 timeout <= timeout - 1;
                 if (!target_dataslot_done) saw_busy <= 1;
                 if (saw_busy && target_dataslot_done) begin
-                    if (target_dataslot_err != 0) fail_command({1'b0, target_dataslot_err});
+                    if (target_dataslot_result != 0) fail_command(command_error);
                     else begin
                         datatable_addr <= table_base;
                         state <= ST_ID_WAIT;
@@ -515,7 +533,14 @@ always @(posedge clk) begin
                 state <= ST_SIZE_CHECK;
             end
             ST_SIZE_CHECK: begin
-                if (datatable_q != expected_bytes) fail_command(ERR_TABLE);
+                if (checking_created) begin
+                    // The contract does not promise zero size for create-only.
+                    // Retain what firmware reported; exact 8192-byte checks still
+                    // guard both payload write and reread after the resize.
+                    debug_sequence[95:64] <= datatable_q;
+                    checking_created <= 0;
+                    state <= ST_RESIZE;
+                end else if (datatable_q != expected_bytes) fail_command(ERR_TABLE);
                 else state <= check_before_write ? ST_WRITE : ST_READ;
             end
             ST_READ: begin
@@ -532,7 +557,7 @@ always @(posedge clk) begin
                 timeout <= timeout - 1;
                 if (!target_dataslot_done) saw_busy <= 1;
                 if (saw_busy && target_dataslot_done) begin
-                    if (target_dataslot_err != 0) fail_command({1'b0, target_dataslot_err});
+                    if (target_dataslot_result != 0) fail_command(command_error);
                     else if (receive_bad || (receive_write && !receive_in_order)
                              || received_after != expected_bytes[13:2])
                         fail_command(ERR_TRANSFER);
@@ -553,14 +578,16 @@ always @(posedge clk) begin
                 timeout <= timeout - 1;
                 if (!target_dataslot_done) saw_busy <= 1;
                 if (saw_busy && target_dataslot_done) begin
-                    if (target_dataslot_err == 3) state <= ST_CREATE;
-                    else if (target_dataslot_err == 0) begin
+                    debug_sequence[99] <= 1;
+                    debug_sequence[63:48] <= target_dataslot_result;
+                    if (target_dataslot_result == 3) state <= ST_CREATE;
+                    else if (target_dataslot_result == 0) begin
                         if (backup_index == 16'hFFFF) fail_command(ERR_NAMES_FULL);
                         else begin
                             backup_index <= backup_index + 16'd1;
                             state <= ST_PROBE;
                         end
-                    end else fail_command({1'b0, target_dataslot_err});
+                    end else fail_command(command_error);
                 end else if (timeout == 0) begin
                     poisoned <= 1;
                     fail_command(ERR_TIMEOUT);
@@ -579,12 +606,15 @@ always @(posedge clk) begin
                 if (saw_busy && target_dataslot_done) begin
                     // Result 0 means somebody created it after our probe.
                     // It is now an existing backup, and cannot be written.
-                    if (target_dataslot_err == 1) begin
+                    debug_sequence[98] <= 1;
+                    debug_sequence[47:32] <= target_dataslot_result;
+                    if (target_dataslot_result == 1) begin
                         created_owned <= 1;
-                        state <= ST_RESIZE;
+                        checking_created <= 1;
+                        state <= ST_NAME;
                     end
-                    else if (target_dataslot_err == 0) fail_command(ERR_CREATE_RACE);
-                    else fail_command({1'b0, target_dataslot_err});
+                    else if (target_dataslot_result == 0) fail_command(ERR_CREATE_RACE);
+                    else fail_command(command_error);
                 end else if (timeout == 0) begin
                     poisoned <= 1;
                     fail_command(ERR_TIMEOUT);
@@ -608,7 +638,9 @@ always @(posedge clk) begin
                 timeout <= timeout - 1;
                 if (!target_dataslot_done) saw_busy <= 1;
                 if (saw_busy && target_dataslot_done) begin
-                    if (target_dataslot_err != 0) fail_command({1'b0, target_dataslot_err});
+                    debug_sequence[96] <= 1;
+                    debug_sequence[15:0] <= target_dataslot_result;
+                    if (target_dataslot_result != 0) fail_command(command_error);
                     else begin
                         check_before_write <= 1;
                         datatable_addr <= table_base;
@@ -634,7 +666,7 @@ always @(posedge clk) begin
                 timeout <= timeout - 1;
                 if (!target_dataslot_done) saw_busy <= 1;
                 if (saw_busy && target_dataslot_done) begin
-                    if (target_dataslot_err != 0) fail_command({1'b0, target_dataslot_err});
+                    if (target_dataslot_result != 0) fail_command(command_error);
                     // No flush: current Pocket firmware never answers it.
                     // Reopen the exact recovery filename and verify its size
                     // before returning every byte for caller comparison.

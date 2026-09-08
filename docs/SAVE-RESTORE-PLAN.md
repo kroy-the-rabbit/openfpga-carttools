@@ -144,11 +144,21 @@ the final write authorization.
 APF separates create and resize. A create-only operation may produce a zero-byte
 file, making an immediate 8 KiB write out of range. The core therefore probes
 with flags `0`, creates with flags `1` and requires result `1` (newly created),
-then resizes that pinned name with flags `2`. A create result `0` means another
+then resizes that pinned name with flags `2`. Create-only sends desired size
+zero; resize-only sends 8192. After create result 1, independently query the
+slot's assigned filename and require the expected path through its terminator,
+then verify slot ID before permitting resize. Retain the reported creation
+size without assuming the API promises zero. A create result `0` means another
 file already exists there and blocks resize and write. The sequence assumes
 the running Pocket core is the sole writer to the card. APF supplies no inode
 or exclusive file handle to prove identity against concurrent external
 replacement between commands.
+
+Restore must consume the full 16-bit command result. A truncated summary can
+alias an unsupported result onto success or create ownership. Keep full
+probe/create/name-query/resize results visible across subsequent commands;
+unknown values fail closed. The legacy three-bit dumper interface does not
+authorize any restore operation.
 
 A successful reopen and byte comparison demonstrates APF can read back the
 backup it just wrote. It does not establish power-loss durability beyond
@@ -215,7 +225,8 @@ The file service adds these hexadecimal diagnostic codes:
 | `B` | All recovery names were occupied |
 | `C` | Invalid file operation requested |
 | `D` | Recovery creation did not establish ownership of a new file |
-| `E` | Assigned input path did not match the required fixed path and terminator |
+| `E` | Assigned input or newly created recovery path did not match its required path and terminator |
+| `F` | Unsupported full-width APF result; no truncated result may authorize success |
 
 An error may leave a partial new recovery file on SD. Preserve it for analysis;
 the next attempt must choose a new name, not overwrite that file. No error
@@ -231,7 +242,8 @@ The [APF command reference](https://www.analogue.co/developer/docs/host-target-c
 defines each command's result codes separately.
 
 Stages distinguish input open, slot-ID check, length check, input read,
-recovery-name probe, create, resize, write, reopen, and recovery readback.
+recovery-name probe, create, assigned-backup-path query/check, resize, write,
+reopen, and recovery readback.
 The trace captures the responses actually held by the file service before
 `bridge_rd`, not just the requested pathname. Values are normalized to the
 service's internal byte-zero-low word representation:
@@ -281,7 +293,17 @@ additional fields, all numbers hexadecimal:
 A complete structure has `42` unique words. The tested 16-word chunk pattern
 reports `READS 46 UNIQUE 42 RPT 04`, repeats `10 20 30 40`, and no mismatch.
 The observed metadata filename should render `RESTORE.meta~~~`; all three
-trailing bytes are NUL. Recovery create and resize request size `00002000`.
+trailing bytes are NUL. The post-12CD candidate sends size `00000000` for
+create-only and `00002000` for resize-only. Earlier candidates sent 8192 for
+both. That unused-field correction is not yet a hardware-proven repair.
+
+The post-12CD failure overlay also retains `SEQ Pxxxx Cxxxx Nxxxx Rxxxx`:
+full 16-bit results for probe, create, assigned-name query, and resize.
+`----` means that command has not returned a result, distinct from actual zero
+or an observed unknown `FFFF`. `NEW SIZE` is the table size observed after the
+new backup's path and slot identity checks; `FFFFFFFF` is its initial sentinel.
+These fields survive subsequent command traces, but clear for a new operation.
+They report observed responses and table values, not proof of file durability.
 
 The subsequent `05AF` hardware screenshot has the same counts, but repeats
 `40 40 41 41`: flags and size each observed three times. It shows the correct

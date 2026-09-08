@@ -11,6 +11,26 @@ and byte-verified on 2026-09-07. Restore inputs and corpus are
 unchanged. Replaced files and all build evidence are retained locally, and
 the card was left mounted as requested. Cartridge save writes remain disabled.
 
+Latest hardware result, 2026-09-08: 12CD still fails, but now at
+`SIZE NEW BACKUP`, error `3` (file not found), flags `2`, size `8192`.
+Controller flow implies it accepted a create-success response after the probe;
+there is no `PRE*.sav` in the copied common directory. No recovery payload or
+cartridge save write was reached. The verified intake is retained under ignored
+`build/hardware/12cd-result-20260908.u0JBfV/`. Fresh Zelda ROM/save dumps still
+match the corpus. Next: investigate create-to-resize sequencing and the file
+identity/completion firmware returned, with all recovery safeguards retained.
+
+The next candidate zeroes the unused create-only size field, independently
+queries the newly created recovery filename and slot ID before resize, and
+retains full probe/create/name-query/resize results plus the creation table
+size. Restore now consumes the complete 16-bit APF result instead of allowing
+unknown results to alias success through a three-bit summary. Focused unit/UI,
+actual-command/SPI, and full-top integration tests pass, including a deliberate
+result-truncation negative control. This is not yet a proven hardware fix.
+The complete exact-source suite and sisko build remain to be run; the runner
+is currently occupied by sibling GBA work. 12CD remains installed, with
+cartridge writes disabled.
+
 The previous `2BDA` screenshot localized APF error `4` to metadata input
 open, with 70 observed responses and its two displayed path words correct.
 Expanded simulation through the actual SPI peripheral reproduces that count
@@ -91,15 +111,16 @@ control. Sisko completed with `rc=0` in 576 seconds: setup `+0.788 ns`, hold
 `+0.095 ns`, pulse `+0.827 ns`. Artifacts and logs are retained under ignored
 `build/restore/candidate-12cd3c1/`. 12CD is installed, with all 14 package files
 byte-verified after filesystem flush and every common file unchanged. Prior
-files, common files, screenshots, and the new package are retained under
-`build/restore/deploy-12cd3c1.e9fT7Q/`. The card was left mounted.
+files, common files, and the new package are retained under
+`build/restore/deploy-12cd3c1.e9fT7Q/`. The earlier claim that this directory
+included screenshots was incorrect. All screenshots are now retained and
+verified in the 2026-09-08 intake above. The card was left mounted.
 
 Next: reload, confirm 12CD, hold Select for three seconds, release, and tap A
 for the write-disabled preflight/recovery test. Capture the result and preserve
 any new 8192-byte `PRExxxx.sav` locally. Verify it survives power-cycling and
 matches the original RAM dump before any cartridge-write-enabled candidate.
-12CD has not yet been tested on hardware. The latest hardware result remains
-1540's failed recovery-name probe.
+The subsequent 12CD test failed at recovery resize, as recorded at the top.
 
 Controls remain a three-second Select hold, release, A for checks/backup,
 then a fresh three-second A hold after preflight passes. Wrong buttons retain

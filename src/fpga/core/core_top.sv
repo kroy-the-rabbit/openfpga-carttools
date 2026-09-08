@@ -433,6 +433,7 @@ wire            target_dataslot_flush;
 
 wire            target_dataslot_ack;
 wire            target_dataslot_done;
+wire    [15:0]  target_dataslot_result;
 wire    [2:0]   target_dataslot_err;
 
 wire    [15:0]  target_dataslot_id;
@@ -567,6 +568,7 @@ core_bridge_cmd icb (
 
     .target_dataslot_ack        ( target_dataslot_ack ),
     .target_dataslot_done       ( target_dataslot_done ),
+    .target_dataslot_result     ( target_dataslot_result ),
     .target_dataslot_err        ( target_dataslot_err ),
 
     .target_dataslot_id         ( target_dataslot_id ),
@@ -1803,6 +1805,8 @@ wire [108:0] restore_io_debug, restore_io_debug_s;
 synch_3 #(.WIDTH(109)) s_restore_io_debug (restore_io_debug, restore_io_debug_s, clk_sys);
 wire [475:0] restore_io_detail, restore_io_detail_s;
 synch_3 #(.WIDTH(476)) s_restore_io_detail (restore_io_detail, restore_io_detail_s, clk_sys);
+wire [99:0] restore_io_sequence, restore_io_sequence_s;
+synch_3 #(.WIDTH(100)) s_restore_io_sequence (restore_io_sequence, restore_io_sequence_s, clk_sys);
 always @(posedge clk_sys) begin
     if (~pll_core_locked) begin
         restore_io_request_toggle <= 0;
@@ -1837,6 +1841,7 @@ restore_file_io restore_files (
     .err(restore_io_err), .poisoned(restore_poisoned), .backup_index(restore_backup_index),
     .debug_status(restore_io_debug),
     .debug_detail(restore_io_detail), .observed_bridge_data(bridge_rd_data),
+    .debug_sequence(restore_io_sequence),
     .target_dataslot_getfile(r_target_get), .target_buffer_resp_struct(r_target_response),
     .bridge_addr(bridge_addr), .bridge_rd(bridge_rd), .bridge_wr(bridge_wr),
     .bridge_wr_data(bridge_wr_data), .bridge_endian_little(bridge_endian_little),
@@ -1849,7 +1854,8 @@ restore_file_io restore_files (
     .target_dataslot_openfile(r_target_open), .target_dataslot_id(r_target_id),
     .target_dataslot_slotoffset(r_target_offset), .target_dataslot_bridgeaddr(r_target_bridge),
     .target_dataslot_length(r_target_length), .target_buffer_param_struct(r_target_struct),
-    .target_dataslot_done(target_dataslot_done), .target_dataslot_err(target_dataslot_err)
+    .target_dataslot_done(target_dataslot_done), .target_dataslot_err(target_dataslot_err),
+    .target_dataslot_result(target_dataslot_result)
 );
 restore_engine #(.WRITE_ENABLED(RESTORE_WRITE_ENABLED)) restore (
     .clk(clk_sys), .reset(~pll_core_locked), .clk_io(clk_74a),
@@ -1904,6 +1910,7 @@ ui_restore_screen restore_screen (
     .guard_state(restore_guard_state), .phase(restore_phase), .error(restore_error),
     .io_error(restore_io_err_s), .io_debug(restore_io_debug_s),
     .io_detail(restore_io_detail_s),
+    .io_sequence(restore_io_sequence_s),
     .hold_progress(restore_hold_progress),
     .rom_crc(restore_rom_crc), .save_crc(restore_save_crc),
     .backup_index(restore_backup_index_s), .write_enabled(RESTORE_WRITE_ENABLED),

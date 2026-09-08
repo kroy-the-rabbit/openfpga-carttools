@@ -7,7 +7,8 @@ module tb_restore_bridge #(
     parameter integer INJECT_WORD = 0,
     parameter integer SPLIT_FIELDS = 0,
     parameter integer RECOVERY_SUCCESS = 0,
-    parameter integer BAD_PATH_ORDER = 0
+    parameter integer BAD_PATH_ORDER = 0,
+    parameter integer RECOVERY_FAULT = 0
 );
 localparam integer EXPECTED_REPEATS = SPLIT_FIELDS ? 4 : 65 / CHUNK_WORDS;
 reg clk = 0;
@@ -47,6 +48,7 @@ wire restore_bridge_rd_hit, restore_io_busy, done, failed;
 wire [3:0] err;
 wire [108:0] debug_status;
 wire [475:0] debug_detail;
+wire [99:0] debug_sequence;
 wire [319:0] observed_path;
 wire [9:0] observed_path_seen;
 wire [6:0] observed_unique, observed_repeats;
@@ -88,6 +90,7 @@ end
 wire target_dataslot_read, target_dataslot_write, target_dataslot_openfile;
 wire target_dataslot_getfile, target_dataslot_flush, target_dataslot_done;
 wire [2:0] target_dataslot_err;
+wire [15:0] target_dataslot_result;
 wire [15:0] target_dataslot_id;
 wire [31:0] target_dataslot_slotoffset, target_dataslot_bridgeaddr, target_dataslot_length;
 wire [31:0] target_buffer_param_struct, target_buffer_resp_struct;
@@ -112,7 +115,8 @@ always @(posedge clk) if (done) completions = completions + 1;
 restore_file_io #(.TIMEOUT_CYCLES(1000000)) files (
     .clk(clk), .reset(reset), .start(start), .op(op), .busy(restore_io_busy),
     .done(done), .failed(failed), .err(err), .debug_status(debug_status),
-    .debug_detail(debug_detail), .observed_bridge_data(bridge_rd_data),
+    .debug_detail(debug_detail), .debug_sequence(debug_sequence),
+    .observed_bridge_data(bridge_rd_data),
     .bridge_addr(bridge_addr), .bridge_rd(bridge_rd), .bridge_wr(bridge_wr),
     .bridge_wr_data(bridge_wr_data), .bridge_endian_little(bridge_endian_little),
     .bridge_rd_data(restore_bridge_rd_data), .bridge_rd_hit(restore_bridge_rd_hit),
@@ -124,7 +128,8 @@ restore_file_io #(.TIMEOUT_CYCLES(1000000)) files (
     .input_we(input_we), .input_index(input_index), .input_data(input_data),
     .target_dataslot_slotoffset(r_target_offset), .target_dataslot_bridgeaddr(r_target_bridge),
     .target_dataslot_length(r_target_length), .target_buffer_param_struct(r_target_struct),
-    .target_dataslot_done(target_dataslot_done), .target_dataslot_err(target_dataslot_err)
+    .target_dataslot_done(target_dataslot_done), .target_dataslot_err(target_dataslot_err),
+    .target_dataslot_result(target_dataslot_result)
 );
 core_bridge_cmd command (
     .clk(clk), .bridge_endian_little(bridge_endian_little),
@@ -135,6 +140,7 @@ core_bridge_cmd command (
     .target_dataslot_openfile(target_dataslot_openfile),
     .target_dataslot_getfile(target_dataslot_getfile), .target_dataslot_flush(target_dataslot_flush),
     .target_dataslot_done(target_dataslot_done), .target_dataslot_err(target_dataslot_err),
+    .target_dataslot_result(target_dataslot_result),
     .target_dataslot_id(target_dataslot_id), .target_dataslot_slotoffset(target_dataslot_slotoffset),
     .target_dataslot_bridgeaddr(target_dataslot_bridgeaddr), .target_dataslot_length(target_dataslot_length),
     .target_buffer_param_struct(target_buffer_param_struct),
@@ -294,10 +300,17 @@ endtask
 
 reg [31:0] recovery_disk [0:2047];
 integer recovery_opens, recovery_writes, recovery_reads;
+reg recovery_disk_exists;
+reg [31:0] recovery_disk_size;
+reg recovery_slot_bound;
+reg [31:0] recovery_path_words [0:63];
+reg [31:0] received_path_words [0:63];
 task recovery_open(input [31:0] wanted_flags, input [31:0] wanted_size,
                    input [15:0] result_code);
     integer word_index, byte_index;
     reg [31:0] structure_pointer, response, expected_word, discarded;
+    reg path_matches;
+    reg [15:0] model_result;
     begin
         await_command(32'h636D0192);
         recovery_opens = recovery_opens + 1;
@@ -321,9 +334,11 @@ task recovery_open(input [31:0] wanted_flags, input [31:0] wanted_size,
             end
             expected_word = 0;
             if (word_index < 64) begin
-                for (byte_index = 0; byte_index < 4; byte_index = byte_index + 1)
+                received_path_words[word_index] = response;
+                for (byte_index = 0; byte_index < 4; byte_index = byte_index + 1) begin
                     if (word_index*4+byte_index < expected_path.len())
                         expected_word[31-byte_index*8 -: 8] = expected_path[word_index*4+byte_index];
+                end
             end else if (word_index == 64) expected_word = wanted_flags;
             else expected_word = wanted_size;
             if (response !== expected_word)
@@ -331,24 +346,105 @@ task recovery_open(input [31:0] wanted_flags, input [31:0] wanted_size,
                        word_index, expected_word, response);
         end
         if (SPLIT_FIELDS) host_read(32'hF8001000, discarded);
-        // APF publishes slot identity and exact resulting length. A newly
-        // created file remains empty until a separately checked resize.
-        host_write(32'hF8002020, 32'd23);
-        host_write(32'hF8002024, result_code == 1 ? 32'd0 : 32'd8192);
-        host_write(32'hF8001000, 32'h6F6B0000 | result_code);
+        // Independent filesystem/slot association model. A successful create
+        // binds the actual received path, not a canned expected reply. This
+        // represents internally consistent host behavior, not a claim about
+        // Pocket's undocumented zero-length durability behavior.
+        path_matches = 1;
+        for (word_index = 0; word_index < 64; word_index = word_index + 1)
+            if (received_path_words[word_index] !== recovery_path_words[word_index]) path_matches = 0;
+        if (result_code >= 8) model_result = result_code; // injected unknown result
+        else if (wanted_flags == 1 && !recovery_disk_exists) begin
+            model_result = 1;
+            recovery_disk_exists = 1;
+            recovery_slot_bound = 1;
+            for (word_index = 0; word_index < 64; word_index = word_index + 1)
+                recovery_path_words[word_index] = received_path_words[word_index];
+            recovery_disk_size = 0;
+        end else if (recovery_disk_exists && path_matches) begin
+            model_result = 0;
+            recovery_slot_bound = 1;
+            if (wanted_flags == 2) recovery_disk_size = wanted_size;
+        end else model_result = 3;
+        if (model_result != result_code)
+            $fatal(1, "independent recovery filesystem disagrees with requested result");
+        if (model_result < 2) begin
+            host_write(32'hF8002020, 32'd23);
+            host_write(32'hF8002024, recovery_disk_size);
+        end
+        host_write(32'hF8001000, 32'h6F6B0000 | model_result);
+    end
+endtask
+
+task recovery_get_name;
+    integer word_index;
+    reg [31:0] response_pointer, response_word;
+    begin
+        await_command(32'h636D0190);
+        register_read(32'hF8001024, response_pointer);
+        if (response_pointer != 32'hC0000000)
+            $fatal(1, "backup Get Filename used wrong response pointer");
+        if (!recovery_disk_exists || !recovery_slot_bound)
+            $fatal(1, "backup Get Filename has no created slot association");
+        host_write(32'hF8001000, 32'h62750000);
+        for (word_index = 0; word_index < 64; word_index = word_index + 1) begin
+            response_word = recovery_path_words[word_index];
+            // Change the final index digit from PRE0000 to PRE0001 only in
+            // the returned association, never in the independently bound path.
+            if (RECOVERY_FAULT == 1 && word_index == 7) response_word = response_word ^ 32'd1;
+            host_write(response_pointer + word_index*4, response_word);
+        end
+        host_write(32'hF8001000, 32'h6F6B0000);
+    end
+endtask
+
+task recovery_refused(input [3:0] wanted_error, input [3:0] wanted_stage,
+                     input [3:0] wanted_seen, input [15:0] create_result,
+                     input [15:0] resize_result);
+    begin
+        polls = 0;
+        while (completions == before_completion && polls < 20) begin tick(1); polls = polls + 1; end
+        if (completions != before_completion + 1 || !failed || err != wanted_error ||
+            restore_io_busy || debug_status[106:103] != wanted_stage)
+            $fatal(1, "recovery association/full-result refusal failed: error=%h stage=%h",
+                   err, debug_status[106:103]);
+        if (debug_sequence !== {wanted_seen, (RECOVERY_FAULT == 3 ? 32'd0 : 32'hFFFFFFFF),
+                                16'd3, create_result, 16'd0, resize_result})
+            $fatal(1, "recovery refusal lost full-width command history: %h", debug_sequence);
+        if (recovery_writes || recovery_reads || recovery_opens != (RECOVERY_FAULT == 3 ? 3 : 2))
+            $fatal(1, "recovery refusal performed forbidden later file I/O");
+        tick(16);
+        if (command.target_0[31:16] == 16'h636D || r_target_open || r_target_write || r_target_read)
+            $fatal(1, "recovery refusal issued a subsequent command");
     end
 endtask
 
 task recovery_success;
     integer word_index;
     reg [31:0] transfer_pointer, response;
-    begin
+    begin : recovery_flow
         recovery_opens = 1; // The validated, absent-name probe above.
         recovery_writes = 0;
         recovery_reads = 0;
+        recovery_disk_exists = 0;
+        recovery_disk_size = 0;
+        recovery_slot_bound = 0;
         host_write(32'hF8001000, 32'h6F6B0003);
-        recovery_open(32'd1, 32'd8192, 16'd1);
-        recovery_open(32'd2, 32'd8192, 16'd0);
+        recovery_open(32'd1, 32'd0, RECOVERY_FAULT == 2 ? 16'h0009 : 16'd1);
+        if (RECOVERY_FAULT == 2) begin
+            recovery_refused(4'd15, 4'd6, 4'b1100, 16'h0009, 16'd0);
+            disable recovery_flow;
+        end
+        recovery_get_name();
+        if (RECOVERY_FAULT == 1) begin
+            recovery_refused(4'd14, 4'd14, 4'b1110, 16'd1, 16'd0);
+            disable recovery_flow;
+        end
+        recovery_open(32'd2, 32'd8192, RECOVERY_FAULT == 3 ? 16'h0008 : 16'd0);
+        if (RECOVERY_FAULT == 3) begin
+            recovery_refused(4'd15, 4'd7, 4'b1111, 16'd1, 16'h0008);
+            disable recovery_flow;
+        end
         await_command(32'h636D0184);
         recovery_writes = recovery_writes + 1;
         register_read(32'hF8001024, response);
@@ -388,6 +484,8 @@ task recovery_success;
         if (completions != before_completion + 1 || failed || err || restore_io_busy ||
             input_count != 2048 || recovery_opens != 4 || recovery_writes != 1 || recovery_reads != 1)
             $fatal(1, "full recovery command/SPI round trip did not complete");
+        if (debug_sequence !== {4'b1111, 32'd0, 16'd3, 16'd1, 16'd0, 16'd0})
+            $fatal(1, "full recovery lost create association and command history");
     end
 endtask
 initial begin
@@ -545,8 +643,8 @@ initial begin
             host_read(32'hF8001000, ignored_word);
         end
     end
-    $display("TB PASS: restore bridge command integration (chunk=%0d SPI=%0d split=%0d success=%0d badpath=%0d)",
-             CHUNK_WORDS, USE_SPI, SPLIT_FIELDS, RECOVERY_SUCCESS, BAD_PATH_ORDER);
+    $display("TB PASS: restore bridge command integration (chunk=%0d SPI=%0d split=%0d success=%0d badpath=%0d recoveryfault=%0d)",
+             CHUNK_WORDS, USE_SPI, SPLIT_FIELDS, RECOVERY_SUCCESS, BAD_PATH_ORDER, RECOVERY_FAULT);
     $finish;
 end
 initial begin #100000000; $fatal(1, "restore bridge watchdog"); end

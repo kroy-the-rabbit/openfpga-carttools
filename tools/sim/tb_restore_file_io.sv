@@ -12,6 +12,7 @@ wire [3:0] err;
 wire [15:0] backup_index;
 wire [108:0] debug_status;
 wire [475:0] debug_detail;
+wire [99:0] debug_sequence;
 wire [1:0] debug_op;
 wire [3:0] debug_stage;
 wire [6:0] debug_reads;
@@ -34,14 +35,14 @@ wire [15:0] t_id;
 wire [31:0] t_offset, t_address, t_length, t_struct;
 wire [31:0] t_response;
 reg t_done = 1;
-reg [2:0] t_err = 0;
+reg [15:0] t_err = 0;
 
 restore_file_io #(.TIMEOUT_CYCLES(30000)) dut (
     .clk(clk), .reset(reset), .start(start), .op(op),
     .busy(busy), .done(done), .failed(failed), .err(err),
     .poisoned(poisoned), .backup_index(backup_index),
     .debug_status(debug_status),
-    .debug_detail(debug_detail), .observed_bridge_data(bridge_rd_data),
+    .debug_detail(debug_detail), .debug_sequence(debug_sequence), .observed_bridge_data(bridge_rd_data),
     .bridge_addr(bridge_addr), .bridge_rd(bridge_rd), .bridge_wr(bridge_wr),
     .bridge_wr_data(bridge_wr_data), .bridge_endian_little(bridge_endian_little),
     .bridge_rd_data(bridge_rd_data), .bridge_rd_hit(bridge_rd_hit),
@@ -53,7 +54,7 @@ restore_file_io #(.TIMEOUT_CYCLES(30000)) dut (
     .target_dataslot_getfile(t_get), .target_buffer_resp_struct(t_response),
     .target_dataslot_slotoffset(t_offset), .target_dataslot_bridgeaddr(t_address),
     .target_dataslot_length(t_length), .target_buffer_param_struct(t_struct),
-    .target_dataslot_done(t_done), .target_dataslot_err(t_err)
+    .target_dataslot_done(t_done), .target_dataslot_err(t_err[2:0]), .target_dataslot_result(t_err)
 );
 
 reg [31:0] datatable [0:15];
@@ -69,6 +70,7 @@ integer occupied_names = 0, created_name = -1, last_open_name = -1, created_size
 integer wrong_table_id = 0, size_delta = 0, reopen_size_delta = 0, open_error = -1;
 integer read_error = 0, write_error = 0, resize_error = 0, mute_command = 0;
 integer short_words = 0, malformed_receive = 0, create_race = 0;
+integer create_result_override = -1, creation_reported_size = 0, wrong_created_id = 0;
 integer read_kind_errors = 0;
 
 function automatic [31:0] swap(input [31:0] word_value);
@@ -174,7 +176,7 @@ task automatic check_open_struct(output integer flags, output integer name);
         for (j = 0; j < 25; j = j + 1)
             check(structure[j] === prefix[199-j*8 -: 8], "correct absolute Assets prefix");
         check(flags == 0 || flags == 1 || flags == 2, "never combine create and resize");
-        check(desired_size == (flags ? 8192 : 0), "native numeric desired size");
+        check(desired_size == (flags == 2 ? 8192 : 0), "only resize has a nonzero desired size");
         name = -1;
         if (t_id == 21) begin
             meta_name = "RESTORE.meta";
@@ -215,7 +217,7 @@ task automatic check_open_struct(output integer flags, output integer name);
         check(debug_detail[145:139] == 66 && debug_detail[138:132] == 0,
               "complete unique structure trace with no repeat");
         check(debug_detail[103] == 0, "correct responses never set mismatch latch");
-        check(debug_detail[31:0] == (flags ? 8192 : 0), "trace observed actual desired size");
+        check(debug_detail[31:0] == (flags == 2 ? 8192 : 0), "trace observed actual desired size");
         check(debug_detail[155:146] == 10'h3FF, "trace retained every path word");
         for (j = 0; j < 40; j = j + 1)
             check(debug_detail[156+j*8 +: 8] === structure[j], "full observed path matches host");
@@ -238,17 +240,19 @@ task automatic model_open;
                 t_err = 0;
             end else if (flags == 1) begin
                 check(name >= occupied_names, "existing recovery file never recreated");
-                if (create_race) t_err = 0;
+                if (create_result_override >= 0) t_err = create_result_override;
+                else if (create_race) t_err = 0;
                 else begin
                     created_name = name;
-                    created_size = 0;
+                    created_size = creation_reported_size;
                     t_err = 1;
                 end
-                size = 0;
+                size = creation_reported_size;
             end else if (flags == 2) begin
                 n_resize = n_resize + 1;
                 check(name == created_name && name == last_open_name && n_write == 0,
                       "only this operation's new pinned backup may be preallocated");
+                check(n_get == 1, "created recovery association queried before resize");
                 if (!resize_error) created_size = 8192;
                 size = created_size;
                 t_err = resize_error;
@@ -257,7 +261,7 @@ task automatic model_open;
                 size = name == created_name ? created_size : 17;
             end else t_err = 3;
             if (t_id == 23) last_open_name = name;
-            datatable[table_index] = wrong_table_id ? 16'd77 : t_id;
+            datatable[table_index] = wrong_table_id || (flags == 1 && wrong_created_id) ? 16'd77 : t_id;
             datatable[table_index+1] = size + size_delta;
             if (t_id == 23 && flags == 0 && name == created_name)
                 datatable[table_index+1] = size + reopen_size_delta;
@@ -272,13 +276,24 @@ task automatic model_get;
     reg [31:0] stream_word;
     reg [7:0] character;
     string canonical;
+    string digits;
     begin
         n_get = n_get + 1;
         t_done = 0;
-        check(t_id == 21 || t_id == 22, "get filename only for fixed input slots");
+        check(t_id == 21 || t_id == 22 || t_id == 23, "get filename uses assigned restore slot");
         check(t_response == 32'hC0000000, "dedicated filename response pointer");
         canonical = t_id == 21 ? "/Assets/carttools/common/RESTORE.meta" :
                                   "/Assets/carttools/common/RESTORE.sav";
+        if (t_id == 23) begin
+            check(created_name >= 0 && n_resize == 0 && n_write == 0,
+                  "backup association checked after creation but before mutation");
+            canonical = "/Assets/carttools/common/PRE0000.sav";
+            digits = "0123456789ABCDEF";
+            canonical[28] = digits[(created_name / 4096) % 16];
+            canonical[29] = digits[(created_name / 256) % 16];
+            canonical[30] = digits[(created_name / 16) % 16];
+            canonical[31] = digits[created_name % 16];
+        end
         if (mute_command != 5) begin
             repeat (4) @(negedge clk);
             t_err = name_error;
@@ -328,7 +343,7 @@ task automatic model_write;
         t_done = 0;
         check(t_id == 23 && created_name >= 0 && created_name == last_open_name,
               "write only newly created recovery slot");
-        check(created_size == 8192, "zero-length creation must be preallocated before write");
+        check(created_size == 8192, "recovery size must be exact before write");
         check(t_offset == 0 && t_address == 32'hA0000000 && t_length == 8192,
               "complete backup transfer arguments");
         if (mute_command != 3) begin
@@ -408,6 +423,7 @@ task automatic fresh;
         wrong_table_id = 0; size_delta = 0; reopen_size_delta = 0; open_error = -1;
         read_error = 0; write_error = 0; resize_error = 0; mute_command = 0;
         short_words = 0; malformed_receive = 0; create_race = 0;
+        create_result_override = -1; creation_reported_size = 0; wrong_created_id = 0;
         read_kind_errors = 0;
         t_done = 1; t_err = 0;
         for (i = 0; i < 16; i = i + 1) datatable[i] = 0;
@@ -510,10 +526,111 @@ initial begin
         fresh();
         occupied_names = 2;
         run(2);
-        check(!failed && backup_index == 2 && n_open == 6 && n_resize == 1 && n_write == 1 && n_read == 1,
-              "probe, create, preallocate, write, reopen, reread sequence");
+        check(!failed && backup_index == 2 && n_open == 6 && n_get == 1 && n_resize == 1 && n_write == 1 && n_read == 1,
+              "probe, create, query association, preallocate, write, reopen, reread sequence");
+        check(debug_sequence === {4'hF,32'd0,16'd3,16'd1,16'd0,16'd0},
+              "all exact completion results and observed creation size retained");
         for (i = 0; i < 2048; i = i + 1)
             check(received[i] === backup_memory[i], "entire recovery file returned for comparison");
+
+        // A new run clears recovery breadcrumbs even without a hardware reset.
+        run(0);
+        check(!failed && debug_sequence[99:64] === {4'd0,32'hFFFFFFFF},
+              "new operation hides stale recovery sequence and creation size");
+
+        for (i = 1; i <= 7; i = i + 1) begin
+            fresh();
+            name_fault = i;
+            run(2);
+            check(failed && err == 14 && n_get == 1 && n_resize == 0 && n_write == 0 && n_read == 0,
+                  "incorrect or unterminated created backup path blocks resize and writes");
+            check(debug_stage == 14 && debug_sequence[99:96] == 4'hE &&
+                  debug_sequence[63:16] == {16'd3,16'd1,16'd0},
+                  "created-path rejection retains completed probe/create/query breadcrumbs");
+        end
+        for (i = 1; i <= 5; i = i + 1) begin
+            fresh();
+            name_transfer_fault = i;
+            run(2);
+            check(failed && err == 10 && n_resize == 0 && n_write == 0 && n_read == 0,
+                  "reordered, unaligned, extra or misrouted backup-name transfer blocks mutation");
+        end
+        fresh();
+        name_length_words = 9;
+        run(2);
+        check(failed && err == 10 && n_resize == 0 && n_write == 0,
+              "truncated backup filename cannot authorize resize");
+        fresh();
+        name_error = 1;
+        run(2);
+        check(failed && err == 1 && n_resize == 0 && n_write == 0 &&
+              debug_sequence[99:96] == 4'hE && debug_sequence[31:16] == 16'd1,
+              "failed backup filename query preserves raw result and blocks mutation");
+        fresh();
+        wrong_created_id = 1;
+        run(2);
+        check(failed && err == 9 && n_get == 1 && n_resize == 0 && n_write == 0,
+              "wrong post-create slot identity blocks resize");
+        check(debug_stage == 2 && debug_detail[103:32] == {1'b1,7'd8,32'd77,32'd23},
+              "post-create slot identity diagnostic names actual table entry");
+        fresh();
+        creation_reported_size = 37;
+        run(2);
+        check(!failed && n_resize == 1 && n_write == 1 && n_read == 1 &&
+              debug_sequence === {4'hF,32'd37,16'd3,16'd1,16'd0,16'd0},
+              "nonzero observed creation size is recorded, then resized and fully verified");
+    end
+
+    fresh();
+    mute_command = 5;
+    run(2);
+    check(failed && err == 8 && poisoned && n_get == 1 && n_resize == 0 && n_write == 0,
+          "backup-name timeout poisons service before resize");
+    check(debug_stage == 13 && debug_sequence[99:96] == 4'hC &&
+          debug_sequence[63:32] == {16'd3,16'd1},
+          "timed-out query remains unseen while completed creation results survive");
+    fresh();
+    create_result_override = 9;
+    run(2);
+    check(failed && err == 15 && n_get == 0 && n_resize == 0 && n_write == 0 &&
+          debug_sequence[99:96] == 4'hC && debug_sequence[47:32] == 16'd9,
+          "full create result0009 is not aliased to created result0001");
+    fresh();
+    create_result_override = 16'h0101;
+    run(2);
+    check(failed && err == 15 && n_get == 0 && n_resize == 0 && n_write == 0 &&
+          debug_sequence[99:96] == 4'hC && debug_sequence[47:32] == 16'h0101,
+          "create result upper byte0101 cannot alias to created result0001");
+    fresh();
+    open_error = 8;
+    run(2);
+    check(failed && err == 15 && n_open == 1 && n_get == 0 && n_write == 0 &&
+          debug_sequence[99:96] == 4'h8 && debug_sequence[63:48] == 16'd8,
+          "full probe result0008 is not aliased to opened result0000");
+    fresh();
+    open_error = 16'hFFFF;
+    run(2);
+    check(failed && err == 15 && debug_sequence[99:96] == 4'h8 &&
+          debug_sequence[63:48] == 16'hFFFF,
+          "observed unknownFFFF is distinguished from an unseen response");
+    fresh();
+    name_error = 8;
+    run(2);
+    check(failed && err == 15 && n_resize == 0 && n_write == 0 &&
+          debug_sequence[99:96] == 4'hE && debug_sequence[31:16] == 16'd8,
+          "full backup query result0008 cannot authorize resize");
+    fresh();
+    resize_error = 8;
+    run(2);
+    check(failed && err == 15 && n_write == 0 && n_read == 0 &&
+          debug_sequence === {4'hF,32'd0,16'd3,16'd1,16'd0,16'd8},
+          "full resize result0008 cannot authorize a recovery write");
+    for (i = 6; i <= 7; i = i + 1) begin
+        fresh();
+        name_error = i;
+        run(1);
+        check(failed && err == 15 && n_read == 0,
+              "undocumented six or seven filename result fails closed");
     end
 
     fresh();
