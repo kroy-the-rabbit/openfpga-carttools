@@ -31,9 +31,15 @@ not reproduce the hardware cause. The next candidate queries and validates
 the already assigned fixed input paths, checks slot ID and exact size, and
 reads those read-only slots without reopening them. Recovery-file operations
 and all cartridge identity and write gates are unchanged. Focused tests pass.
-Exact candidate `ac63333`, stamp `AC63`, is running the full suite and its
-kira fit; neither result is complete yet. `05AF` remains the last installed
-build, and no new hardware success is claimed.
+Exact candidate `ac63333`, stamp `AC63`, has completed verification:
+all 44 checks passed, and kira timing passed
+with setup `+0.474 ns`, hold `+0.025 ns`, and pulse width `+0.827 ns`.
+The full package and logs are verified and retained under ignored
+`build/restore/candidate-ac63333/`. AC63 is not installed because the card
+is not currently accessible as a mount, including outside the sandbox.
+`05AF` remains the last verified installed build. No new hardware success
+is claimed; the next step is guarded installation after remount, then the
+same write-disabled preflight and full-screen capture.
 
 Controls remain a three-second Select hold, release, A for checks/backup,
 then a fresh three-second A hold after preflight passes. Wrong buttons retain

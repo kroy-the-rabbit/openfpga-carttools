@@ -51,17 +51,47 @@ mux variants. File-service tests include bad/missing/unterminated paths,
 reversed bytes, malformed transfers, final-word completion, arbitrary
 post-NUL padding, timeouts, and unchanged recovery-file refusal protections.
 Exact candidate source is `ac6333374074303b7345e2a6379fc84a6d168e71`, stamp
-`AC63`. The full suite is running with output retained at
-`build/restore/simulation-ac63333.log`. Its exact-source kira fit is also
-running; do not install unless both pass. Inspect that job with:
+`AC63`. All 44 simulation and structural checks passed, with output retained
+at `build/restore/simulation-ac63333.log`. Kira completed the exact-source
+fit with `rc=0` in 948 seconds using Quartus Lite 25.1 build 1129. Setup
+`+0.474 ns`, hold `+0.025 ns`, minimum pulse width `+0.827 ns`; 8,144 ALMs
+and 129 RAM blocks. No timing constraints changed. Inspect the completed
+job with the exact source commit, not a later documentation-only HEAD:
 
 ```sh
 ../tools/runner-build job kira pocket-cartridge cart la-restore-assigned-input ac63333
 ../tools/runner-build fetch kira pocket-cartridge cart la-restore-assigned-input ac63333
 ```
 
-Full-suite and kira fit results are not yet available. No card was mounted
-at the initial resume check. Recheck before any deployment and do not unmount.
+The verified artifacts are retained under ignored
+`build/restore/candidate-ac63333/`: ZIP, bitstream, report, build log,
+simulation log, and extracted package. ZIP integrity passed, its embedded
+bitstream matches the separately fetched file, and its `data.json` matches
+committed source.
+
+| Artifact | SHA-256 |
+|---|---|
+| `kroy.CartTools_0.9999.ac63333.zip` | `f4a1166a73ad3b99494e7077c743c8f805eff32c5953788dab8c13f89ca017ab` |
+| `bitstream.rbf_r` | `64a4baffc51bc2584bf1d0919d2bb2401724983379eec53383b1ab476289de4c` |
+| `report.txt` | `5098efc4f5c51c0317d1800dda9dcfaea602b488e1488a130ceae110c7ceac54` |
+| `simulation-ac63333.log` | `8d4e67707a3c2ccae555a33801e93bf30317d02f70b9affcaf334d3619e0db7c` |
+
+AC63 is NOT installed. The card was not accessible at the final mount check,
+including outside the sandbox. A device listing briefly named the usual
+mount point, but actual mount and file checks did not confirm access.
+No card write or unmount was performed in this resumed work. `05AF` remains
+the last verified installed version, not a fresh read of the absent card.
+
+Next: after the card is mounted, resolve its current device, preserve the
+installed package locally, validate both restore-input hashes, merge the
+complete AC63 package, flush, and compare all 14 files byte for byte. Leave
+the card mounted. Do not replace the prepared save or metadata with new
+inputs. After deployment, confirm stamp `AC63`, hold Select three seconds,
+release, press/release A, and capture the entire result screen. That test
+must establish whether the assigned filename and slot read succeed, and
+whether preflight reaches the unchanged recovery sequence. Keep cartridge
+save writes disabled even if staging succeeds. No hardware pass or repair
+of the `0192` refusal is claimed yet.
 
 The use of assigned deferred-load slots and `0190` is documented in
 [data.json](https://www.analogue.co/developer/docs/core-definition-files/data-json)
