@@ -50,6 +50,16 @@ bytes in both endian modes, and rejects four deliberately broken command
 mux variants. File-service tests include bad/missing/unterminated paths,
 reversed bytes, malformed transfers, final-word completion, arbitrary
 post-NUL padding, timeouts, and unchanged recovery-file refusal protections.
+Exact candidate source is `ac6333374074303b7345e2a6379fc84a6d168e71`, stamp
+`AC63`. The full suite is running with output retained at
+`build/restore/simulation-ac63333.log`. Its exact-source kira fit is also
+running; do not install unless both pass. Inspect that job with:
+
+```sh
+../tools/runner-build job kira pocket-cartridge cart la-restore-assigned-input ac63333
+../tools/runner-build fetch kira pocket-cartridge cart la-restore-assigned-input ac63333
+```
+
 Full-suite and kira fit results are not yet available. No card was mounted
 at the initial resume check. Recheck before any deployment and do not unmount.
 

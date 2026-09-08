@@ -30,8 +30,9 @@ consumption can retain a shifted path with the same FPGA trace. That does
 not reproduce the hardware cause. The next candidate queries and validates
 the already assigned fixed input paths, checks slot ID and exact size, and
 reads those read-only slots without reopening them. Recovery-file operations
-and all cartridge identity and write gates are unchanged. Focused tests pass;
-full-suite and kira fit results are pending. `05AF` remains the last installed
+and all cartridge identity and write gates are unchanged. Focused tests pass.
+Exact candidate `ac63333`, stamp `AC63`, is running the full suite and its
+kira fit; neither result is complete yet. `05AF` remains the last installed
 build, and no new hardware success is claimed.
 
 Controls remain a three-second Select hold, release, A for checks/backup,
