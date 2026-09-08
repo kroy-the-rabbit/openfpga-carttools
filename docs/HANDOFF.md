@@ -3,7 +3,7 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
-## Slot-table latency candidate, 2026-09-07
+## Verified slot-table latency candidate, 2026-09-07
 
 The user requested the fix after AC63 stopped at `CHECK SLOT ID`, error `9`.
 The shipped `mf_datatable` has a synchronous RAM read and registered output
@@ -27,11 +27,51 @@ The first synthesis attempt, source `3401e31`, stopped on multiple drivers in
 the newly added table diagnostic registers. The corrected candidate keeps all
 diagnostic assignments in their original clocked owner. The regression also
 checks single procedural ownership. No artifact from the failed attempt was
-installed. Its initial suite run is superseded; fresh full-suite output goes
-to `build/restore/table-latency-final-simulation.log`.
-The next exact-source build goes through runner-build on kira. Do not install until the full suite and timing
-pass. AC63 remains installed until a subsequent deployment is recorded.
-This is a reproduced RTL defect and a candidate fix, not a hardware pass.
+installed. Its initial suite run was stopped and is superseded by the final
+complete run at `build/restore/table-latency-final-simulation.log`.
+
+Exact corrected source is `154097cd0b71b3ca1cfad563d92e344068c0eacc`, display
+stamp `1540`, package `0.9999.154097c`. All 45 checks passed on this source,
+including actual command/SPI integration, both early-sample negative controls,
+and the full-size 512 KiB restore-engine test. Kira completed with `rc=0` in
+894 seconds on Quartus Lite 25.1 build 1129. Setup `+0.969 ns`, hold
+`+0.013 ns`, minimum pulse width `+0.827 ns`; 8,252 ALMs, 129 RAM blocks.
+No timing constraints changed. Inspect or fetch this exact job with:
+
+```sh
+../tools/runner-build job kira pocket-cartridge cart la-restore-table-latency-final 154097c
+../tools/runner-build fetch kira pocket-cartridge cart la-restore-table-latency-final 154097c
+```
+
+Artifacts are retained under ignored `build/restore/candidate-154097c/`:
+ZIP, bitstream, timing report, build log, full simulation log, and extracted
+package. ZIP integrity passed, the packaged bitstream matches the independently
+fetched bitstream, and the packaged data-slot definitions match source.
+
+| Artifact | SHA-256 |
+|---|---|
+| `kroy.CartTools_0.9999.154097c.zip` | `1480fd03b0838754c4b06b95fb4f5aaeffcee7f2089d7dfb3bca739fd4d5e9a7` |
+| `bitstream.rbf_r` | `c3e18e9849eb2d2bc3c0d7f3428ed6d0b522a64cf2c04d9b186d1fa2942a766c` |
+| `report.txt` | `c57ebf6d1da8410086d598b0d7292167071491cb8730e036173f06d774e55978` |
+| `simulation-154097c.log` | `6ce7abc4dadbaa46fae5c9e52738e9d7121e96685a303804e467bdf7b9b8eeef` |
+
+1540 is NOT installed. During verification the card disappeared from its mount;
+an outside-sandbox check detected the `pocket` exFAT partition as `/dev/sdb1`,
+unmounted. The user was asked to remount. No card write or unmount was performed
+in this fix/build turn. AC63 is the last verified installed build, and its
+error-9 screenshot remains the latest hardware result.
+
+Next: resolve the current mount/device again, then run the prepared ignored
+`build/restore/install-154097c.sh` with the ZIP hash, bitstream hash, and that
+verified device as its three arguments. Run outside the sandbox. It requires
+the expected AC63 bitstream and unchanged restore inputs, backs up prior
+package/common files, merges only the 14 allowed package files, flushes,
+byte-compares the package and all common files, and leaves the card mounted.
+Do not weaken a failed precondition or assume the device node stays the same.
+Then reload, confirm `1540`, hold Select three seconds, release, press/release
+A, and capture the complete preflight result. Keep cartridge save writes
+disabled. This is a reproduced RTL defect with a verified candidate, not a
+completed hardware restore or a claimed repair of the recovery `0192` path.
 
 ## Resumed restore input work, 2026-09-07
 

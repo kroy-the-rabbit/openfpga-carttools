@@ -4,7 +4,7 @@ What is actually true right now, as opposed to what is written. The plan in
 `plan.md` says where this is going; this file says where it is.
 
 Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
-Development is on `save-restore-la`. Installed diagnostic source `ac63333`,
+Development is on `save-restore-la`. Last verified installed source `ac63333`,
 stamp `AC63`, passed all 44 simulation and structural checks and kira timing:
 setup `+0.474 ns`, hold `+0.025 ns`. The full 14-file package was installed
 and byte-verified on 2026-09-07. Restore inputs and corpus are
@@ -52,9 +52,18 @@ The slot-ID investigation found an early sample of the registered data-table
 RAM output. Updating the test model alone reproduces AC63's error 9 at stage 2.
 The candidate adds the missing settle cycle for both ID and size comparisons,
 retains actual/expected table words on failure, and leaves every write gate
-unchanged. Focused file-service, UI, and negative-control tests pass. The full
-suite and kira build are the next verification gates; this candidate has not
-been installed or tested on hardware. See the newest handoff section.
+unchanged. Exact corrected source `154097c`, stamp `1540`, passed all 45
+simulation and structural checks and completed its kira build with `rc=0`:
+setup `+0.969 ns`, hold `+0.013 ns`, pulse `+0.827 ns`. The complete verified
+package and logs are retained under ignored `build/restore/candidate-154097c/`.
+The first attempt `3401e31` failed synthesis on diagnostic-register ownership;
+that was corrected and checked before the final build. It was never installed.
+
+1540 is not installed or hardware-tested. The card became unmounted during
+verification, confirmed outside the sandbox, and the user was asked to remount.
+No card write or unmount occurred in this fix/build turn. Next: guarded package
+installation, then the same write-disabled preflight on hardware. See the newest
+handoff section for hashes, runner commands, and the prepared installer.
 
 Controls remain a three-second Select hold, release, A for checks/backup,
 then a fresh three-second A hold after preflight passes. Wrong buttons retain
