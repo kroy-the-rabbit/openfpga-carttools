@@ -3,7 +3,7 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
-## Recovery Open File path candidate
+## Recovery Open File path candidate installed, 2026-09-07
 
 The user requested parallel investigation and the next build on sisko after
 1540 reached `PROBE BACKUP NAME` and returned error `4` for `PRE0000.sav`.
@@ -32,10 +32,57 @@ old per-word reversal, and successful recovery creation, resize, write, reopen,
 and full 8192-byte readback through the actual command/SPI path. Both endian
 modes pass, including separate repeated reads of native flags and size during
 probe, create, resize, and reopen. File-service and UI tests also pass.
-The complete suite and sisko fit through runner-build are next, using the exact
-committed candidate. No installation is permitted unless both pass.
-1540 remains installed until a new deployment is recorded. This is a strongly
-supported compatibility fix to test on hardware, not a confirmed restore.
+Exact candidate source is `12cd3c148cffff4a7b102684c2e36ba66364aee8`, display
+stamp `12CD`. All 45 checks passed against that commit, using the unchanged
+suite implementations with four independent simulation workers. The source
+tree was checked against the commit before and after execution. The retained
+log is `build/restore/candidate-12cd3c1/simulation-12cd3c1.log`, SHA-256
+`dbcf4b766e8bb8708e409f92ca9999c3704eaa3a9cdaceb4ae5831adec891c7e`.
+The ignored parallel wrapper is retained beside it for reproducibility.
+
+Sisko completed this exact commit through runner-build with `rc=0` in 576
+seconds, Quartus Lite 25.1 build 1129. Setup `+0.788 ns`, hold `+0.095 ns`,
+minimum pulse width `+0.827 ns`; 8,357 ALMs and 129 RAM blocks. No timing
+constraints changed. Inspect or fetch the completed job with:
+
+```sh
+../tools/runner-build job sisko pocket-cartridge cart la-restore-open-path 12cd3c1
+../tools/runner-build fetch sisko pocket-cartridge cart la-restore-open-path 12cd3c1
+```
+
+Artifacts are retained under ignored `build/restore/candidate-12cd3c1/`,
+including the ZIP, independently fetched bitstream, timing report, build log,
+simulation log, parallel wrapper, and extracted package. ZIP integrity passed,
+the packaged bitstream matches the independent artifact, and packaged data-slot
+definitions match source. The package version is `0.9999.12cd3c1`; its UTC
+release date is 2026-09-08, while local deployment was still 2026-09-07.
+
+| Artifact | SHA-256 |
+|---|---|
+| `kroy.CartTools_0.9999.12cd3c1.zip` | `16943ca575b3965b07b9f983cbf1cbf62fa1c0a681c72fc1b1bb72cdf4aba58d` |
+| `bitstream.rbf_r` | `4a3ee413f898a1d3326723f39cf2231b5ffe41255b30a022882aa0040c3601a1` |
+| `report.txt` | `1419433dba39e76d5210f686910ac2648d74a067f9c99ace14948e929053be31` |
+| `build.log` | `5e173beb5faf217d841f8d42dcf509b3682fe5788bbab420eac637bf8a267156` |
+
+12CD is installed and byte-verified. The guarded installer checked the prior
+1540 bitstream, restore-input hashes, candidate hashes, and exact passing test
+and timing reports before writing. The mount resolved to `/dev/sdc1`. All 14
+package files passed byte comparison after filesystem flush. Every common file
+is byte-identical to its pre-install copy. The card was left mounted as requested.
+Recovery evidence is retained in `build/restore/deploy-12cd3c1.e9fT7Q/`:
+replaced package files in `before/`, all common files in `common-before/`,
+screenshots in `screenshots-before/`, and the new `package/`. The guarded
+installer is `build/restore/install-12cd3c1.sh`; its old-bitstream precondition
+intentionally prevents blindly running it again after this successful install.
+
+Next hardware test: reload and confirm stamp 12CD. Hold Select for three
+seconds, release, then press and release A to run the write-disabled checks and
+recovery backup. Capture the result. A successful attempt must create a fresh
+8192-byte `PRExxxx.sav` and reread all bytes. Preserve it locally, then verify
+it survives a power cycle and matches the original RAM dump before considering
+any cartridge-write-enabled candidate. `RESTORE_WRITE_ENABLED` remains zero.
+The latest hardware result is still 1540's failed probe. No 12CD hardware pass
+or cartridge restore is claimed.
 
 ## Verified slot-table latency candidate, 2026-09-07
 
@@ -89,7 +136,7 @@ fetched bitstream, and the packaged data-slot definitions match source.
 | `report.txt` | `c57ebf6d1da8410086d598b0d7292167071491cb8730e036173f06d774e55978` |
 | `simulation-154097c.log` | `6ce7abc4dadbaa46fae5c9e52738e9d7121e96685a303804e467bdf7b9b8eeef` |
 
-1540 is installed and byte-verified on 2026-09-07 after the user remounted the
+1540 was installed and byte-verified on 2026-09-07 after the user remounted the
 card and explicitly requested no unmount. The mount resolved to `/dev/sdb1`
 at deployment. The guarded installer verified the prior AC63 bitstream,
 restore-input hashes, candidate hashes, and 45-check result before writing.

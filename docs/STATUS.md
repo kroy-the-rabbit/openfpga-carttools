@@ -4,9 +4,9 @@ What is actually true right now, as opposed to what is written. The plan in
 `plan.md` says where this is going; this file says where it is.
 
 Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
-Development is on `save-restore-la`. Installed source `154097c`, stamp `1540`,
-passed all 45 simulation and structural checks and kira timing:
-setup `+0.969 ns`, hold `+0.013 ns`. The full 14-file package was installed
+Development is on `save-restore-la`. Installed source `12cd3c1`, stamp `12CD`,
+passed all 45 simulation and structural checks and sisko timing:
+setup `+0.788 ns`, hold `+0.095 ns`. The full 14-file package was installed
 and byte-verified on 2026-09-07. Restore inputs and corpus are
 unchanged. Replaced files and all build evidence are retained locally, and
 the card was left mounted as requested. Cartridge save writes remain disabled.
@@ -59,7 +59,7 @@ package and logs are retained under ignored `build/restore/candidate-154097c/`.
 The first attempt `3401e31` failed synthesis on diagnostic-register ownership;
 that was corrected and checked before the final build. It was never installed.
 
-1540 is now installed after the user remounted the card. All 14 package files
+1540 was installed after the user remounted the card. All 14 package files
 passed byte comparison after filesystem flush; the installed bitstream hash
 matches the verified candidate. Every common file, including saves, dumps, and
 restore inputs, is unchanged. Prior files and the new package are retained
@@ -84,9 +84,22 @@ producer's own low-byte-first assumption. The independent hardware-tested
 PC Engine implementation sends these command strings high byte first while
 keeping flags and size numeric. The new candidate changes only recovery path
 packing, leaves input validation and backup payload bytes unchanged, and expands
-the real command/SPI regression to cover successful recovery. Sisko is the
-requested build runner. Verification and hardware testing of this candidate
-are pending; 1540 remains the last installed build.
+the real command/SPI regression to cover successful recovery. All 45 checks
+passed on exact source `12cd3c148cffff4a7b102684c2e36ba66364aee8` (stamp
+`12CD`), including successful full recovery and the reversed-path negative
+control. Sisko completed with `rc=0` in 576 seconds: setup `+0.788 ns`, hold
+`+0.095 ns`, pulse `+0.827 ns`. Artifacts and logs are retained under ignored
+`build/restore/candidate-12cd3c1/`. 12CD is installed, with all 14 package files
+byte-verified after filesystem flush and every common file unchanged. Prior
+files, common files, screenshots, and the new package are retained under
+`build/restore/deploy-12cd3c1.e9fT7Q/`. The card was left mounted.
+
+Next: reload, confirm 12CD, hold Select for three seconds, release, and tap A
+for the write-disabled preflight/recovery test. Capture the result and preserve
+any new 8192-byte `PRExxxx.sav` locally. Verify it survives power-cycling and
+matches the original RAM dump before any cartridge-write-enabled candidate.
+12CD has not yet been tested on hardware. The latest hardware result remains
+1540's failed recovery-name probe.
 
 Controls remain a three-second Select hold, release, A for checks/backup,
 then a fresh three-second A hold after preflight passes. Wrong buttons retain
