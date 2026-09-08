@@ -27,9 +27,12 @@ size. Restore now consumes the complete 16-bit APF result instead of allowing
 unknown results to alias success through a three-bit summary. Focused unit/UI,
 actual-command/SPI, and full-top integration tests pass, including a deliberate
 result-truncation negative control. This is not yet a proven hardware fix.
-The complete exact-source suite and sisko build remain to be run; the runner
-is currently occupied by sibling GBA work. 12CD remains installed, with
-cartridge writes disabled.
+Exact candidate source is `2b0b0ba500f3c37cd376016052fb0d50abfef2ab`, stamp
+`2B0B`. All 45 checks passed on that exact source. The verified log is retained
+under `build/restore/candidate-2b0b0ba/`. The sisko build has not started because
+the runner is occupied by sibling GBA work. An optional switch to kira was
+offered; absent a reply, wait for sisko. 12CD remains installed, with cartridge
+writes disabled.
 
 The previous `2BDA` screenshot localized APF error `4` to metadata input
 open, with 70 observed responses and its two displayed path words correct.

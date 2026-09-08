@@ -66,9 +66,33 @@ created-file association, both endian modes, bulk/split reads, wrong returned
 names, and full results 0009/0008. Deliberately restoring result truncation
 breaks the rejection test. Actual top-level result and diagnostic wiring are
 checked separately with truncation mutations. Full-top elaboration and nine
-control negative tests also pass. The complete suite and exact-source FPGA
-build are next. Sisko is temporarily occupied by a sibling GBA build; do not
-interrupt it. Cartridge writes stay disabled and 12CD remains installed.
+control negative tests also pass. The candidate is committed as
+`2b0b0ba500f3c37cd376016052fb0d50abfef2ab`, display stamp `2B0B`.
+All 45 checks passed against that exact commit, with the same four-worker
+wrapper retained from the preceding build. The source was checked against the
+commit before and after execution. The log and wrapper are retained under
+ignored `build/restore/candidate-2b0b0ba/`; `simulation-2b0b0ba.log` SHA-256 is
+`f45ee4f52ac2e0e4d1cb42834f88004127221207ebd4d08aa45d46de458948d9`.
+Sisko is temporarily occupied by a sibling GBA build; do not interrupt it.
+The FPGA build has not started. The user was offered an optional switch to
+kira if free; absent a reply, keep waiting for sisko. Cartridge writes stay
+disabled and 12CD remains installed.
+
+When the selected runner is free, use the exact source, not the newer
+documentation commit:
+
+```sh
+../tools/runner-build start sisko pocket-cartridge cart la-restore-created-binding 2b0b0ba
+../tools/runner-build job sisko pocket-cartridge cart la-restore-created-binding 2b0b0ba
+../tools/runner-build fetch sisko pocket-cartridge cart la-restore-created-binding 2b0b0ba
+```
+
+The next guarded installer is `build/restore/install-created-binding.sh`.
+It requires the seven-character source, ZIP/bitstream/report/simulation hashes,
+and freshly verified mounted device. Its prior-bitstream precondition is 12CD.
+It now copies screenshots from the correct `Memories/Screenshots/` directory,
+preserves common files, verifies all 14 package files after flush, and does not
+unmount. Do not run it before the completed build and timing gate pass.
 
 ## Recovery Open File path candidate installed, 2026-09-07
 
