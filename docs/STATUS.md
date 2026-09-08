@@ -11,6 +11,10 @@ and byte-verified on 2026-09-07. Restore inputs and corpus are
 unchanged. Replaced files and all build evidence are retained locally, and
 the card was left mounted as requested. Cartridge save writes remain disabled.
 
+Work is paused for tomorrow at the user's request. Candidate `2B0B` is fully
+simulation-tested but has not been FPGA-built or installed. Resume instructions
+are at the top of `docs/HANDOFF.md`. No new CartTools build is running.
+
 Latest hardware result, 2026-09-08: 12CD still fails, but now at
 `SIZE NEW BACKUP`, error `3` (file not found), flags `2`, size `8192`.
 Controller flow implies it accepted a create-success response after the probe;
@@ -30,9 +34,9 @@ result-truncation negative control. This is not yet a proven hardware fix.
 Exact candidate source is `2b0b0ba500f3c37cd376016052fb0d50abfef2ab`, stamp
 `2B0B`. All 45 checks passed on that exact source. The verified log is retained
 under `build/restore/candidate-2b0b0ba/`. The sisko build has not started because
-the runner is occupied by sibling GBA work. An optional switch to kira was
-offered; absent a reply, wait for sisko. 12CD remains installed, with cartridge
-writes disabled.
+the runner was occupied by sibling GBA work. An optional switch to kira was
+offered but not selected before the pause. Resume on sisko unless directed
+otherwise. 12CD remains installed, with cartridge writes disabled.
 
 The previous `2BDA` screenshot localized APF error `4` to metadata input
 open, with 70 observed responses and its two displayed path words correct.

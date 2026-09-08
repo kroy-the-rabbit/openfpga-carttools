@@ -3,6 +3,38 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## Tomorrow resume: 2B0B ready to build, 2026-09-08
+
+The user paused work and requested this handoff. No CartTools FPGA build is
+running from this turn, and no new candidate was installed. Do not continue
+waiting or start a build until work is resumed.
+
+- Branch: `save-restore-la`.
+- Exact implementation source: `2b0b0ba500f3c37cd376016052fb0d50abfef2ab`,
+  display stamp `2B0B`. Newer commits only update documentation.
+- All 45 simulation/structural checks passed. The log and reproducible wrapper
+  are in ignored `build/restore/candidate-2b0b0ba/`.
+- Installed: `12cd3c1`, stamp `12CD`. Its hardware attempt still fails at
+  `SIZE NEW BACKUP`, error 3. The corpus and restore inputs remain preserved.
+- Cartridge writes remain disabled. The candidate tightens backup identity
+  and full-width result checks; it is not a proven hardware repair.
+- Sisko was busy with sibling GBA work at the last check. Do not interrupt
+  that work. An optional switch to kira was offered but not selected before
+  the pause. Sisko remains the requested runner.
+
+Resume by checking runner availability, then build the exact implementation
+commit using the commands in the post-create candidate section below. Require
+successful build and nonnegative timing before fetching, archiving, and
+installing the full package. The guarded installer and its required arguments
+are recorded there. Keep all card artifacts, use local ignored copies for
+analysis, and leave the card mounted.
+
+After installation, reload and confirm 2B0B. Hold Select for three seconds,
+release, then tap A. Capture the whole result, especially `SEQ P/C/N/R`,
+`NEW SIZE`, stage, and returned filename. Preserve any new recovery file
+locally. No physical cartridge write is permitted until recovery succeeds,
+all 8192 bytes match the original RAM dump, and the file survives a power cycle.
+
 ## Latest hardware result: 12CD still fails, 2026-09-08
 
 Screenshot `20260908_000409.png` confirms stamp 12CD and stops at
@@ -75,8 +107,9 @@ ignored `build/restore/candidate-2b0b0ba/`; `simulation-2b0b0ba.log` SHA-256 is
 `f45ee4f52ac2e0e4d1cb42834f88004127221207ebd4d08aa45d46de458948d9`.
 Sisko is temporarily occupied by a sibling GBA build; do not interrupt it.
 The FPGA build has not started. The user was offered an optional switch to
-kira if free; absent a reply, keep waiting for sisko. Cartridge writes stay
-disabled and 12CD remains installed.
+kira if free, then paused work for tomorrow without selecting it. Resume on
+sisko unless directed otherwise. Cartridge writes stay disabled and 12CD
+remains installed.
 
 When the selected runner is free, use the exact source, not the newer
 documentation commit:
