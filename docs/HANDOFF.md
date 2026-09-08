@@ -55,28 +55,33 @@ fetched bitstream, and the packaged data-slot definitions match source.
 | `report.txt` | `c57ebf6d1da8410086d598b0d7292167071491cb8730e036173f06d774e55978` |
 | `simulation-154097c.log` | `6ce7abc4dadbaa46fae5c9e52738e9d7121e96685a303804e467bdf7b9b8eeef` |
 
-1540 is NOT installed. During verification the card disappeared from its mount;
-an outside-sandbox check detected the `pocket` exFAT partition as `/dev/sdb1`,
-unmounted. The user was asked to remount. No card write or unmount was performed
-in this fix/build turn. AC63 is the last verified installed build, and its
-error-9 screenshot remains the latest hardware result.
+1540 is installed and byte-verified on 2026-09-07 after the user remounted the
+card and explicitly requested no unmount. The mount resolved to `/dev/sdb1`
+at deployment. The guarded installer verified the prior AC63 bitstream,
+restore-input hashes, candidate hashes, and 45-check result before writing.
+All 14 installed package files passed byte comparison after filesystem flush.
+The installed bitstream matches the hash above. Every file in the common
+directory, including saves, dumps, and restore inputs, is byte-identical to
+its pre-install copy. The card was left mounted.
 
-Next: resolve the current mount/device again, then run the prepared ignored
-`build/restore/install-154097c.sh` with the ZIP hash, bitstream hash, and that
-verified device as its three arguments. Run outside the sandbox. It requires
-the expected AC63 bitstream and unchanged restore inputs, backs up prior
-package/common files, merges only the 14 allowed package files, flushes,
-byte-compares the package and all common files, and leaves the card mounted.
-Do not weaken a failed precondition or assume the device node stays the same.
-Then reload, confirm `1540`, hold Select three seconds, release, press/release
+Deployment evidence is retained under ignored
+`build/restore/deploy-154097c.LNFWmR/`: replaced package files in `before/`,
+all prior common files in `common-before/`, and the extracted new `package/`.
+The installer is `build/restore/install-154097c.sh`; its AC63 precondition
+means it is not a command to rerun blindly after this completed deployment.
+AC63's error-9 screenshot remains the latest hardware result. No 1540
+preflight or cartridge restore has been confirmed yet.
+
+Next: reload, confirm `1540`, hold Select three seconds, release, press/release
 A, and capture the complete preflight result. Keep cartridge save writes
 disabled. This is a reproduced RTL defect with a verified candidate, not a
 completed hardware restore or a claimed repair of the recovery `0192` path.
 
 ## Resumed restore input work, 2026-09-07
 
-The user resumed work. This section supersedes the pause below. Build `AC63`
-is now installed and byte-verified on the card. Its first hardware preflight
+The user resumed work. This historical section supersedes the pause below;
+the 1540 deployment above is now current. Build `AC63` was installed and
+byte-verified on the card. Its first hardware preflight
 passed metadata filename validation, then stopped at `CHECK SLOT ID` with
 error `9`. No cartridge save write has been enabled.
 

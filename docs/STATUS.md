@@ -4,9 +4,9 @@ What is actually true right now, as opposed to what is written. The plan in
 `plan.md` says where this is going; this file says where it is.
 
 Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
-Development is on `save-restore-la`. Last verified installed source `ac63333`,
-stamp `AC63`, passed all 44 simulation and structural checks and kira timing:
-setup `+0.474 ns`, hold `+0.025 ns`. The full 14-file package was installed
+Development is on `save-restore-la`. Installed source `154097c`, stamp `1540`,
+passed all 45 simulation and structural checks and kira timing:
+setup `+0.969 ns`, hold `+0.013 ns`. The full 14-file package was installed
 and byte-verified on 2026-09-07. Restore inputs and corpus are
 unchanged. Replaced files and all build evidence are retained locally, and
 the card was left mounted as requested. Cartridge save writes remain disabled.
@@ -35,7 +35,7 @@ Exact candidate `ac63333`, stamp `AC63`, has completed verification:
 all 44 checks passed, and kira timing passed
 with setup `+0.474 ns`, hold `+0.025 ns`, and pulse width `+0.827 ns`.
 The full package and logs are verified and retained under ignored
-`build/restore/candidate-ac63333/`. AC63 is installed. All 14 files passed
+`build/restore/candidate-ac63333/`. AC63 was installed. All 14 files passed
 byte comparison after filesystem flush, the installed bitstream hash matches
 the candidate, and the restore inputs and new Zelda dumps are unchanged.
 The replaced package is retained under `build/restore/deploy-ac63333.3bqba2/`.
@@ -45,8 +45,8 @@ at `CHECK SLOT ID`. The actual compared table value is not displayed. No
 metadata/save payload read, recovery creation, or cartridge save write was
 reached. Evidence is retained under `build/hardware/ac63-result-20260907.UYzItJ/`.
 The fresh Zelda ROM passes No-Intro CRC/size validation and both ROM and save
-match the verified corpus exactly. Next: inspect the data-table ID/address
-and timing without weakening the guards. The card remains mounted.
+match the verified corpus exactly. This result prompted the data-table timing
+investigation below.
 
 The slot-ID investigation found an early sample of the registered data-table
 RAM output. Updating the test model alone reproduces AC63's error 9 at stage 2.
@@ -59,11 +59,13 @@ package and logs are retained under ignored `build/restore/candidate-154097c/`.
 The first attempt `3401e31` failed synthesis on diagnostic-register ownership;
 that was corrected and checked before the final build. It was never installed.
 
-1540 is not installed or hardware-tested. The card became unmounted during
-verification, confirmed outside the sandbox, and the user was asked to remount.
-No card write or unmount occurred in this fix/build turn. Next: guarded package
-installation, then the same write-disabled preflight on hardware. See the newest
-handoff section for hashes, runner commands, and the prepared installer.
+1540 is now installed after the user remounted the card. All 14 package files
+passed byte comparison after filesystem flush; the installed bitstream hash
+matches the verified candidate. Every common file, including saves, dumps, and
+restore inputs, is unchanged. Prior files and the new package are retained
+under `build/restore/deploy-154097c.LNFWmR/`. The card was left mounted as
+requested. Next: reload, confirm stamp 1540, then run the same write-disabled
+preflight and capture the result. No 1540 hardware pass is claimed yet.
 
 Controls remain a three-second Select hold, release, A for checks/backup,
 then a fresh three-second A hold after preflight passes. Wrong buttons retain
