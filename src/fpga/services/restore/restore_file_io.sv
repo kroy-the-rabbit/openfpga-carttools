@@ -82,7 +82,8 @@ localparam [4:0] ST_IDLE = 0, ST_OPEN = 1, ST_OPEN_WAIT = 2,
     ST_READ = 7, ST_READ_WAIT = 8, ST_PROBE = 9, ST_PROBE_WAIT = 10,
     ST_CREATE = 11, ST_CREATE_WAIT = 12, ST_WRITE = 13, ST_WRITE_WAIT = 14,
     ST_FINISH = 15, ST_RESIZE = 16, ST_RESIZE_WAIT = 17,
-    ST_NAME = 18, ST_NAME_WAIT = 19, ST_NAME_CHECK = 20;
+    ST_NAME = 18, ST_NAME_WAIT = 19, ST_NAME_CHECK = 20,
+    ST_ID_SETTLE = 21, ST_SIZE_SETTLE = 22;
 localparam [3:0] ERR_TIMEOUT = 8, ERR_TABLE = 9, ERR_TRANSFER = 10,
     ERR_NAMES_FULL = 11, ERR_OPERATION = 12, ERR_CREATE_RACE = 13,
     ERR_INPUT_PATH = 14;
@@ -472,10 +473,22 @@ always @(posedge clk) begin
             end
             ST_ID_WAIT: begin
                 debug_stage <= 2;
+                // mf_datatable registers both the RAM read and its output.
+                // The new address is captured on this edge, reaches q on
+                // the next, and may only be compared on the following edge.
+                state <= ST_ID_SETTLE;
+            end
+            ST_ID_SETTLE: begin
                 state <= ST_ID_CHECK;
             end
             ST_ID_CHECK: begin
-                if (datatable_q != {16'd0, target_dataslot_id}) fail_command(ERR_TABLE);
+                if (datatable_q != {16'd0, target_dataslot_id}) begin
+                    debug_bad <= 1;
+                    debug_bad_index <= datatable_addr[6:0];
+                    debug_bad_word <= datatable_q;
+                    debug_bad_expected <= {16'd0, target_dataslot_id};
+                    fail_command(ERR_TABLE);
+                end
                 else begin
                     datatable_addr <= table_base + 10'd1;
                     state <= ST_SIZE_WAIT;
@@ -483,10 +496,19 @@ always @(posedge clk) begin
             end
             ST_SIZE_WAIT: begin
                 debug_stage <= 3;
+                state <= ST_SIZE_SETTLE;
+            end
+            ST_SIZE_SETTLE: begin
                 state <= ST_SIZE_CHECK;
             end
             ST_SIZE_CHECK: begin
-                if (datatable_q != expected_bytes) fail_command(ERR_TABLE);
+                if (datatable_q != expected_bytes) begin
+                    debug_bad <= 1;
+                    debug_bad_index <= datatable_addr[6:0];
+                    debug_bad_word <= datatable_q;
+                    debug_bad_expected <= expected_bytes;
+                    fail_command(ERR_TABLE);
+                end
                 else state <= check_before_write ? ST_WRITE : ST_READ;
             end
             ST_READ: begin

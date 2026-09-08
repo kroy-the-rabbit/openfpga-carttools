@@ -309,7 +309,7 @@ always @* begin
         5'd15: line_next = sd_failure ? {"FLAGS ", hex_word(shown_io_flags),
                                          " SIZE ", hex_word(shown_size), "  "} :
                           checks_passed ? "RECOVERY FILE VERIFIED        " : BLANK;
-        5'd16: line_next = sd_failure ? (shown_bad ? {"BAD ", hex_index(shown_bad_index),
+        5'd16: line_next = sd_failure ? (shown_bad ? {shown_io_error == 4'd9 ? "TBL " : "BAD ", hex_index(shown_bad_index),
                                       " GOT ", hex_word(shown_bad_word), "           "} :
                                       "NO OBSERVED WORD MISMATCH     ") : BLANK;
         5'd17: line_next = sd_failure ? (shown_bad ? {"EXP ", hex_word(shown_bad_expected),

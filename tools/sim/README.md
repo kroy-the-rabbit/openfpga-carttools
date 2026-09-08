@@ -24,11 +24,16 @@ needed and no host Python is involved.
 
 | | |
 |---|---|
-| `check_*.py` | structural checks over the source tree, no simulation |
+| `check_*.py` | structural checks and generated integration/negative-control simulations |
 | `tb_*.sv` | Icarus testbenches, compiled with `iverilog -g2012` and run under `vvp` |
 
 `run_all.py` discovers both by filename. There is no list to keep in sync: drop
 a file in, it runs.
+
+Restore data-table tests model the shipped RAM's synchronous read and
+registered output. `check_restore_datatable.py` verifies the vendor wrapper
+configuration and removes each controller wait in turn to prove early ID and
+size samples fail. A one-cycle RAM replacement does not test this interface.
 
 ## The SOURCES convention
 

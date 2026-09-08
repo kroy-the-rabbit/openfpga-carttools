@@ -114,6 +114,13 @@ words. CRC32 is the standard reflected CRC used by `zlib.crc32` and the core's
 
 ## Mandatory recovery and write containment
 
+ID and size validation must respect the shipped data-table RAM latency. Its
+synchronous read has an additional registered output. After changing the
+word address, allow both clock edges to propagate the value before comparing
+it on the following edge. Unit and command/SPI models must include that output
+register. An error `9` retains the table word index, actual value, and expected
+value on the result screen; it never bypasses the ID or exact-size check.
+
 Before authorization can reach the writer, read the existing RAM twice and
 compare every byte. Save the original in a new recovery file, then reopen and
 reread the entire file and compare it to the original buffer. Probe successive

@@ -4,10 +4,10 @@ What is actually true right now, as opposed to what is written. The plan in
 `plan.md` says where this is going; this file says where it is.
 
 Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
-Development is on `save-restore-la`. Installed diagnostic source `05af4a9`,
-stamp `05AF`, passed all 44 simulation and structural checks and kira timing:
-setup `+0.664 ns`, hold `+0.123 ns`. The full 14-file package was installed
-and byte-verified on 2026-09-06 local time. Restore inputs and corpus are
+Development is on `save-restore-la`. Installed diagnostic source `ac63333`,
+stamp `AC63`, passed all 44 simulation and structural checks and kira timing:
+setup `+0.474 ns`, hold `+0.025 ns`. The full 14-file package was installed
+and byte-verified on 2026-09-07. Restore inputs and corpus are
 unchanged. Replaced files and all build evidence are retained locally, and
 the card was left mounted as requested. Cartridge save writes remain disabled.
 
@@ -35,11 +35,26 @@ Exact candidate `ac63333`, stamp `AC63`, has completed verification:
 all 44 checks passed, and kira timing passed
 with setup `+0.474 ns`, hold `+0.025 ns`, and pulse width `+0.827 ns`.
 The full package and logs are verified and retained under ignored
-`build/restore/candidate-ac63333/`. AC63 is not installed because the card
-is not currently accessible as a mount, including outside the sandbox.
-`05AF` remains the last verified installed build. No new hardware success
-is claimed; the next step is guarded installation after remount, then the
-same write-disabled preflight and full-screen capture.
+`build/restore/candidate-ac63333/`. AC63 is installed. All 14 files passed
+byte comparison after filesystem flush, the installed bitstream hash matches
+the candidate, and the restore inputs and new Zelda dumps are unchanged.
+The replaced package is retained under `build/restore/deploy-ac63333.3bqba2/`.
+The latest screenshot, `20260907_212906.png`, now shows AC63. Metadata filename
+retrieval and exact-path validation passed, then error `9` stopped preflight
+at `CHECK SLOT ID`. The actual compared table value is not displayed. No
+metadata/save payload read, recovery creation, or cartridge save write was
+reached. Evidence is retained under `build/hardware/ac63-result-20260907.UYzItJ/`.
+The fresh Zelda ROM passes No-Intro CRC/size validation and both ROM and save
+match the verified corpus exactly. Next: inspect the data-table ID/address
+and timing without weakening the guards. The card remains mounted.
+
+The slot-ID investigation found an early sample of the registered data-table
+RAM output. Updating the test model alone reproduces AC63's error 9 at stage 2.
+The candidate adds the missing settle cycle for both ID and size comparisons,
+retains actual/expected table words on failure, and leaves every write gate
+unchanged. Focused file-service, UI, and negative-control tests pass. The full
+suite and kira build are the next verification gates; this candidate has not
+been installed or tested on hardware. See the newest handoff section.
 
 Controls remain a three-second Select hold, release, A for checks/backup,
 then a fresh three-second A hold after preflight passes. Wrong buttons retain

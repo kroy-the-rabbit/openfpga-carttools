@@ -3,11 +3,38 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## Slot-table latency candidate, 2026-09-07
+
+The user requested the fix after AC63 stopped at `CHECK SLOT ID`, error `9`.
+The shipped `mf_datatable` has a synchronous RAM read and registered output
+(`outdata_reg_a = CLOCK0`). The old test doubles omitted the output register.
+Restore compared the ID one edge too early after changing the address, and
+would make the same mistake when changing from ID to size.
+
+Correcting the unit-test RAM model before changing the controller reproduced
+`failed=1 error=9 stage=2 reads=0`. The candidate adds a settle state before
+each comparison, including recovery size checks. It does not relax either
+comparison or change APF commands, slot assignments, save buffers, cartridge
+bus logic, write authorization, or the physical save-write disable.
+Table errors now retain table word index, actual value, and expected value,
+displayed as `TBL xx GOT xxxxxxxx` and `EXP xxxxxxxx`.
+
+Focused file-service and UI tests pass. `check_restore_datatable.py` checks
+the shipped RAM configuration and requires deliberately removing either wait
+to reproduce error 9 at its respective stage with zero reads. Both the unit
+RAM and actual command/SPI integration RAM now model registered outputs.
+The full suite is running with output at
+`build/restore/table-latency-simulation.log`. The next exact-source build goes
+through runner-build on kira. Do not install until the full suite and timing
+pass. AC63 remains installed until a subsequent deployment is recorded.
+This is a reproduced RTL defect and a candidate fix, not a hardware pass.
+
 ## Resumed restore input work, 2026-09-07
 
-The user resumed work. This section supersedes the pause below. The last
-installed build remains `05AF`; its metadata-open error `4` is still the
-latest hardware result. No cartridge save write has been enabled.
+The user resumed work. This section supersedes the pause below. Build `AC63`
+is now installed and byte-verified on the card. Its first hardware preflight
+passed metadata filename validation, then stopped at `CHECK SLOT ID` with
+error `9`. No cartridge save write has been enabled.
 
 The split-read regression now reproduces `READS 46 UNIQUE 42 RPT 04` with
 repeats `40 40 41 41`, using a bulk path read and separate scalar flag/size
@@ -76,22 +103,41 @@ committed source.
 | `report.txt` | `5098efc4f5c51c0317d1800dda9dcfaea602b488e1488a130ceae110c7ceac54` |
 | `simulation-ac63333.log` | `8d4e67707a3c2ccae555a33801e93bf30317d02f70b9affcaf334d3619e0db7c` |
 
-AC63 is NOT installed. The card was not accessible at the final mount check,
-including outside the sandbox. A device listing briefly named the usual
-mount point, but actual mount and file checks did not confirm access.
-No card write or unmount was performed in this resumed work. `05AF` remains
-the last verified installed version, not a fresh read of the absent card.
+AC63 was installed on 2026-09-07 after the user requested deployment. The
+installer validated the exact package hash, mounted device, previous 05AF
+bitstream, and prepared input hashes before merging the complete package.
+All 14 installed files passed byte comparison after filesystem flush. The
+bitstream matches the AC63 hash above. Both restore inputs and the newly
+redumped Zelda ROM/save remain unchanged. Replaced files and the extracted
+package are retained under ignored `build/restore/deploy-ac63333.3bqba2/`.
+The card was left mounted as requested.
 
-Next: after the card is mounted, resolve its current device, preserve the
-installed package locally, validate both restore-input hashes, merge the
-complete AC63 package, flush, and compare all 14 files byte for byte. Leave
-the card mounted. Do not replace the prepared save or metadata with new
-inputs. After deployment, confirm stamp `AC63`, hold Select three seconds,
-release, press/release A, and capture the entire result screen. That test
-must establish whether the assigned filename and slot read succeed, and
-whether preflight reaches the unchanged recovery sequence. Keep cartridge
-save writes disabled even if staging succeeds. No hardware pass or repair
-of the `0192` refusal is claimed yet.
+The immediately preceding intake is retained under ignored
+`build/hardware/card-intake-20260907.xSMAAC/`. Its new non-DX Zelda ROM
+matches No-Intro on CRC32 and size, and both ROM and save are byte-identical
+to the verified Batch 6 corpus. That intake's latest screenshot, taken before AC63
+installation, is byte-identical to the previous 05AF metadata-open failure.
+Do not treat that screenshot as an AC63 test.
+
+The subsequent AC63 hardware result is retained under ignored
+`build/hardware/ac63-result-20260907.UYzItJ/`. Screenshot
+`20260907_212906.png`, SHA-256
+`f663028a99f31dd53310dbbb74401b349d2d1e1e9af1e17059528e0c7716e4c1`,
+shows build AC63, error `9`, stage `CHECK SLOT ID`, `RX 40 UNIQUE 40 RPT 00`,
+and the correct metadata path. The received filename and exact-path checks
+passed. The following data-table ID check did not match metadata slot 21.
+The actual compared table value is not displayed, so the screenshot cannot
+distinguish a missing entry from an addressing, mux, or timing problem.
+Displayed zero flags/size are not that table value. Metadata payload reading,
+save reading, and recovery creation were not reached; no `PRE*.sav` appeared.
+Installed bitstream hash still matches AC63. Fresh Zelda ROM and save match
+the verified corpus exactly; the ROM also passes the No-Intro CRC/size check.
+The card was not changed or unmounted during intake.
+
+Next: inspect the actual data-table ID/address and timing at the failed check.
+Retain the identity/size guards and keep cartridge save writes disabled.
+The assigned-filename step now has hardware evidence, but no completed
+preflight, cartridge restore, or repair of the `0192` refusal is claimed.
 
 The use of assigned deferred-load slots and `0190` is documented in
 [data.json](https://www.analogue.co/developer/docs/core-definition-files/data-json)

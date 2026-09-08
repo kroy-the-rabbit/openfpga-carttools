@@ -57,6 +57,7 @@ restore_file_io #(.TIMEOUT_CYCLES(30000)) dut (
 );
 
 reg [31:0] datatable [0:15];
+reg [31:0] datatable_read;
 reg [31:0] backup_memory [0:2047];
 reg [31:0] written_file [0:2047];
 reg [31:0] received [0:2047];
@@ -87,7 +88,9 @@ endfunction
 
 always @(posedge clk) begin
     backup_rd_q <= backup_memory[backup_rd_addr];
-    datatable_q <= datatable[datatable_addr[3:0]];
+    // mf_datatable has a synchronous read plus a CLOCK0 output register.
+    datatable_read <= datatable[datatable_addr[3:0]];
+    datatable_q <= datatable_read;
     if (input_we) begin
         received[input_index] = input_data;
         n_inputs = n_inputs + 1;
@@ -412,6 +415,15 @@ endtask
 
 integer endian_mode, i, before_count;
 initial begin
+    if ($test$plusargs("table_latency_probe")) begin
+        fresh();
+        run(0);
+        $display("Table latency probe: failed=%0d error=%0d stage=%0d reads=%0d",
+                 failed, err, debug_stage, n_read);
+        if (failed || n_read != 1) $fatal(1, "registered data-table read failed");
+        $display("TB PASS: registered data-table latency probe");
+        $finish;
+    end
     for (endian_mode = 0; endian_mode < 2; endian_mode = endian_mode + 1) begin
         bridge_endian_little = endian_mode;
         fresh();
@@ -474,10 +486,14 @@ initial begin
     wrong_table_id = 1;
     run(1);
     check(failed && err == 9 && n_read == 0 && n_inputs == 0, "mismatched slot ID blocks read");
+    check(debug_stage == 2 && debug_detail[103:32] == {1'b1, 7'd6, 32'd77, 32'd22},
+          "slot ID failure retains table address, actual word, and expected ID");
     fresh();
     size_delta = -4;
     run(1);
     check(failed && err == 9 && n_read == 0, "short slot length blocks read");
+    check(debug_stage == 3 && debug_detail[103:32] == {1'b1, 7'd7, 32'd8188, 32'd8192},
+          "size failure retains table address, actual size, and expected size");
     fresh();
     size_delta = 4;
     run(0);

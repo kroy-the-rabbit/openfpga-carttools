@@ -409,22 +409,26 @@ end
 initial begin #20000000; $fatal(1, "restore bridge watchdog"); end
 endmodule
 
-// Vendor RAM replacement only. The command RTL itself is unchanged.
+// Vendor RAM replacement only. Match mf_datatable's 256-word depth and
+// registered read outputs on both ports. The command RTL is unchanged.
 module mf_datatable (
-    input wire [9:0] address_a, address_b,
+    input wire [7:0] address_a, address_b,
     input wire clock_a, clock_b,
     input wire [31:0] data_a, data_b,
     input wire wren_a, wren_b,
     output reg [31:0] q_a, q_b
 );
-reg [31:0] memory [0:1023];
+reg [31:0] memory [0:255];
+reg [31:0] read_a, read_b;
 always @(posedge clock_a) begin
     if (wren_a) memory[address_a] <= data_a;
-    q_a <= memory[address_a];
+    read_a <= wren_a ? data_a : memory[address_a];
+    q_a <= read_a;
 end
 always @(posedge clock_b) begin
     if (wren_b) memory[address_b] <= data_b;
-    q_b <= memory[address_b];
+    read_b <= wren_b ? data_b : memory[address_b];
+    q_b <= read_b;
 end
 endmodule
 `default_nettype wire
