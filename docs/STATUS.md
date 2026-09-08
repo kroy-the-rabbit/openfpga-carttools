@@ -24,11 +24,15 @@ simulated chunk pattern. The trace does not establish which responses
 firmware retained in its path buffer. No malformed-path fix or cartridge
 restore is claimed.
 
-Work is paused at the user's request on 2026-09-06 local time. No new source
-change, test run, or fit followed that screenshot. `docs/HANDOFF.md` records
-the next read-boundary tests and the unimplemented option of validating and
-reading the already assigned fixed input slots. Keep save writes disabled
-and do not automatically resume until asked.
+Work resumed on 2026-09-07. The split-read test now recreates the observed
+repeat pattern with correct data and demonstrates that incorrect host
+consumption can retain a shifted path with the same FPGA trace. That does
+not reproduce the hardware cause. The next candidate queries and validates
+the already assigned fixed input paths, checks slot ID and exact size, and
+reads those read-only slots without reopening them. Recovery-file operations
+and all cartridge identity and write gates are unchanged. Focused tests pass;
+full-suite and kira fit results are pending. `05AF` remains the last installed
+build, and no new hardware success is claimed.
 
 Controls remain a three-second Select hold, release, A for checks/backup,
 then a fresh three-second A hold after preflight passes. Wrong buttons retain

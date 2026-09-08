@@ -480,22 +480,23 @@ wire restore_block = restore_overlay || restore_entry_key || restore_input_wait 
 wire d_target_write, d_target_open, d_target_get, d_target_flush;
 wire [15:0] d_target_id;
 wire [31:0] d_target_offset, d_target_bridge, d_target_length, d_target_struct, d_target_response;
-wire r_target_read, r_target_write, r_target_open;
+wire r_target_read, r_target_write, r_target_open, r_target_get;
 wire [15:0] r_target_id;
 wire [31:0] r_target_offset, r_target_bridge, r_target_length, r_target_struct;
+wire [31:0] r_target_response;
 wire [31:0] restore_bridge_rd_data;
 wire restore_bridge_rd_hit;
 assign target_dataslot_read = r_target_read;
 assign target_dataslot_write = restore_io_busy ? r_target_write : d_target_write;
 assign target_dataslot_openfile = restore_io_busy ? r_target_open : d_target_open;
-assign target_dataslot_getfile = !restore_io_busy && d_target_get;
+assign target_dataslot_getfile = restore_io_busy ? r_target_get : d_target_get;
 assign target_dataslot_flush = !restore_io_busy && d_target_flush;
 assign target_dataslot_id = restore_io_busy ? r_target_id : d_target_id;
 assign target_dataslot_slotoffset = restore_io_busy ? r_target_offset : d_target_offset;
 assign target_dataslot_bridgeaddr = restore_io_busy ? r_target_bridge : d_target_bridge;
 assign target_dataslot_length = restore_io_busy ? r_target_length : d_target_length;
 assign target_buffer_param_struct = restore_io_busy ? r_target_struct : d_target_struct;
-assign target_buffer_resp_struct = d_target_response;
+assign target_buffer_resp_struct = restore_io_busy ? r_target_response : d_target_response;
 
 core_bridge_cmd icb (
 
@@ -1836,6 +1837,7 @@ restore_file_io restore_files (
     .err(restore_io_err), .poisoned(restore_poisoned), .backup_index(restore_backup_index),
     .debug_status(restore_io_debug),
     .debug_detail(restore_io_detail), .observed_bridge_data(bridge_rd_data),
+    .target_dataslot_getfile(r_target_get), .target_buffer_resp_struct(r_target_response),
     .bridge_addr(bridge_addr), .bridge_rd(bridge_rd), .bridge_wr(bridge_wr),
     .bridge_wr_data(bridge_wr_data), .bridge_endian_little(bridge_endian_little),
     .bridge_rd_data(restore_bridge_rd_data), .bridge_rd_hit(restore_bridge_rd_hit),

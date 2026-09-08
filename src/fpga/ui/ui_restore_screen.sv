@@ -84,6 +84,8 @@ function [LW-1:0] io_stage_line(input [3:0] stage);
         8: io_stage_line = "SD STAGE: WRITE BACKUP        ";
         9: io_stage_line = "SD STAGE: REOPEN BACKUP       ";
         10: io_stage_line = "SD STAGE: READ BACKUP         ";
+        11: io_stage_line = "SD STAGE: GET INPUT PATH      ";
+        12: io_stage_line = "SD STAGE: CHECK INPUT PATH    ";
         default: io_stage_line = "SD STAGE: NOT STARTED         ";
     endcase
 endfunction
@@ -295,7 +297,7 @@ always @* begin
                           io_error_line : BLANK;
         5'd12: line_next = sd_failure ? io_stage_line(shown_io_stage) :
                           checks_passed ? rom_line : BLANK;
-        5'd13: line_next = sd_failure ? {"READS ", hex_count(shown_io_reads),
+        5'd13: line_next = sd_failure ? {shown_io_op < 2 ? "RX    " : "READS ", hex_count(shown_io_reads),
                                          " UNIQUE ", hex_count(shown_unique),
                                          " RPT ", hex_count(shown_repeats), "     "} :
                           checks_passed ? save_line : BLANK;

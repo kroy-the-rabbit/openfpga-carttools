@@ -50,11 +50,12 @@ def main():
         peripheral = temp / "io_bridge_peripheral.v"
         peripheral.write_text(peripheral_text)
 
-        def simulate(wiring, expected_failure=None, chunk=66, spi=0, inject=0):
+        def simulate(wiring, expected_failure=None, chunk=66, spi=0, inject=0, split=0):
             harness.write_text(template.replace("// TOP_MUX", wiring))
             run(["iverilog", "-g2012", "-s", "tb_restore_bridge", "-o", str(output),
                  f"-Ptb_restore_bridge.CHUNK_WORDS={chunk}",
                  f"-Ptb_restore_bridge.INJECT_WORD={inject}",
+                 f"-Ptb_restore_bridge.SPLIT_FIELDS={split}",
                  f"-Ptb_restore_bridge.USE_SPI={spi}", str(peripheral),
                  str(harness), str(ROOT / "src/fpga/services/restore/restore_file_io.sv"),
                  str(ROOT / "src/fpga/apf/common.v"),
@@ -72,6 +73,8 @@ def main():
         simulate(mux, chunk=8)
         simulate(mux, spi=1)
         simulate(mux, chunk=16, spi=1)
+        simulate(mux, split=1)
+        simulate(mux, spi=1, split=1)
         fault_mux = mux.replace("? restore_bridge_rd_data :", "? injected_response :")
         if fault_mux == mux:
             raise AssertionError("missing restore response for diagnostic fault injection")
@@ -81,7 +84,11 @@ def main():
                  "open command selected wrong struct pointer")
         simulate(mux.replace("bridge_rd_data = restore_bridge_rd_hit ?", "bridge_rd_data = 1'b0 ?"),
                  "delivered open structure byte")
-    print("check_restore_bridge: full paths, chunked reads, actual SPI, retained fault trace, and two negative controls pass")
+        simulate(mux.replace("? r_target_response :", "? d_target_response :"),
+                 "get command selected wrong response pointer")
+        simulate(mux.replace("? r_target_get :", "? 1'b0 :"),
+                 "real command not published")
+    print("check_restore_bridge: assigned-slot input reads, chunked/split recovery reads, stale-prime control, actual SPI, retained fault trace, and four negative controls pass")
 
 
 if __name__ == "__main__":

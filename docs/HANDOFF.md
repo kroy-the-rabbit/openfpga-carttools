@@ -3,13 +3,69 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
-## Paused for tomorrow, 2026-09-06 local time
+## Resumed restore input work, 2026-09-07
 
-The user explicitly stopped work. Resume from this section, not the older
+The user resumed work. This section supersedes the pause below. The last
+installed build remains `05AF`; its metadata-open error `4` is still the
+latest hardware result. No cartridge save write has been enabled.
+
+The split-read regression now reproduces `READS 46 UNIQUE 42 RPT 04` with
+repeats `40 40 41 41`, using a bulk path read and separate scalar flag/size
+reads, including command-register transitions and both endian modes through
+the actual SPI peripheral. Correct consumption yields the correct path.
+A deliberately wrong consumer retains the stale prime and drops the final
+response, producing a four-byte shift without changing the FPGA trace.
+This demonstrates a limitation of the trace, not the actual firmware cause.
+The exact firmware request order and its retained buffer are still unknown.
+
+The next candidate changes fixed input staging, not the recovery sequence:
+
+1. Query firmware with `0190 Get Filename` for the existing read-only,
+   deferred-load input slot, 21 for metadata or 22 for save.
+2. Require its exact canonical path through the NUL terminator, then check
+   slot ID and exact size before issuing `0180 Read`. There is no input-file
+   reopen, create, fallback, or filename guessing. Package filenames and
+   read-only parameters are unchanged.
+3. Keep every metadata, ROM, save CRC, original-RAM, and recovery check.
+   Only recovery operations still use `0192`. If recovery open also fails,
+   it continues to block all subsequent writes.
+
+The filename reply has a dedicated `C0000000` response window. Ordered,
+aligned writes must include the complete fixed path and terminator, with at
+most 256 bytes total. Bytes after the NUL are unspecified padding. Get-path
+traffic cannot enter the staged save buffer, and command timeouts continue
+to poison the service until core reload. New error `E` means input path
+mismatch; malformed or incomplete filename transfer uses `A`.
+
+The UI adds `GET INPUT PATH` and `CHECK INPUT PATH` stages. For an input
+failure, `PATH`/`NAME` and `RX` describe the firmware's returned path, not a
+copy of the desired outbound path. Recovery retains the existing `READS`
+trace. The hardware question is now whether firmware has the expected fixed
+input association, and whether that slot can be read without reopening it.
+This is not a claimed repair of the underlying `0192` refusal.
+
+Focused file-service, actual command/SPI, UI, and top-integration checks pass.
+The integration test transfers all 64 metadata bytes and all 8,192 save
+bytes in both endian modes, and rejects four deliberately broken command
+mux variants. File-service tests include bad/missing/unterminated paths,
+reversed bytes, malformed transfers, final-word completion, arbitrary
+post-NUL padding, timeouts, and unchanged recovery-file refusal protections.
+Full-suite and kira fit results are not yet available. No card was mounted
+at the initial resume check. Recheck before any deployment and do not unmount.
+
+The use of assigned deferred-load slots and `0190` is documented in
+[data.json](https://www.analogue.co/developer/docs/core-definition-files/data-json)
+and [APF commands](https://www.analogue.co/developer/docs/host-target-commands).
+
+## Historical pause, 2026-09-06 local time
+
+The user explicitly stopped work at this point. At that time, the instruction
+was to resume from this section, not the older
 "next screenshot" instructions below. No new test, source change, build, or
 card deployment was started during the investigation after the latest
 screenshot. The only new changes at this stop are documentation. Do not
-automatically resume work until asked.
+automatically resume work until asked. The dated resume above now supersedes
+this pause and its unimplemented next steps.
 
 ### Current position
 

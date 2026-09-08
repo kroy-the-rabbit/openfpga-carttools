@@ -29,9 +29,10 @@ wire [31:0] input_data;
 wire [1:0] input_kind;
 wire [9:0] datatable_addr;
 reg [31:0] datatable_q;
-wire t_read, t_write, t_open;
+wire t_read, t_write, t_open, t_get;
 wire [15:0] t_id;
 wire [31:0] t_offset, t_address, t_length, t_struct;
+wire [31:0] t_response;
 reg t_done = 1;
 reg [2:0] t_err = 0;
 
@@ -49,6 +50,7 @@ restore_file_io #(.TIMEOUT_CYCLES(30000)) dut (
     .input_kind(input_kind), .datatable_addr(datatable_addr), .datatable_q(datatable_q),
     .target_dataslot_read(t_read), .target_dataslot_write(t_write),
     .target_dataslot_openfile(t_open), .target_dataslot_id(t_id),
+    .target_dataslot_getfile(t_get), .target_buffer_resp_struct(t_response),
     .target_dataslot_slotoffset(t_offset), .target_dataslot_bridgeaddr(t_address),
     .target_dataslot_length(t_length), .target_buffer_param_struct(t_struct),
     .target_dataslot_done(t_done), .target_dataslot_err(t_err)
@@ -60,6 +62,8 @@ reg [31:0] written_file [0:2047];
 reg [31:0] received [0:2047];
 reg [7:0] structure [0:263];
 integer errors = 0, n_open = 0, n_read = 0, n_write = 0, n_inputs = 0, n_resize = 0;
+integer n_get = 0, name_error = 0, name_fault = 0, name_transfer_fault = 0;
+integer name_length_words = 64, name_padding = 0, name_done_with_last = 0;
 integer occupied_names = 0, created_name = -1, last_open_name = -1, created_size = 0;
 integer wrong_table_id = 0, size_delta = 0, reopen_size_delta = 0, open_error = -1;
 integer read_error = 0, write_error = 0, resize_error = 0, mute_command = 0;
@@ -185,6 +189,7 @@ task automatic model_open;
     integer flags, name, table_index, size;
     begin
         n_open = n_open + 1;
+        check(t_id == 23, "fixed input slots must never be reopened or created");
         t_done = 0;
         if (mute_command != 1) begin
             check_open_struct(flags, name);
@@ -221,6 +226,59 @@ task automatic model_open;
                 datatable[table_index+1] = size + reopen_size_delta;
             repeat (3) @(negedge clk);
             if (!(mute_command == 4 && flags == 2)) t_done = 1;
+        end
+    end
+endtask
+
+task automatic model_get;
+    integer w, b, offset, write_index;
+    reg [31:0] stream_word;
+    reg [7:0] character;
+    string canonical;
+    begin
+        n_get = n_get + 1;
+        t_done = 0;
+        check(t_id == 21 || t_id == 22, "get filename only for fixed input slots");
+        check(t_response == 32'hC0000000, "dedicated filename response pointer");
+        canonical = t_id == 21 ? "/Assets/carttools/common/RESTORE.meta" :
+                                  "/Assets/carttools/common/RESTORE.sav";
+        if (mute_command != 5) begin
+            repeat (4) @(negedge clk);
+            t_err = name_error;
+            for (w = 0; w < name_length_words; w = w + 1) begin
+                stream_word = 0;
+                for (b = 0; b < 4; b = b + 1) begin
+                    offset = w*4+b;
+                    character = offset < canonical.len() ? canonical[offset] :
+                                offset == canonical.len() ? 8'd0 : name_padding;
+                    if ((name_fault == 1 && offset == 0) ||
+                        (name_fault == 2 && offset == 25) ||
+                        (name_fault == 3 && offset == canonical.len()) ||
+                        (name_fault == 7 && offset == canonical.len()-1)) character = "X";
+                    if ((name_fault == 4 && offset == 10) || name_fault == 5) character = 0;
+                    stream_word[31-b*8 -: 8] = character;
+                end
+                if (name_fault == 6) stream_word = swap(stream_word);
+                write_index = name_transfer_fault == 1 && w == 7 ? 6 : w;
+                bridge_addr = t_response + write_index*4;
+                if (name_transfer_fault == 2 && w == 7) bridge_addr = bridge_addr + 1;
+                if (name_transfer_fault == 3 && w == 7) bridge_addr = t_response + 32'h8000;
+                if (name_transfer_fault == 5) bridge_addr = 32'hB0000000 + w*4;
+                bridge_wr_data = bridge_endian_little ? swap(stream_word) : stream_word;
+                bridge_wr = 1;
+                if (name_done_with_last && w == name_length_words-1) t_done = 1;
+                @(negedge clk);
+                bridge_wr = 0;
+                @(negedge clk);
+            end
+            if (name_transfer_fault == 4) begin
+                bridge_addr = t_response + 256;
+                bridge_wr = 1;
+                @(negedge clk);
+                bridge_wr = 0;
+            end
+            repeat (3) @(negedge clk);
+            t_done = 1;
         end
     end
 endtask
@@ -292,6 +350,7 @@ endtask
 always @(negedge clk) begin
     if (!reset) begin
         if (t_open) model_open();
+        if (t_get) model_get();
         if (t_write) model_write();
         if (t_read) model_read();
     end
@@ -306,6 +365,8 @@ task automatic fresh;
         bridge_wr = 0;
         bridge_rd = 0;
         n_open = 0; n_read = 0; n_write = 0; n_inputs = 0; n_resize = 0;
+        n_get = 0; name_error = 0; name_fault = 0; name_transfer_fault = 0;
+        name_length_words = 64; name_padding = 0; name_done_with_last = 0;
         occupied_names = 0; created_name = -1; last_open_name = -1; created_size = 0;
         wrong_table_id = 0; size_delta = 0; reopen_size_delta = 0; open_error = -1;
         read_error = 0; write_error = 0; resize_error = 0; mute_command = 0;
@@ -313,6 +374,8 @@ task automatic fresh;
         read_kind_errors = 0;
         t_done = 1; t_err = 0;
         for (i = 0; i < 16; i = i + 1) datatable[i] = 0;
+        datatable[4] = 21; datatable[5] = 64;
+        datatable[6] = 22; datatable[7] = 8192;
         for (i = 0; i < 2048; i = i + 1) begin
             backup_memory[i] = 32'hBD630127 ^ (i * 32'h01130703);
             written_file[i] = 0;
@@ -329,6 +392,10 @@ task automatic run(input [1:0] requested_op);
     begin
         @(negedge clk);
         op = requested_op;
+        if (requested_op < 2) begin
+            datatable[requested_op == 0 ? 4 : 6] = wrong_table_id ? 77 : 21 + requested_op;
+            datatable[requested_op == 0 ? 5 : 7] = (requested_op == 0 ? 64 : 8192) + size_delta;
+        end
         start = 1;
         @(negedge clk);
         start = 0;
@@ -349,15 +416,15 @@ initial begin
         bridge_endian_little = endian_mode;
         fresh();
         run(0);
-        check(!failed && err == 0 && n_open == 1 && n_read == 1 && n_write == 0,
-              "metadata load succeeds from read-only open");
+        check(!failed && err == 0 && n_get == 1 && n_open == 0 && n_read == 1 && n_write == 0,
+              "metadata load validates assigned read-only slot without reopening");
         check(n_inputs == 16, "all metadata words received");
         for (i = 0; i < 16; i = i + 1)
             check(received[i] === input_word(21, i), "metadata bytes preserved");
 
         fresh();
         run(1);
-        check(!failed && n_inputs == 2048 && n_open == 1 && n_read == 1 && n_write == 0,
+        check(!failed && n_inputs == 2048 && n_get == 1 && n_open == 0 && n_read == 1 && n_write == 0,
               "save staged completely with no SD writes");
         for (i = 0; i < 2048; i = i + 1)
             check(received[i] === input_word(22, i), "save bytes preserved");
@@ -367,6 +434,32 @@ initial begin
         repeat (4) @(negedge clk);
         bridge_wr = 0;
         check(n_inputs == before_count, "late bridge traffic cannot alter staged data");
+
+        fresh();
+        name_length_words = 10;
+        name_padding = 8'hA5;
+        name_done_with_last = 1;
+        run(0);
+        check(!failed && n_inputs == 16 && n_get == 1 && n_open == 0,
+              "exact terminated path accepts unspecified padding and final-word done");
+        for (i = 1; i <= 7; i = i + 1) begin
+            fresh();
+            name_fault = i;
+            run(1);
+            check(failed && err == 14 && n_read == 0 && n_write == 0 && n_inputs == 0,
+                  "wrong, unterminated, empty, or reversed canonical path rejected");
+        end
+        for (i = 1; i <= 5; i = i + 1) begin
+            fresh();
+            name_transfer_fault = i;
+            run(0);
+            check(failed && err == 10 && n_read == 0 && n_inputs == 0,
+                  "malformed filename transfer cannot authorize a data read");
+        end
+        fresh();
+        name_length_words = 9;
+        run(1);
+        check(failed && err == 10 && n_read == 0, "missing terminator word fails closed");
 
         fresh();
         occupied_names = 2;
@@ -390,24 +483,29 @@ initial begin
     run(0);
     check(failed && err == 9 && n_read == 0, "oversized metadata blocks read");
     fresh();
-    open_error = 3;
+    name_error = 1;
     run(1);
-    check(failed && err == 3 && n_read == 0 && n_write == 0, "missing save never created");
+    check(failed && err == 1 && n_read == 0 && n_write == 0 && n_open == 0,
+          "undefined input slot never opened or created");
     fresh();
-    open_error = 1;
+    name_length_words = 0;
     run(0);
-    check(failed && err == 1 && n_read == 0, "created result on input is refused");
+    check(failed && err == 10 && n_read == 0, "empty successful filename reply refused");
     for (i = 0; i < 3; i = i + 1) begin
         fresh();
         open_error = 4;
         run(i);
-        check(failed && err == 4 && n_read == 0 && n_write == 0,
-              "malformed path refuses all input and recovery operations");
-        check(debug_op == i && debug_stage == (i == 2 ? 5 : 1),
-              "failure retains the exact operation and failed open stage");
-        repeat (5) @(negedge clk);
-        check(debug_reads == 66 && debug_first == 32'h7373412F,
-              "failure trace survives return to idle");
+        if (i == 2) begin
+            check(failed && err == 4 && n_read == 0 && n_write == 0,
+                  "recovery open refusal still prevents all backup writes");
+            check(debug_op == 2 && debug_stage == 5, "failed recovery open stage retained");
+            repeat (5) @(negedge clk);
+            check(debug_reads == 66 && debug_first == 32'h7373412F,
+                  "failure trace survives return to idle");
+        end else begin
+            check(!failed && n_open == 0 && n_get == 1 && n_read == 1 && n_write == 0,
+                  "fixed read-only inputs do not depend on open-file support");
+        end
     end
     fresh();
     short_words = 1;
@@ -454,12 +552,12 @@ initial begin
     check(failed && err == 11 && n_open == 1 && n_write == 0,
           "full recovery namespace never wraps or overwrites");
 
-    for (i = 1; i <= 4; i = i + 1) begin
+    for (i = 1; i <= 5; i = i + 1) begin
         fresh();
         mute_command = i;
-        run(i >= 3 ? 2 : 1);
+        run(i == 2 || i == 5 ? 1 : 2);
         check(failed && err == 8 && poisoned, "timeout permanently poisons command service");
-        before_count = n_open + n_read + n_write;
+        before_count = n_open + n_read + n_write + n_get;
         t_done = 1;
         t_err = 0;
         mute_command = 0;
@@ -468,7 +566,7 @@ initial begin
         repeat (5) @(negedge clk);
         bridge_wr = 0;
         run(0);
-        check(failed && err == 8 && before_count == n_open+n_read+n_write,
+        check(failed && err == 8 && before_count == n_open+n_read+n_write+n_get,
               "late done cannot authorize service reuse");
     end
     fresh();

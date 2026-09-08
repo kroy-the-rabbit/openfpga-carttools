@@ -68,6 +68,14 @@ used by the writer. Save writes remain compiled out for initial hardware checks.
 
 ## Identity checks and their limits
 
+Fixed inputs use their existing read-only deferred-load slots. Query each
+slot's filename through `0190`, require the exact canonical path including
+its NUL terminator, then verify slot ID and exact length before `0180` reads
+the bytes. There is no input-file reopen or fallback path. The filename reply
+must be ordered and aligned, include the complete name, and remain within
+its 256-byte window. Padding after the terminator is not part of the name.
+Keep the filename reply separate from the staged input data buffer.
+
 The core must compare the manifest to freshly read cartridge identity and a
 full ROM CRC32. It must independently compare staged save length and CRC32,
 validate the metadata CRC32, and reject unsupported versions or nonzero
@@ -156,7 +164,7 @@ report that the cartridge needs recovery, with no automatic repeated writes.
 2. Exercise a synthetic writable MBC1 model: bank selection, data order,
    wrong identity, bad CRC, wrong size, backup errors, stale authorization,
    reset, cancellation, cartridge changes, and readback mismatches.
-3. Build on sisko through `../tools/runner-build` and pass normal simulation
+3. Build on the requested runner through `../tools/runner-build` and pass normal simulation
    and FPGA timing checks. Keep the released core and original evidence.
 4. On hardware, make a fresh baseline backup and retain it off-card before
    enabling the writer. First restore the exact corpus save, then dump it
@@ -191,6 +199,7 @@ The file service adds these hexadecimal diagnostic codes:
 | `B` | All recovery names were occupied |
 | `C` | Invalid file operation requested |
 | `D` | Recovery creation did not establish ownership of a new file |
+| `E` | Assigned input path did not match the required fixed path and terminator |
 
 An error may leave a partial new recovery file on SD. Preserve it for analysis;
 the next attempt must choose a new name, not overwrite that file. No error
@@ -257,9 +266,11 @@ The subsequent `05AF` hardware screenshot has the same counts, but repeats
 `40 40 41 41`: flags and size each observed three times. It shows the correct
 complete metadata path, NULs, zero flags and size, and no word mismatch, yet
 still fails at metadata open with error `4`. It is not a preflight pass.
-The simulation has not yet reproduced this access pattern or established
+The resumed split-read simulation reproduces these counts and repeat indices
+with correct data, and with a deliberately incorrect consumer retaining a
+shifted path while observing the same bus responses. It does not establish
 which returned words firmware consumes at the bulk/scalar read boundaries.
-See the paused-work section in `docs/HANDOFF.md` before another candidate.
+See the current resume section in `docs/HANDOFF.md` before another candidate.
 
 The observer checks every returned structure word, including padding, against
 the file service's generator and captures the selected top-level response.
@@ -269,3 +280,9 @@ bridge observation does not prove firmware acceptance or physical SPI signal
 integrity. The host regression separately checks literal expected bytes and
 tests injected selected-response corruption through both modeled reads and
 the actual SPI peripheral. No cartridge write is enabled by these diagnostics.
+
+For the assigned-input candidate, `GET INPUT PATH` and `CHECK INPUT PATH`
+replace input open. The displayed path is received from firmware, with an
+`RX` word count; only bytes through the required terminator are compared.
+Padding can be nonzero and appear as other characters or `?`. Recovery
+failures still show the outbound `READS` trace and compare all 264 bytes.

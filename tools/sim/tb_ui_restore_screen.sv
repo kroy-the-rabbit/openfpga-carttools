@@ -13,9 +13,9 @@ reg [1:0] hold_progress = 2'd0;
 reg [5:0] phase = 6'd0;
 reg [4:0] error = 5'd0;
 reg [3:0] io_error = 4'hD;
-reg [108:0] io_debug = {2'd0, 4'd1, 7'd70, 32'h7373412F, 32'h74656D2E, 32'd0};
-reg [475:0] io_detail = {320'd0, 10'h3FF, 7'd66, 7'd4,
-                        {7'd64,7'd48,7'd32,7'd16}, 1'b0, 7'd0,
+reg [108:0] io_debug = {2'd0, 4'd11, 7'd64, 32'h7373412F, 32'h74656D2E, 32'd0};
+reg [475:0] io_detail = {320'd0, 10'h3FF, 7'd64, 7'd0,
+                        {4{7'h7F}}, 1'b0, 7'd0,
                         32'd0, 32'd0, 32'd0};
 task set_trace_path(input string path);
     integer i;
@@ -272,11 +272,11 @@ initial begin
             expect_row(1, "BUILD 0000                    ");
             expect_row(2, "FILE: RESTORE.meta            ");
             expect_row(11, "SD ERROR: D                   ");
-            expect_row(12, "SD STAGE: OPEN INPUT          ");
+            expect_row(12, "SD STAGE: GET INPUT PATH      ");
             expect_row(3, "PATH /Assets/carttools/common/");
             expect_row(4, "NAME RESTORE.meta~~~          ");
-            expect_row(13, "READS 46 UNIQUE 42 RPT 04     ");
-            expect_row(14, "REPEAT 10 20 30 40            ");
+            expect_row(13, "RX    40 UNIQUE 40 RPT 00     ");
+            expect_row(14, "REPEAT -- -- -- --            ");
             expect_row(15, "FLAGS 00000000 SIZE 00000000  ");
             expect_row(16, "NO OBSERVED WORD MISMATCH     ");
         end else begin
@@ -296,7 +296,13 @@ initial begin
     io_error = 10;
     settle();
     expect_row(11, "SD ERROR: A                   ");
+    io_error = 14;
+    io_debug[106:103] = 12;
+    settle();
+    expect_row(11, "SD ERROR: E                   ");
+    expect_row(12, "SD STAGE: CHECK INPUT PATH    ");
     io_debug = {2'd2, 4'd7, 7'd66, 32'h7373412F, 32'h7661732E, 32'd2};
+    io_detail[145:139] = 66;
     set_trace_path("/Assets/carttools/common/PRE012A.sav");
     io_detail[31:0] = 8192;
     settle();
