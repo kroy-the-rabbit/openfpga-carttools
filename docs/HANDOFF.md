@@ -23,9 +23,13 @@ Focused file-service and UI tests pass. `check_restore_datatable.py` checks
 the shipped RAM configuration and requires deliberately removing either wait
 to reproduce error 9 at its respective stage with zero reads. Both the unit
 RAM and actual command/SPI integration RAM now model registered outputs.
-The full suite is running with output at
-`build/restore/table-latency-simulation.log`. The next exact-source build goes
-through runner-build on kira. Do not install until the full suite and timing
+The first synthesis attempt, source `3401e31`, stopped on multiple drivers in
+the newly added table diagnostic registers. The corrected candidate keeps all
+diagnostic assignments in their original clocked owner. The regression also
+checks single procedural ownership. No artifact from the failed attempt was
+installed. Its initial suite run is superseded; fresh full-suite output goes
+to `build/restore/table-latency-final-simulation.log`.
+The next exact-source build goes through runner-build on kira. Do not install until the full suite and timing
 pass. AC63 remains installed until a subsequent deployment is recorded.
 This is a reproduced RTL defect and a candidate fix, not a hardware pass.
 

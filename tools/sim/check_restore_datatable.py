@@ -32,6 +32,12 @@ def main():
             raise AssertionError("restore data-table port mapping changed: " + port)
 
     source = (ROOT / "src/fpga/services/restore/restore_file_io.sv").read_text()
+    clocked_blocks = re.split(r"\balways\s*@", uncomment(source))[1:]
+    for register in ("debug_bad", "debug_bad_index", "debug_bad_word", "debug_bad_expected"):
+        writers = sum(bool(re.search(r"\b" + register + r"\s*<=", block))
+                      for block in clocked_blocks)
+        if writers != 1:
+            raise AssertionError("diagnostic register must have one procedural owner: " + register)
     with tempfile.TemporaryDirectory(prefix="carttools-table-latency-") as directory:
         temp = Path(directory)
         rtl = temp / "restore_file_io.sv"

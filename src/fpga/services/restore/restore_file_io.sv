@@ -257,6 +257,9 @@ wire [6:0] trace_index = operation < 2 ? name_word_index : reply_word_index;
 wire [31:0] trace_native = operation < 2 ? name_native : observed_native;
 wire [31:0] trace_expected = operation < 2 ? name_expected : expected_reply;
 wire trace_mismatch = operation < 2 ? name_mismatch : observed_native != expected_reply;
+wire [31:0] table_expected = state == ST_ID_CHECK ? {16'd0, target_dataslot_id} : expected_bytes;
+wire table_mismatch = (state == ST_ID_CHECK || state == ST_SIZE_CHECK)
+                      && datatable_q != table_expected;
 integer trace_word;
 always @(posedge clk) begin
     if (reset) begin
@@ -292,6 +295,12 @@ always @(posedge clk) begin
             debug_bad_word <= 0;
             debug_bad_expected <= 0;
             debug_size <= 0;
+        end else if (table_mismatch) begin
+            // Keep all diagnostic registers in this single clocked owner.
+            debug_bad <= 1;
+            debug_bad_index <= datatable_addr[6:0];
+            debug_bad_word <= datatable_q;
+            debug_bad_expected <= table_expected;
         end else if (trace_event) begin
             if (debug_reads != 127) debug_reads <= debug_reads + 1'b1;
             if (trace_index == 0) debug_first <= trace_native;
@@ -482,13 +491,7 @@ always @(posedge clk) begin
                 state <= ST_ID_CHECK;
             end
             ST_ID_CHECK: begin
-                if (datatable_q != {16'd0, target_dataslot_id}) begin
-                    debug_bad <= 1;
-                    debug_bad_index <= datatable_addr[6:0];
-                    debug_bad_word <= datatable_q;
-                    debug_bad_expected <= {16'd0, target_dataslot_id};
-                    fail_command(ERR_TABLE);
-                end
+                if (datatable_q != {16'd0, target_dataslot_id}) fail_command(ERR_TABLE);
                 else begin
                     datatable_addr <= table_base + 10'd1;
                     state <= ST_SIZE_WAIT;
@@ -502,13 +505,7 @@ always @(posedge clk) begin
                 state <= ST_SIZE_CHECK;
             end
             ST_SIZE_CHECK: begin
-                if (datatable_q != expected_bytes) begin
-                    debug_bad <= 1;
-                    debug_bad_index <= datatable_addr[6:0];
-                    debug_bad_word <= datatable_q;
-                    debug_bad_expected <= expected_bytes;
-                    fail_command(ERR_TABLE);
-                end
+                if (datatable_q != expected_bytes) fail_command(ERR_TABLE);
                 else state <= check_before_write ? ST_WRITE : ST_READ;
             end
             ST_READ: begin
