@@ -34,6 +34,9 @@
 // first returned byte is emitted once; the second only supplies diagnostic
 // evidence. Agreement cannot detect a consistently wrong read. Default off
 // preserves the restore identity reader's transaction sequence.
+// Two idle clocks before the reread match the extra ST_EMIT/ST_NEXT clocks
+// between bytes when out_ready is high. This tests the read-spacing asymmetry
+// without changing the bus setup, strobe, hold, or mapper-write sequence.
 //
 
 module cart_dump_gb #(
@@ -98,6 +101,8 @@ localparam [3:0] ST_NEXT     = 4'd8;
 localparam [3:0] ST_DONE     = 4'd9;
 localparam [3:0] ST_REREAD   = 4'd10;
 localparam [3:0] ST_COMPARE_W= 4'd11;
+localparam [3:0] ST_PAIR_GAP1= 4'd12;
+localparam [3:0] ST_PAIR_GAP2= 4'd13;
 
 reg [3:0]  state;
 reg [8:0]  bank;        // bank being read
@@ -209,9 +214,12 @@ always @(posedge clk) begin
                 if (bus_done) begin
                     out_data  <= bus_rdata;
                     out_valid <= !PAIR_READS;
-                    state     <= PAIR_READS ? ST_REREAD : ST_EMIT;
+                    state     <= PAIR_READS ? ST_PAIR_GAP1 : ST_EMIT;
                 end
             end
+
+            ST_PAIR_GAP1: state <= ST_PAIR_GAP2;
+            ST_PAIR_GAP2: state <= ST_REREAD;
 
             ST_REREAD: begin
                 bus_wr   <= 1'b0;
