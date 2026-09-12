@@ -72,6 +72,16 @@ module ui_screen #(
     // exists.
     input  wire [31:0]  crc32,
 
+    // Diagnostic evidence only. Counts and address are hexadecimal, stable
+    // before dump_state becomes complete; they need no wide repaint trigger.
+    input  wire         pair_checked,
+    input  wire [23:0]  pair_mismatches,
+    input  wire [23:0]  pair_even,
+    input  wire [23:0]  pair_odd,
+    input  wire [22:0]  pair_first_addr,
+    input  wire [7:0]   pair_first_a,
+    input  wire [7:0]   pair_first_b,
+
     // Game Boy fields, used when platform is P_GB.
     input  wire [119:0] gb_title,
     input  wire [7:0]   gb_cart_type,
@@ -567,7 +577,35 @@ wire [LW-1:0] crc_line = (dump_state == 2'd2) ? ROW_CRC
 // already false for a save, so the row would otherwise sit blank.
 wire [LW-1:0] verify_line = save_shown ? save_line : sum_line;
 
-wire [LW-1:0] static_next = row_c == R_RESTORE_HELP && restore_ready ?
+// Assemble diagnostic rows before the registered row selection, keeping
+// their hex formatting out of the per-column character path.
+function [47:0] hex24(input [23:0] v);
+    hex24 = {hex_digit(v[23:20]), hex_digit(v[19:16]),
+             hex_digit(v[15:12]), hex_digit(v[11:8]),
+             hex_digit(v[7:4]), hex_digit(v[3:0])};
+endfunction
+wire pair_shown = details_gb && !save_shown && pair_checked &&
+                  dump_state == 2'd2;
+wire [LW-1:0] pair_count_line = pair_mismatches == 24'd0 ?
+    "PAIRED READS AGREE             " :
+    {"READ DIFF ", hex24(pair_mismatches), " (HEX)        "};
+wire [LW-1:0] pair_parity_line =
+    {"EVEN ", hex24(pair_even), " ODD ", hex24(pair_odd), "        "};
+wire [LW-1:0] pair_first_line = pair_mismatches == 24'd0 ?
+    ROW_BLANKR :
+    {"FIRST ", hex_digit({3'd0, pair_first_addr[22]}),
+     hex_digit(pair_first_addr[21:18]), hex_digit(pair_first_addr[17:14]),
+     ":", hex_digit({2'd0, pair_first_addr[13:12]}),
+     hex_digit(pair_first_addr[11:8]), hex_digit(pair_first_addr[7:4]),
+     hex_digit(pair_first_addr[3:0]), " ",
+     hex_digit(pair_first_a[7:4]), hex_digit(pair_first_a[3:0]), "/",
+     hex_digit(pair_first_b[7:4]), hex_digit(pair_first_b[3:0]),
+     "          "};
+
+wire [LW-1:0] static_next = pair_shown && row_c == 5'd15 ? pair_count_line :
+                            pair_shown && row_c == 5'd16 ? pair_parity_line :
+                            pair_shown && row_c == 5'd17 ? pair_first_line :
+                            row_c == R_RESTORE_HELP && restore_ready ?
                             "HOLD SELECT 3s: RESTORE       " :
                             line_of(row_c, details, details_gb, msg_line,
                                     dump_line, file_line, verify_line,

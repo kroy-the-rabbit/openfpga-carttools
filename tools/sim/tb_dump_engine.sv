@@ -64,6 +64,12 @@ wire [2:0]  err;
 wire [15:0] fail_chunk, chunks_done, chunks_total;
 wire [31:0] total_bytes;
 wire [31:0] crc32;
+wire pair_checked;
+wire [23:0] pair_mismatches, pair_even, pair_odd;
+wire [22:0] pair_first_addr;
+wire [7:0] pair_first_a, pair_first_b;
+reg pair_inject = 0;
+integer n_rom_reads = 0;
 wire [1:0]  want_mode;
 reg         mode_ready = 1'b1;
 reg         cart_powered = 1'b1;
@@ -135,6 +141,10 @@ dump_engine #(
     .gba_save_is_eeprom (1'b0), .gba_save_addr_bits (4'd14),
     .cart_mode (1'b1),
     .crc32 (crc32), .crc_checked (crc_checked),
+    .pair_checked(pair_checked), .pair_mismatches(pair_mismatches),
+    .pair_even(pair_even), .pair_odd(pair_odd),
+    .pair_first_addr(pair_first_addr),
+    .pair_first_a(pair_first_a), .pair_first_b(pair_first_b),
     .busy (busy), .done (done), .failed (failed), .err (err),
     .fail_chunk (fail_chunk), .chunks_done (chunks_done),
     .chunks_total (chunks_total), .total_bytes (total_bytes),
@@ -273,7 +283,10 @@ always @(posedge clk_sys) begin
         end else if (bus_addr >= 16'hA000 && bus_addr < 16'hC000) begin
             bus_rdata <= ram_enabled ? save_content(bus_addr[12:0]) : 8'hFF;
         end else begin
-            bus_rdata <= content({eff_bank(bus_addr), bus_addr[13:0]});
+            bus_rdata <= content({eff_bank(bus_addr), bus_addr[13:0]}) ^
+                ((pair_inject && bus_addr == 16'h408B && n_rom_reads[0]) ? 8'h01 : 8'h00) ^
+                ((pair_inject && bus_addr == 16'h408C && !n_rom_reads[0]) ? 8'h40 : 8'h00);
+            n_rom_reads = n_rom_reads + 1;
         end
         bus_done <= 1'b1;
         @(posedge clk_sys);
@@ -509,6 +522,7 @@ task reset_model;
 begin
     n_open = 0; n_write = 0; n_flush = 0; n_bus_writes = 0; n_gba_reads = 0;
     n_ram_writes = 0;
+    n_rom_reads = 0;
     ram_enabled = 1'b0;
     mode_seen = 2'b00;
     fsize = 0;
@@ -656,6 +670,44 @@ initial begin
         end
     end
 
+    expect_eq(pair_checked, 1, "paired ROM completed");
+    expect_eq(pair_mismatches, 0, "stable ROM pair count");
+    expect_eq(n_rom_reads, 65536, "two reads for each ROM byte");
+
+    reset_model;
+    n_rom_reads = 0;
+    pair_inject = 1;
+    run_dump(1'b0, 1'b1, 8'd0);
+    expect_eq(failed, 0, "file completes despite paired differences");
+    expect_eq(fsize, 32768, "paired ROM file length");
+    expect_eq(n_rom_reads, 65536, "faulted ROM reads");
+    expect_eq(pair_checked, 1, "faulted ROM pair completion");
+    expect_eq(pair_mismatches, 2, "faulted ROM pair count");
+    expect_eq(pair_even, 1, "faulted ROM even count");
+    expect_eq(pair_odd, 1, "faulted ROM odd count");
+    expect_eq(pair_first_addr, 'h408B, "faulted ROM first address");
+    expect_eq(pair_first_a, content(24'h408B), "faulted ROM first sample");
+    expect_eq(pair_first_b, content(24'h408B) ^ 8'h01, "faulted ROM second sample");
+    begin : pair_file_check
+        integer j, b, wanted_sum;
+        reg [7:0] expected_byte;
+        reg [31:0] wanted_crc;
+        wanted_sum = 0;
+        wanted_crc = 32'hFFFFFFFF;
+        for (j = 0; j < 32768; j = j + 1) begin
+            expected_byte = content(j) ^ (j == 'h408C ? 8'h40 : 8'h00);
+            if (fdata[j] !== expected_byte)
+                $fatal(1, "paired file byte %0d: %02h expected %02h", j, fdata[j], expected_byte);
+            if (j != 'h14E && j != 'h14F) wanted_sum = wanted_sum + expected_byte;
+            wanted_crc = wanted_crc ^ expected_byte;
+            for (b = 0; b < 8; b = b + 1)
+                wanted_crc = wanted_crc[0] ? (wanted_crc >> 1) ^ 32'hEDB88320 : wanted_crc >> 1;
+        end
+        if (sum_computed !== wanted_sum[15:0] || crc32 !== ~wanted_crc)
+            $fatal(1, "checksum/CRC did not describe the first samples written to the file");
+    end
+    pair_inject = 0;
+
     // --- a save backup, end to end ------------------------------------------
     //
     // Same engine, same buffer, same file writer; a different reader and a
@@ -706,6 +758,7 @@ initial begin
     // the whole of what can be done for a save without a PC, so a stale or
     // absent number here is a real fault and one nothing else would catch.
     expect_eq(crc_checked, 1, "crc_checked for a save");
+    expect_eq(pair_checked, 0, "save hides paired ROM evidence");
     if (crc32 !== save_crc32(8192)) begin
         $display("ERROR: save CRC32 is %08h, expected %08h",
                  crc32, save_crc32(8192));
@@ -784,6 +837,7 @@ initial begin
     reset_model;
     run_dump(1'b1, 1'b1, 8'd0);
     expect_eq(sum_checked, 0, "sum_checked for the self test");
+    expect_eq(pair_checked, 0, "self test hides paired ROM evidence");
 
     // --- the same engine, through the GBA reader ----------------------------
     //
@@ -871,12 +925,18 @@ initial begin
         run_dump(1'b0, 1'b1, 8'd0);
         begin
             wait (n_write == 2);
+            // Lose power in the second transaction of a pair, not merely
+            // somewhere during a long dump. The first read has completed.
+            wait (bus_req && !bus_wr && n_rom_reads[0]);
+            @(posedge clk_sys);
             @(negedge clk_sys);
+            if (!bus_busy) $fatal(1, "abort fixture missed second bus read");
             cart_powered = 1'b0;
         end
     join
     bus_delay = 3;
     expect_eq(failed, 1, "failed flag after the slot lost power");
+    expect_eq(pair_checked, 0, "abort clears paired ROM evidence");
     expect_eq(err, 7, "reported err after the slot lost power");
     cart_powered = 1'b1;
 

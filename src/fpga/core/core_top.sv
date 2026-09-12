@@ -1481,6 +1481,10 @@ wire [31:0]  dump_out_ext;
 wire [2:0]   dump_out_ext_len;
 wire         dump_out_name_valid;
 wire [31:0]  dump_crc32;
+wire         dump_pair_checked;
+wire [23:0]  dump_pair_mismatches, dump_pair_even, dump_pair_odd;
+wire [22:0]  dump_pair_first_addr;
+wire [7:0]   dump_pair_first_a, dump_pair_first_b;
 wire         dump_save_supported;
 wire         dump_save_responded;
 wire         dump_save_blank_ff, dump_save_blank_00;
@@ -1655,6 +1659,13 @@ dump_engine dump (
     .gba_save_addr_bits ( ee_addr_bits ),
     .cart_mode          ( gba_mode_s ),
     .crc32         ( dump_crc32 ),
+    .pair_checked  ( dump_pair_checked ),
+    .pair_mismatches( dump_pair_mismatches ),
+    .pair_even     ( dump_pair_even ),
+    .pair_odd      ( dump_pair_odd ),
+    .pair_first_addr( dump_pair_first_addr ),
+    .pair_first_a  ( dump_pair_first_a ),
+    .pair_first_b  ( dump_pair_first_b ),
 
     .busy          ( dump_busy ),
     .done          ( dump_done ),
@@ -1934,6 +1945,13 @@ ui_screen screen (
 
     .gba_size_code ( gba_size_code ),
     .crc32         ( dump_crc32 ),
+    .pair_checked  ( dump_pair_checked ),
+    .pair_mismatches( dump_pair_mismatches ),
+    .pair_even     ( dump_pair_even ),
+    .pair_odd      ( dump_pair_odd ),
+    .pair_first_addr( dump_pair_first_addr ),
+    .pair_first_a  ( dump_pair_first_a ),
+    .pair_first_b  ( dump_pair_first_b ),
 
     .gb_title       ( gbid_title ),
     .gb_cart_type   ( gbid_cart_type ),

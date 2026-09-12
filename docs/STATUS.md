@@ -4,18 +4,41 @@ What is actually true right now, as opposed to what is written. The plan in
 `plan.md` says where this is going; this file says where it is.
 
 Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
-Development is on `save-restore-la`. Installed source `12cd3c1`, stamp `12CD`,
-passed all 45 simulation and structural checks and sisko timing:
+Development is on `save-restore-la`. Last verified installed source
+`12cd3c1`, stamp `12CD`, passed all 45 simulation and structural checks and sisko timing:
 setup `+0.788 ns`, hold `+0.095 ns`. The full 14-file package was installed
 and byte-verified on 2026-09-07. Restore inputs and corpus are
 unchanged. Replaced files and all build evidence are retained locally, and
 the card was left mounted as requested. Cartridge save writes remain disabled.
 
-Work is paused for tomorrow at the user's request. Candidate `2B0B` is fully
-simulation-tested but has not been FPGA-built or installed. Resume instructions
-are at the top of `docs/HANDOFF.md`. No new CartTools build is running.
+Pokemon Silver, 2026-09-11: the first MBC3 cartridge this core has driven, and
+its ROM does not dump. Eight attempts, eight different image sums, none
+matching the cartridge's stored `0DAE`. Rechecking the four preserved ROM
+images finds 128,457 distinct offsets with disagreement, all odd and in the
+banked ROM window; the first is `0x408B`. Bank 0 agrees across all four images,
+and three preserved 32 KB save reads are identical. With no clean Silver ROM
+reference or independently validated save, agreement means repeatability.
+Link's Awakening at 512 KB and Link's Awakening DX at 1 MB both re-dumped
+byte-identical to the library in the same session. Those controls do not
+exonerate the reader or establish Silver's failure mechanism. The four ROM
+images, saves, controls, and eight distinct Silver screenshots are under
+ignored `build/hardware/12cd3c1/`; all nine manifest entries were rechecked.
+The paired-read diagnostic is now implemented for ordinary GB/GBC ROM dumps:
+the first sample feeds the file and checksums, while the second is compared
+and mismatch evidence is displayed after completion. The full 2 MB MBC3
+reader test, UI test, actual-top wiring check, and end-to-end file/CRC test
+pass. Full suite verification and the FPGA build are pending. See `docs/HANDOFF.md` for
+the next build and hardware steps. No new package has been installed.
 
-Latest hardware result, 2026-09-08: 12CD still fails, but now at
+The separate restore track remains at the 2026-09-08 pause. Candidate `2B0B`
+is fully simulation-tested but has not been FPGA-built or installed. Local
+The diagnostic builds on `79852fc` / the `2b0b0ba` implementation. Restore
+retains single reads and the disabled cartridge-write gate. The original
+45/45 2B0B test log and its hash were verified during alignment; this new
+candidate needs its own full-suite and timing evidence. See the pending
+restore section in `docs/HANDOFF.md` when resuming that work.
+
+Latest restore hardware result, 2026-09-08: 12CD still fails, but now at
 `SIZE NEW BACKUP`, error `3` (file not found), flags `2`, size `8192`.
 Controller flow implies it accepted a create-success response after the probe;
 there is no `PRE*.sav` in the copied common directory. No recovery payload or
@@ -33,10 +56,11 @@ actual-command/SPI, and full-top integration tests pass, including a deliberate
 result-truncation negative control. This is not yet a proven hardware fix.
 Exact candidate source is `2b0b0ba500f3c37cd376016052fb0d50abfef2ab`, stamp
 `2B0B`. All 45 checks passed on that exact source. The verified log is retained
-under `build/restore/candidate-2b0b0ba/`. The sisko build has not started because
-the runner was occupied by sibling GBA work. An optional switch to kira was
-offered but not selected before the pause. Resume on sisko unless directed
-otherwise. 12CD remains installed, with cartridge writes disabled.
+under `build/restore/candidate-2b0b0ba/`. At the 2026-09-08 pause, the sisko
+build had not started because the runner was occupied by sibling GBA work.
+An optional switch to kira was offered but not selected. Recheck availability
+and resume on sisko unless directed otherwise. 12CD is the last verified
+installed package, with cartridge writes disabled.
 
 The previous `2BDA` screenshot localized APF error `4` to metadata input
 open, with 70 observed responses and its two displayed path words correct.
@@ -578,9 +602,11 @@ Mapper and size coverage on hardware:
 | MBC5 (`19`) | 1 MB |
 | MBC5+RUMBLE+RAM+battery (`1E`) | 1 MB |
 
-MBC2, MBC3 and MBC1 above 512 KB remain simulation only. MBC1 above 512 KB
-is the case expected to differ, for the reason `cart_dump_gb.sv` documents:
-banks `0x20`, `0x40` and `0x60` cannot be selected at all.
+MBC2 and MBC1 above 512 KB remain simulation only. MBC3 now has an unsuccessful
+2 MB ROM hardware test on Pokemon Silver (2026-09-11, details above), plus
+repeatable 32 KB save reads; it is not qualified ROM/save/RTC support. MBC1
+above 512 KB is the case expected to differ, for the reason `cart_dump_gb.sv`
+documents: banks `0x20`, `0x40` and `0x60` cannot be selected at all.
 
 ### The three that did not verify, and what each turned out to be
 

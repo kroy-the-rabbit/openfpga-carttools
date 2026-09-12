@@ -30,12 +30,15 @@
 // can work around it; a note belongs in the sidecar so the hash mismatch is
 // explainable rather than mysterious.
 //
-// Every byte is read once. There is no retry and no verification pass: a dump
-// that needs to be trusted must be verified by reading it back, which is a
-// separate operation.
+// PAIR_READS adds an adjacent second bus transaction for each ROM byte. The
+// first returned byte is emitted once; the second only supplies diagnostic
+// evidence. Agreement cannot detect a consistently wrong read. Default off
+// preserves the restore identity reader's transaction sequence.
 //
 
-module cart_dump_gb (
+module cart_dump_gb #(
+    parameter bit PAIR_READS = 1'b0
+) (
     input  wire        clk,
     input  wire        reset,
 
@@ -59,7 +62,17 @@ module cart_dump_gb (
     // Byte stream out. Held until taken.
     output reg  [7:0]  out_data,
     output reg         out_valid,
-    input  wire        out_ready
+    input  wire        out_ready,
+
+    // Counts fit the entire GB ROM address space, including all bytes
+    // differing. Retained until reset or the next start. first_addr is the
+    // linear ROM offset: {9-bit bank, 14-bit offset within that bank}.
+    output reg  [23:0] pair_mismatches,
+    output reg  [23:0] pair_even,
+    output reg  [23:0] pair_odd,
+    output reg  [22:0] pair_first_addr,
+    output reg  [7:0]  pair_first_a,
+    output reg  [7:0]  pair_first_b
 );
 
 // 0x0148: 0 is 32 KB and every step doubles. Two banks of 16 KB at 0x00.
@@ -83,6 +96,8 @@ localparam [3:0] ST_READ_W   = 4'd6;
 localparam [3:0] ST_EMIT     = 4'd7;
 localparam [3:0] ST_NEXT     = 4'd8;
 localparam [3:0] ST_DONE     = 4'd9;
+localparam [3:0] ST_REREAD   = 4'd10;
+localparam [3:0] ST_COMPARE_W= 4'd11;
 
 reg [3:0]  state;
 reg [8:0]  bank;        // bank being read
@@ -106,6 +121,12 @@ always @(posedge clk) begin
         bus_wr    <= 1'b0;
         bus_addr  <= 16'd0;
         bus_wdata <= 8'd0;
+        pair_mismatches <= 24'd0;
+        pair_even       <= 24'd0;
+        pair_odd        <= 24'd0;
+        pair_first_addr <= 23'd0;
+        pair_first_a    <= 8'd0;
+        pair_first_b    <= 8'd0;
     end else begin
         case (state)
             ST_IDLE: begin
@@ -116,6 +137,12 @@ always @(posedge clk) begin
                     bank   <= 9'd0;
                     offset <= 14'd0;
                     state  <= ST_READ;
+                    pair_mismatches <= 24'd0;
+                    pair_even       <= 24'd0;
+                    pair_odd        <= 24'd0;
+                    pair_first_addr <= 23'd0;
+                    pair_first_a    <= 8'd0;
+                    pair_first_b    <= 8'd0;
                 end
             end
 
@@ -181,9 +208,33 @@ always @(posedge clk) begin
             ST_READ_W: begin
                 if (bus_done) begin
                     out_data  <= bus_rdata;
-                    out_valid <= 1'b1;
-                    state     <= ST_EMIT;
+                    out_valid <= !PAIR_READS;
+                    state     <= PAIR_READS ? ST_REREAD : ST_EMIT;
                 end
+            end
+
+            ST_REREAD: begin
+                bus_wr   <= 1'b0;
+                bus_req  <= 1'b1;
+                bus_addr <= read_addr;
+                state    <= ST_COMPARE_W;
+            end
+
+            ST_COMPARE_W: if (bus_done) begin
+                // Keep out_data from the first read, including on mismatch.
+                // No third read, retry, or replacement byte enters the file.
+                if (out_data != bus_rdata) begin
+                    pair_mismatches <= pair_mismatches + 24'd1;
+                    if (offset[0]) pair_odd  <= pair_odd  + 24'd1;
+                    else           pair_even <= pair_even + 24'd1;
+                    if (pair_mismatches == 24'd0) begin
+                        pair_first_addr <= {bank, offset};
+                        pair_first_a    <= out_data;
+                        pair_first_b    <= bus_rdata;
+                    end
+                end
+                out_valid <= 1'b1;
+                state     <= ST_EMIT;
             end
 
             ST_EMIT: begin

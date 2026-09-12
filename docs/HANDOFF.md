@@ -3,11 +3,233 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
-## Tomorrow resume: 2B0B ready to build, 2026-09-08
+## Silver paired-read diagnostic candidate, 2026-09-11
 
-The user paused work and requested this handoff. No CartTools FPGA build is
-running from this turn, and no new candidate was installed. Do not continue
-waiting or start a build until work is resumed.
+The user resumed implementation. Ordinary GB/GBC ROM dumping now enables
+`cart_dump_gb.PAIR_READS`: two complete bus reads at each bank/address, with
+only the retained first byte emitted to the file/checksum/CRC stream. Counts
+and the first differing pair are retained until reset or a new ROM read.
+Restore uses the default single-read mode. This source includes the earlier
+2B0B restore changes, but neither qualifies restore nor enables save writes.
+
+Rows 15-17 after a completed GB/GBC ROM dump show `READ DIFF` (or
+`PAIRED READS AGREE`), `EVEN`/`ODD`, and `FIRST bank:offset byte1/byte2`.
+All numbers are hex. Agreement is a repeatability observation, not a correct
+ROM verdict. Failed/partial dumps, saves, GBA, and rescans hide these rows.
+
+The full 2 MB MBC3 reader test, UI test, and actual-top wiring check have
+passed. The latter rejects count/address truncation and swapped parity
+connections. End-to-end verification also passes: faulted first samples reach
+the file/checksum/CRC exactly once, and loss of power during a second read
+aborts safely. The complete exact-source suite and FPGA synthesis are pending. The last verified installed
+package is 12CD. Sisko was idle at the resumed check; recheck before starting.
+
+Next: finish verification, build the tested commit on sisko, require timing
+closure, archive and install the complete package, then collect Silver and
+Zelda control dumps with the three diagnostic rows visible. Preserve all card
+files and screenshots. The original experiment and interpretation limits are
+retained below. A matching reread cannot establish correct addressing, and
+changing read cadence can itself change the failure.
+
+## Alignment snapshot before implementation, 2026-09-11
+
+- Branch `save-restore-la`, HEAD `79852fce77e47b1f793fcedcc2657b211952cc27`.
+  The working changes are the Silver notes in this file and `docs/STATUS.md`.
+  Implementation, tests, scripts, and package still match `2b0b0ba` exactly.
+- Last hardware-verified installed source: `12cd3c1`, stamp `12CD`. The
+  released baseline remains `v0.9999.250d6a0`; these are development builds.
+- Immediate investigation: Silver's banked MBC3 ROM reads disagree. The
+  diagnostic candidate described below has not been implemented or built.
+- Pending restore work: `2b0b0ba`, stamp `2B0B`, passed all 45 checks but has
+  no retained FPGA build. The latest restore attempt on 12CD failed at
+  `SIZE NEW BACKUP`, error 3. `RESTORE_WRITE_ENABLED` is still zero.
+- This alignment checked local evidence only: all nine manifest entries
+  passed, the Silver statistics below were recomputed, and the 2B0B test-log
+  hash and 45/45 result match the retained record. No RTL, build, or card
+  operation was performed. Runner availability and the live card's mounted
+  device/installed package need fresh checks before a build or deployment.
+
+Follow **Next steps: Silver diagnostic** below first. The dated restore
+sections retain the separate 2B0B build and recovery qualification procedure;
+their old "tomorrow" and runner-occupancy statements are historical.
+
+## Pokemon Silver, first MBC3 on hardware, dumps corrupt: 2026-09-11
+
+Cartridge: Pokemon Silver. Header title `POKEMON_SLVAAXE`, CGB flag `80`, type
+`10` MBC3+TIMER+RAM+BATTERY, ROM `06` 2 MB, RAM `03` 32 KB. Header checksum
+`2A` passes. Stored global checksum `0DAE`. The No-Intro record is `Pokemon -
+Silver Version (USA, Europe) (SGB Enhanced) (GB Compatible)`, 2097152 bytes,
+CRC32 `8AD48636`.
+
+A game store replaced the battery, so the save was already lost. The session
+notes record opening the cartridge and finding no visible board damage. The
+game boots and plays in Analogue's own GB core.
+
+Installed core is `12CD`. No build was started and no RTL was changed. The
+restore work is untouched: `2B0B` is still unbuilt, cartridge writes still
+disabled.
+
+### Result
+
+Eight ROM dumps, eight different image sums, none matching the cartridge.
+
+    10DD  8C3C  132F  4A25  ADAB  5CE9  1A84  B0C5      want 0DAE
+
+The session recorded agreement between the displayed checksum and the file
+on the card for every attempt. In `src/fpga/services/dump/dump_engine.sv`,
+`dump_checksum` and `dump_crc32` both consume `src_data` on
+`src_valid & src_ready`, before `dump_buffer`. The bad checksum is therefore
+already present at the reader-stream boundary. A fault confined to later
+packing, clock crossing, or SD writing cannot explain that observation;
+this does not independently certify every downstream byte.
+
+### Where the corruption is
+
+| window | written first | result |
+|---|---|---|
+| `0x0000-0x3FFF` bank 0 | nothing | identical across 4 preserved dumps |
+| `0x4000-0x7FFF` banked ROM | ROM bank to `0x2000` | corrupt, 8 dumps |
+| `0xA000-0xBFFF` save RAM | RAM enable, RAM bank to `0x4000` | identical across 3 preserved 32 KB dumps |
+
+Across the four ROM images listed under Evidence, **128,457 distinct file
+offsets have at least two different byte values; all are odd**. This replaces
+the earlier 124,718 count, which was not reproduced from those files. Summing
+byte disagreements over all six pairs instead gives 426,277; these are
+different metrics. The buffer puts byte `i` in lane `i mod 4`, so a mod-4
+histogram showing lanes 1 and 3 is the parity fact restated.
+
+The fraction of offsets with any disagreement across those four images jumps
+at the banked window:
+
+    last 1 KB of bank 0    0.00%
+    first 1 KB of bank 1   4.59%
+
+The first disagreement anywhere is offset 16523, 139 bytes past `0x4000`.
+
+These are disagreement measurements, not error rates against a verified
+Silver image. There is no clean reference here. Agreement in bank 0 or save
+RAM establishes repeatability only. A majority-voted image would also remain
+unverified: all reads can agree on an incorrect byte.
+
+### Controls, same session, same core, same card
+
+    c4360f89e2b09a21307fe864258ecab7  ZELDA.gb   512 KB MBC1  identical to library
+    ccbb56212e3dbaa9007d389a17e9d075  ZELDA.gbc  1 MB MBC5    identical, CRC32 B38EB9DE, device reported checksum ok
+    d7b8c4b6c50546d62389aca840b88cd7  ZELDA.sav  8 KB         identical
+
+The library also holds two verified 4 MB dumps, `YUGIOUDM4J_BY6J.gbc` and
+`DQM2_R_____BQLJ.gbc`. Together these controls argue against a universal
+size limit or a failure affecting every cartridge after the same amount of
+data. They do not rule out a mapper-dependent reader, bus, contact, or timing
+problem on Silver.
+
+Previously verified hardware dumps cover types `00`, `01`, `03`, `19`, `1B`
+and `1E`. Silver is the first MBC3.
+
+### Not established
+
+There is no verified mechanism. `cart_pins.sv` shows nothing parity specific:
+A0 is `bank3[0]`, A14 is `bank2[6]`, read data arrives on `bank1`. Why the
+cartridge plays correctly in Analogue's core while repeated dumps here
+disagree is unexplained. Booting and playing do not independently verify
+every ROM address.
+
+Four theories were asserted during the session without establishing a cause:
+dirty contacts, a fault in the mapper's upper address lines from the battery swap, a
+reader fault inferred from the cartridge booting, and a warm-up ramp that
+explained bank 0. Do not carry those assertions forward as findings or treat
+the passing controls as proof that the reader is sound.
+
+**There is precedent in this tree for the dumper being at fault and the
+cartridge being fine.** `docs/STATUS.md` records `TETRIS.gb` and `OTHELLO.gb`
+dumping corrupt on the `86118ac` bitstream, with a structured 16-byte
+relocation between 1 KB windows that appeared identically on two different
+cartridges, and 23 percent additional corruption on Tetris rising with
+address. Both cartridges later verified completely on `ec566cd` and Tetris
+dumped four times byte-identical. That entry still reads *the mechanism is not
+identified*. So "two controls passed, therefore the reader is sound" is weaker
+than it looks, and it is the same shape of reasoning that recorded two good
+cartridges as suspect for a day. The difference in signature is real and worth
+keeping: the Tetris corruption had **no byte-lane bias**, and this one is
+entirely on odd addresses.
+
+### Original experiment plan: Silver diagnostic
+
+1. Use the preserved 12CD files as the baseline. Recheck
+   `build/hardware/12cd3c1/MANIFEST.md5` from its directory with
+   `md5sum -c MANIFEST.md5`; analyze local copies. Keep every new dump and
+   screenshot with its source commit and hashes. Preserve card files and
+   leave the card mounted.
+2. Implement a bounded GB ROM diagnostic in
+   `src/fpga/services/dump/cart_dump_gb.sv`: issue two complete bus reads at
+   the same bank/address before advancing, retain both returned bytes, and
+   compare. Emit the retained first byte exactly once so the output file,
+   checksum, and CRC still describe the same stream. Retain mismatch count,
+   even/odd counts, and the first mismatch's bank, offset, and two values;
+   expose these through `dump_engine.sv` and the result UI. Keep mapper writes
+   and save-write permissions unchanged. Record the exact source base: HEAD
+   includes the unbuilt 2B0B restore changes, whereas hardware baseline 12CD
+   does not. Diagnostic results must not be reported as 2B0B qualification.
+3. Extend `tools/sim/tb_cart_dump_gb.sv` beyond its current 128 KB MBC3 case
+   to Silver's type `10`, size code `06` (128 banks, 2 MB). Test an injected
+   second-read difference at an odd banked address, stable reads, and a
+   consistently wrong byte that agrees twice. Check both bus transactions
+   use the intended address, exactly one byte is emitted under backpressure,
+   and mismatch diagnostics survive completion. Cover reset/abort and the
+   stream/UI wiring in the relevant tests. Run focused tests, commit the
+   candidate, then run `make test` on that exact source and retain the log
+   before any FPGA build.
+4. Check `../tools/runner-build current`. Use sisko as previously requested
+   when free; do not interrupt another job. Build the tested diagnostic commit
+   through runner-build, require a successful result
+   and nonnegative timing, then fetch and archive the complete package and
+   reports before installing. Re-resolve the card device and verify the
+   installed package; preserve existing evidence and compare all package
+   files after flush. The restore-specific installer below is not a generic
+   diagnostic installer: its source/test-count and prior-12CD checks must
+   still describe any package it installs.
+5. On the diagnostic build, repeat Silver ROM dumps and the same Zelda
+   controls. Capture the diagnostic values, full file hashes, and screenshots.
+   A mismatch proves the two sampled reads differed. Agreement cannot
+   distinguish correct addressing from a repeatable address/data fault, and
+   doubled reads alter bus cadence. If the original failure disappears,
+   treat that as a timing/cadence clue, not a verified repair. Use the result
+   to choose one controlled follow-up, such as changing read timing or
+   capturing address, strobes, PHI, and data at the first failing location.
+
+Silver ROM qualification requires repeated 2,097,152-byte files matching the
+recorded reference CRC32 `8AD48636` and stored checksum `0DAE`, with the
+controls still passing. Stable rereads alone are insufficient. Save/RTC and
+restore qualification remain separate.
+
+`docs/DUMP-VERIFY-PLAN.md` proposes two **whole ROM passes**, with the second
+pass streamed to SD and the two CRCs compared. It is not this adjacent-read
+diagnostic and does not claim that agreement localizes a fault to addressing.
+Ordinary save backup still lacks its planned independent reread. Neither
+general verification feature is implemented by this handoff.
+
+### Evidence
+
+Ignored, under `build/hardware/12cd3c1/`, listed in `MANIFEST.md5`:
+
+    silver/dump1/POKEMON_SLVAAXE.gbc  6272ebb79455799177d8bcf3e471a422  sum 10DD  crc32 8560F219
+    silver/dumpN/POKEMON_SLVAAXE.gbc  740207508ae6a1950d24fb4632e4041c  sum ADAB  crc32 607BE0DB
+    silver/dump6_POKEMON_SLVAAXE.gbc  394691f1edd8cfefcdf86a2cb1475645  sum 1A84  crc32 CBDE3306
+    silver/dump7_POKEMON_SLVAAXE.gbc  4ca246f91653b1fb98c40fba27bea4fe  sum B0C5  crc32 480560CC
+    silver/POKEMON_SLVAAXE.sav        f5315101e8e18ac061b0c68415886fd1  crc32 5373D8A3
+    silver/dump8_POKEMON_SLVAAXE.sav  f5315101e8e18ac061b0c68415886fd1  identical
+
+Eight distinct Silver screenshots are retained beside them (13 PNG copies).
+Four corrupt images of one cartridge are preserved, which is new here, but
+there is still no clean dump of Silver to diff them against. Nothing was
+deleted from the card and it was left mounted.
+
+## Pending restore track: 2B0B ready to build, 2026-09-08
+
+Historical pause: the user stopped restore work on 2026-09-08. No CartTools
+FPGA build was started in that turn and no new candidate was installed. The
+2026-09-11 Silver investigation above is the immediate next work; this
+candidate remains available when the restore track resumes.
 
 - Branch: `save-restore-la`.
 - Exact implementation source: `2b0b0ba500f3c37cd376016052fb0d50abfef2ab`,
@@ -35,7 +257,7 @@ release, then tap A. Capture the whole result, especially `SEQ P/C/N/R`,
 locally. No physical cartridge write is permitted until recovery succeeds,
 all 8192 bytes match the original RAM dump, and the file survives a power cycle.
 
-## Latest hardware result: 12CD still fails, 2026-09-08
+## Latest restore hardware result: 12CD still fails, 2026-09-08
 
 Screenshot `20260908_000409.png` confirms stamp 12CD and stops at
 `SIZE NEW BACKUP`, error `3` (file not found), for `PRE0000.sav`.

@@ -68,6 +68,10 @@ reg  [2:0]   out_ext_len = 3'd0;
 reg          out_name_valid = 1'b0;
 reg  [3:0]   gba_size_code = 4'd0;
 reg  [31:0]  crc32 = 32'd0;
+reg pair_checked = 0;
+reg [23:0] pair_mismatches = 0, pair_even = 0, pair_odd = 0;
+reg [22:0] pair_first_addr = 0;
+reg [7:0] pair_first_a = 0, pair_first_b = 0;
 
 // A literal cannot be part-selected, so the fixtures live in registers.
 reg [8*33-1:0] apf_path = "/Assets/carttools/common/PROBE.gb";
@@ -97,6 +101,10 @@ ui_screen dut (
     .reserved_ok( reserved_ok ),
     .gba_size_code ( gba_size_code ),
     .crc32         ( crc32 ),
+    .pair_checked(pair_checked), .pair_mismatches(pair_mismatches),
+    .pair_even(pair_even), .pair_odd(pair_odd),
+    .pair_first_addr(pair_first_addr),
+    .pair_first_a(pair_first_a), .pair_first_b(pair_first_b),
     .scanning   ( scanning ),
     .id_seq          ( id_seq ),
     .gb_title        ( gb_title ),
@@ -669,6 +677,52 @@ initial begin
     settle();
     expect_row("no stale save verdict", 13, "                              ");
     expect_row("no stale save bytes", 15, "                              ");
+
+    // Diagnostic rows retain all count/address bits. A successful file write
+    // with unstable reads still reports the mismatch, not a verified ROM.
+    valid = 1; scanning = 0; platform = 3'd2; save_shown = 0;
+    pair_checked = 1;
+    pair_mismatches = 24'hEF1234;
+    pair_even = 24'h123456; pair_odd = 24'hDCDDDE;
+    pair_first_addr = 23'h7FC08B;
+    pair_first_a = 8'h12; pair_first_b = 8'hE3;
+    dump_state = 2'd1;
+    settle();
+    expect_row("no partial pair count", 15, "                              ");
+    dump_state = 2'd2;
+    settle();
+    expect_row("pair count", 15, "READ DIFF EF1234 (HEX)        ");
+    expect_row("pair parity", 16, "EVEN 123456 ODD DCDDDE        ");
+    expect_row("first pair", 17, "FIRST 1FF:008B 12/E3          ");
+    expect_row("crc retained", 14, dut.ROW_CRC);
+    dump_state = 2'd3;
+    settle();
+    expect_row("no failed pair verdict", 15, "                              ");
+    expect_row("no failed pair address", 17, "                              ");
+
+    pair_mismatches = 0; pair_even = 0; pair_odd = 0;
+    dump_state = 2'd2;
+    settle();
+    expect_row("stable reads", 15, "PAIRED READS AGREE             ");
+    expect_row("stable counts", 16, "EVEN 000000 ODD 000000        ");
+    expect_row("no stale first mismatch", 17, "                              ");
+
+    save_shown = 1;
+    settle();
+    expect_row("save hides rom parity", 16, "                              ");
+    expect_row("save hides rom address", 17, "                              ");
+    save_shown = 0; platform = 3'd1;
+    settle();
+    expect_row("gba hides pairs", 15, "                              ");
+    platform = 3'd2; pair_checked = 0;
+    settle();
+    expect_row("unchecked hides pairs", 15, "                              ");
+    pair_checked = 1; dump_state = 2'd0;
+    settle();
+    expect_row("idle hides pairs", 16, "                              ");
+    dump_state = 2'd2; scanning = 1;
+    settle();
+    expect_row("rescan hides pairs", 15, "                              ");
 
     if (errors != 0) begin
         $display("tb_ui_screen: %0d checks failed", errors);

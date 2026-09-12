@@ -59,6 +59,7 @@ reg [1:0] mbc1_hi  = 2'd0;
 reg       mbc5_hi  = 1'b0;
 
 integer n_writes = 0;
+integer n_reads = 0;
 integer w_addr [0:63];
 integer w_data [0:63];
 
@@ -99,6 +100,7 @@ always @(posedge clk) begin
                 cur_bank <= {2'd0, bus_wdata[1:0], cur_bank[4:0]};
             end
         end else begin
+            n_reads = n_reads + 1;
             bus_rdata <= content({eff_bank(bus_addr), bus_addr[13:0]} & 24'hFFFFFF);
         end
         bus_done <= 1'b1;
@@ -132,6 +134,7 @@ begin
     mbc1_hi       = 2'd0;
     mbc5_hi       = 1'b0;
     n_writes      = 0;
+    n_reads       = 0;
     got           = 0;
     errors        = errors;   // keep running total
     start = 1'b1;
@@ -139,6 +142,8 @@ begin
     start = 1'b0;
     wait (done == 1'b1);
     @(negedge clk);
+    if (n_reads != got)
+        $fatal(1, "default reader changed restore cadence: %0d reads for %0d bytes", n_reads, got);
 end
 endtask
 
