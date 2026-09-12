@@ -3,6 +3,31 @@
 What is actually true right now, as opposed to what is written. The plan in
 `plan.md` says where this is going; this file says where it is.
 
+7776 hardware result, 2026-09-12: Silver still fails checksum (`FF35` vs
+`0DAE`, CRC32 `13D8321B`). The screenshot reports 42,021 unequal pairs:
+17,937 even, 24,084 odd, first `001:00A4 00/01`. That is fewer unequal
+pairs than BB2B's last run, but it is not a correct ROM.
+
+The existing English Silver SD ROM was located and verified at reference
+CRC32 `8AD48636` and checksum `0DAE`. Comparing all six preserved dump files
+against it establishes that every wrong byte is odd-addressed and every
+error only turns zero bits into ones. 7776 has 31,778 wrong bytes (BB2B had
+89,671); it also has one bank-0 error at `00231B`, `CD` read as `FD`.
+An older 12CD dump has only 6,030 wrong bytes, so the spacing change is not
+established as consistently better. Next: inspect the GB bus's idle `FF`
+precharge, data release, and sample path, then test gating precharge off
+during normal GB ROM dumps while preserving GB-first probing. No further
+Zelda hardware retest is requested. Evidence and reproduction are under
+`build/hardware/7776-result-20260912.89j90kdu/` and `docs/HANDOFF.md`.
+
+Basic English Silver cheats are installed beside the existing SD ROM and
+under `Assets/gbc/common/Cartridges`: infinite HP, PP for all four battle
+moves, and 999,999 money. Three enabled groups/eight codes pass parser and
+post-flush file verification; gameplay was not tested. The core's `Cheats
+enabled` switch controls activation. Both available Silver saves are backed
+up and unchanged; no ROM or core was modified. Cheat evidence is under
+`build/diagnostic/silver-basic-y_38w75f/`. The card was left mounted.
+
 Installed source: **`777643d`**, stamp **7776**, on 2026-09-12. The user directed
 the Silver timing experiment without further Zelda hardware retests. It adds two
 idle clocks before the second paired ROM read. Actual reader/bus simulation
@@ -13,12 +38,11 @@ The new timing test passes bank transition, backpressure, and aborts in both
 idle states. All 48/48 checks passed on the exact commit, with source checked
 before and after. Sisko job `silver-pair-spacing` completed in 515 seconds
 with setup +1.075 ns, hold +0.121 ns, and minimum pulse width +0.827 ns.
-All 14 installed package files were byte-verified after flush; common files,
-including saves and restore inputs, are unchanged. The card was left mounted.
+All 14 installed package files were byte-verified after flush; that deployment
+preserved common files, including saves and restore inputs. The card was left mounted.
 Build evidence is under `build/diagnostic/candidate-777643d/`; the prior BB2B
 package and card files are under `build/diagnostic/deploy-777643d.m4CP74/`.
-Next hardware step: reload, confirm 7776, dump Silver once, and capture the
-result screen. No 7776 Pocket result exists yet. The passing BB2B DX control
+The subsequent 7776 hardware result is recorded above. The passing BB2B DX control
 is sufficient; no further Zelda run is requested. Cartridge save writes stay
 disabled. See `docs/HANDOFF.md` for exact hashes and the experiment.
 
@@ -57,7 +81,7 @@ The saved first-sample stream still matches all four preserved 12CD ROMs at
 every even address and throughout bank 0; all cross-dump differences are odd.
 The even mismatches appear within pairs, where the second read differs from
 the repeatable saved first value. This proves consecutive-read instability,
-not its cause. The next step is now the timing experiment described above.
+not its cause. The next code investigation is described above.
 Both screenshots, the latest ROM, all common
 files, and the unchanged installed package are hash-verified under
 `build/hardware/bb2b-result-20260911.3czsibhj/`. Card contents were unchanged

@@ -3,6 +3,105 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## 7776 result and basic Silver cheats, 2026-09-12
+
+Screenshot `20260912_002340.png` confirms **7776**, Silver, and
+`DUMP COMPLETE`. The new timing experiment still fails ROM validation:
+
+| Measurement | 7776 result |
+|---|---|
+| Image sum / wanted | `FF35` / `0DAE` |
+| CRC32 | `13D8321B` |
+| Differing pairs | `00A425` = 42,021 |
+| Even / odd | `004611` = 17,937 / `005E14` = 24,084 |
+| First pair | `001:00A4`, `00/01` |
+
+The saved 2,097,152-byte ROM independently matches that sum and CRC.
+SHA-256 is `9d2587aea2ef185ba6c11f4b004a9dc989bf1040869bc855fb234db74cef578c`;
+MD5 is `d06a246f497bf5c779801e00b1e5e905`. Unequal-pair count is 45.7% lower
+than the last BB2B run's 77,448; this single result is not a verified repair.
+
+### Reference comparison now available
+
+While preparing cheats, the existing Silver SD ROM was found under
+`Assets/gbc/common/Pokemon - Silver Version (USA, Europe) (SGB Enhanced) (GB Compatible).gbc`.
+It passes header, size, global checksum `0DAE`, and reference CRC32
+`8AD48636`. Its SHA-256 is
+`72b190859a59623cbef6c49d601f8de52c1d2331b4f08a8d2acc17274fc19a8c`.
+A hash-verified local copy now provides a clean reference for the preserved
+dumps; the earlier "no clean reference" statements describe the earlier intake.
+
+| Retained dump | Bytes differing from reference | Wrong even | Wrong bank 0 |
+|---|---:|---:|---:|
+| 7776 | 31,778 | 0 | 1 |
+| BB2B, second run | 89,671 | 0 | 0 |
+| 12CD `dump1` | 48,981 | 0 | 0 |
+| 12CD `dumpN` | 53,743 | 0 | 0 |
+| 12CD `dump6` | 44,452 | 0 | 0 |
+| 12CD `dump7` | 6,030 | 0 | 0 |
+
+In **every wrong byte in all six dumps**, only zero bits become ones:
+`dump_byte & reference_byte == reference_byte`. No set bit is lost. Every
+wrong byte is at an odd address. The first 7776 error is unbanked offset
+`00231B`, expected `CD`, saved `FD`; do not limit the investigation to bank
+selection. At the first reported pair, `0040A4`, the reference and saved
+first byte are `00`, and the diagnostic second byte is `01`.
+
+The new dump has fewer wrong bytes than BB2B, but an older 12CD dump had
+only 6,030. Run-to-run variability prevents claiming that the two-clock
+change consistently improves correctness.
+
+### Next code investigation
+
+Follow the GB data-drive/release/sample path through `gb_cart_bus` and
+`cart_pins`. The bus currently drives `FF` during every idle cycle, releases
+data at request acceptance, and samples one clock before `/RD` rises. That
+precharge was introduced for the GBA-address lines during the GB-first probe,
+but it also runs during ordinary GB ROM dumps. The observed zero-to-one-only
+errors make this a concrete next code-path experiment: gate that precharge
+off during normal GB ROM dumping while retaining the probe behavior and
+holding read spacing, strobe timing, mapper writes, and diagnostics fixed.
+Trace the pin direction and sample edge before building. This is a hypothesis
+to test, not an established cause. No further Zelda hardware retest is needed,
+and no additional RTL change or build was made during this result intake.
+
+### Evidence and cheat installation
+
+The screenshot, common files, installed package, and clean reference are
+preserved under ignored `build/hardware/7776-result-20260912.89j90kdu/`:
+25 files copied and hash-verified against the card. `SHA256SUMS`, `INTAKE.json`,
+`SCREEN-TEXT.json`, `ANALYSIS.json`, `compare-reference.py`,
+`REFERENCE-COMPARISON.json`, and `verify-dump.txt` retain the measurements.
+All 14 package files still match 7776; only the Silver ROM changed among the
+common files since the preceding intake. Screenshot SHA-256:
+`a3540122e8c0f90bc68c8acb98e5b042874b97d7c0f560b0e74576afceb1c05a`.
+
+The user also requested basic Silver cheats. Three toggles (eight codes) were
+installed for the English SD ROM and for physical-cartridge selection:
+infinite HP, 40 PP on all four battle moves, and 999,999 money. They are
+selected in the files; the core's separate `Cheats enabled` switch still
+controls activation. The files are:
+
+- `Assets/gbc/common/Pokemon - Silver Version (USA, Europe) (SGB Enhanced) (GB Compatible).gbc.cht`
+- `Assets/gbc/common/Cartridges/Pokemon - Silver Version (USA, Europe).cht`
+
+Both parse back as three enabled groups/eight codes and were byte-verified
+after flush, SHA-256
+`ff1afcac3a021a380dff5e6819bc52689d478ffe107fdd31d0bfb3ab752b4a91`.
+The HP patch is from [Ventuz's Silver entry](https://gamehacking.org/game/11395?hacker=Ventuz);
+English PP/money addresses are documented in
+[hanzou_x's code reference](https://gamefaqs.gamespot.com/gbc/446340-pokemon-silver-version/faqs/34649).
+The combined Gold/Silver database file's Japanese money addresses were not
+used. Code details, sources, parser validation, both Silver save backups,
+and installation result are under ignored
+`build/diagnostic/silver-basic-y_38w75f/`. Gameplay behavior was not tested.
+
+For physical play, load kroy.GBC's cartridge mode, browse the Cheats slot to
+the Silver file under `Cartridges`, then enable `Cheats enabled`; `Show cheats`
+exposes the three toggles. The existing SD ROM loads its matching sidecar.
+Only those two new cheat files were written to the card. ROMs, dumps, saves,
+restore inputs, and core files were preserved; the card was left mounted.
+
 ## Silver timing experiment: 7776, 2026-09-11/12
 
 The user directed proceeding with the code timing experiment without further
@@ -73,14 +172,14 @@ common files, and screenshots are retained under
 `build/diagnostic/install-777643d.sh`; its prior-BB2B precondition prevents
 blindly rerunning it now. The card was left mounted.
 
-Next hardware action: reload CartTools, confirm **7776**,
+Original hardware test procedure: reload CartTools, confirm **7776**,
 dump **Silver once**, and capture the result screen. Preserve the ROM and
 screenshot before another dump can overwrite them. Compare sum/CRC, pair
 counts, and first mismatch with the retained BB2B results below. No additional
 Zelda run is requested. A change in those results measures the effect of this
 code timing change; Silver is verified only when the resulting ROM passes
 checksum `0DAE` and reference CRC32 `8AD48636`.
-No 7776 Pocket result has been collected yet.
+The subsequent 7776 result is recorded above.
 
 ## BB2B Zelda DX control passes, 2026-09-11
 
