@@ -3,6 +3,40 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## BB2B Zelda DX control passes, 2026-09-11
+
+New screenshot `20260911_234015.png` shows stamp **BB2B**, Zelda's MBC5
+cartridge, `DUMP COMPLETE`, a valid image checksum, CRC32 `B38EB9DE`, and
+`EVEN 000000 ODD 000000`. All paired reads agree across the 1 MB ROM.
+The agreement label is cosmetically clipped to `AIRED READS AGREE`; the exact
+decoded row is retained with the evidence. This does not affect the counters.
+
+The fresh `ZELDA.gbc` is byte-identical to the previous verified DX control.
+Independent verification passes logo, header, global checksum `2735`, and
+1,048,576-byte size. MD5 is `ccbb56212e3dbaa9007d389a17e9d075`; SHA-256 is
+`6285ba6201f17bc8595c600ebc2477d52561f0aff29b11f7fc3343bacb2e230b`.
+All 14 installed package files still match the verified BB2B package; all
+common files, including Silver's latest dump and save/restore inputs, match
+the previous intake byte for byte.
+
+This establishes a clean **MBC5 control on BB2B** alongside Silver's two
+failed MBC3 runs below. It does not establish the cause of Silver's unstable
+reads or a result for the original MBC1 Zelda cartridge.
+
+Next: obtain the original Link's Awakening BB2B result screenshot and ROM,
+then trace the actual reader/bus timing and test the two-clock reread-spacing
+experiment described below. DX does not need another control dump at this
+stage. No further RTL change or build has started.
+
+Evidence is preserved under ignored
+`build/hardware/bb2b-zelda-result-20260911.q_ae03xa/`: the screenshot, all
+common files, and installed package, 24 files copied and hash-verified against
+the card. `SHA256SUMS` and `INTAKE.json` record the copies; `read-screen.py`
+and `SCREEN-TEXT.json` retain exact glyph decoding; `ANALYSIS.json` and
+`verify-dump.txt` record ROM validation. Screenshot SHA-256:
+`98f3bc9defc6cd71dd7d48f79c79d92b6b3c45e06abe655f2898eb88235970f8`.
+The card was read only during intake and left mounted.
+
 ## BB2B hardware result: paired reads disagree, 2026-09-11
 
 Two new Silver result screenshots, `20260911_232618.png` and
@@ -42,12 +76,14 @@ not involve a ROM bank change between them. This is direct evidence of
 consecutive read instability before file packing, not proof of a particular
 address, electrical, or sampling defect.
 
-### Next steps
+### Next steps at the Silver intake
 
 1. Obtain BB2B ROM result screenshots for the original Link's Awakening and
-   DX controls. The current intake contains two Silver screenshots only;
+   DX controls. That intake contained two Silver screenshots only;
    unchanged Zelda files on the card do not establish paired-read controls
-   on BB2B. Preserve each result file and screenshot before another attempt.
+   on BB2B. The subsequent DX result above now satisfies the MBC5 control;
+   the original Zelda control remains pending. Preserve each result file and
+   screenshot before another attempt.
 2. Trace the paired request timing through the actual `gb_cart_bus` in
    simulation. The reader takes `ST_REREAD` directly after the first return;
    between a second return and the next byte it also traverses `ST_EMIT` and

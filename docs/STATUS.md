@@ -7,14 +7,25 @@ Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
 Development is on `save-restore-la`. Installed source `bb2b1d0`, expected
 stamp `BB2B`, passed all 47 simulation/structural checks and sisko timing:
 setup `+0.906 ns`, hold `+0.120 ns`, minimum pulse width `+0.827 ns`. The full
-14-file package was installed and byte-verified on 2026-09-11. All common
-files, including saves and restore inputs, are unchanged. The previous 12CD
+14-file package was installed and byte-verified on 2026-09-11. That deployment
+preserved all common files, including saves and restore inputs. The previous 12CD
 package and card evidence are preserved under
 `build/diagnostic/deploy-bb2b1d0.TZ2htf/`; build evidence is under
 `build/diagnostic/candidate-bb2b1d0/`. The card was left mounted. Cartridge
 save writes remain disabled. Two subsequent Silver screenshots confirm BB2B
 running on the Pocket and reveal unequal paired reads; Silver still fails
-ROM validation. BB2B Zelda control screenshots remain outstanding.
+ROM validation. A subsequent Zelda DX BB2B control passes with zero unequal
+pairs. The original Zelda MBC1 control screenshot remains outstanding.
+
+BB2B Zelda DX control, 2026-09-11: screenshot `20260911_234015.png` confirms
+a completed 1 MB MBC5 ROM dump, valid image checksum, CRC32 `B38EB9DE`, and
+even/odd pair mismatch counts `000000/000000`. The saved ROM is byte-identical
+to the previous verified control, MD5 `ccbb56212e3dbaa9007d389a17e9d075`.
+Independent logo/header/size checks and global checksum `2735` pass. All
+installed package and common files match the previous intake. Evidence is
+hash-verified under `build/hardware/bb2b-zelda-result-20260911.q_ae03xa/`;
+the card was unchanged and left mounted. This establishes the BB2B MBC5
+control, not the cause of Silver's failure.
 
 BB2B hardware result, 2026-09-11: two completed Silver dumps report 75,592 and
 77,448 unequal byte pairs. Even/odd counts are 46,170/29,422 and
@@ -27,8 +38,8 @@ The saved first-sample stream still matches all four preserved 12CD ROMs at
 every even address and throughout bank 0; all cross-dump differences are odd.
 The even mismatches appear within pairs, where the second read differs from
 the repeatable saved first value. This proves consecutive-read instability,
-not its cause. Next: establish BB2B Zelda paired-read controls, then trace and
-experiment with equalizing the first/second request spacing. No further RTL
+not its cause. Next: establish the remaining BB2B MBC1 Zelda control, then
+trace and experiment with equalizing the first/second request spacing. No further RTL
 change or build has started. Both screenshots, the latest ROM, all common
 files, and the unchanged installed package are hash-verified under
 `build/hardware/bb2b-result-20260911.3czsibhj/`. Card contents were unchanged
@@ -55,7 +66,7 @@ pass. All 47 checks passed on exact source `bb2b1d0` (stamp `BB2B`), with the
 source checked before and after the suite. The exact-source sisko build
 `silver-paired-read` completed in 521 seconds with timing met. BB2B is now
 installed and byte-verified. See `docs/HANDOFF.md` for artifact hashes and the
-next Silver/Zelda hardware comparison.
+remaining MBC1 control and proposed timing experiment.
 
 The separate restore track remains at the 2026-09-08 pause. Candidate `2B0B`
 is fully simulation-tested but has not been FPGA-built or installed as a
