@@ -3,6 +3,85 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## Silver timing experiment: 7776, 2026-09-11/12
+
+The user directed proceeding with the code timing experiment without further
+Zelda hardware retests. The passing BB2B DX result is the retained control;
+another original-Zelda dump is not a prerequisite for this work.
+
+Exact candidate source: `777643d4691a53f1ee9af5ca07c842f672128a1b`, stamp
+**7776**. `cart_dump_gb` now inserts two idle states before the second read
+when `PAIR_READS` is enabled. This is the only production change. The default
+single-read restore identity path, bus setup/strobe/hold parameters, mapper
+writes, first-sample file stream, and diagnostics are preserved. Cartridge
+save writes remain disabled.
+
+The actual `cart_dump_gb` + `gb_cart_bus` trace establishes the experiment:
+
+| Core-clock interval | BB2B | 7776 |
+|---|---:|---:|
+| First to second request and `/RD` falling edge | 87 | 89 |
+| Second to next-byte request, output ready | 89 | 89 |
+| Address setup / strobe / address hold | 21 / 41 / 21 | 21 / 41 / 21 |
+
+The existing bus's counters produce 21/41/21 clock intervals from parameter
+values 20/40/20; this experiment does not change them. Output backpressure
+can still extend the next-byte interval, and bank changes still include the
+mapper transaction. The delay also changes PHI phase.
+
+`tb_cart_dump_gb_pair_timing.sv` exercises the shipped bus on an MBC3 dump:
+32,768 paired bytes, the bank-0/bank-1 boundary, the bank-register write,
+output backpressure, and a reader-only abort in each added idle state. A
+deliberate second-sample difference verifies that the first byte reaches the
+stream and the mismatch reaches the diagnostics. BB2B compiled against the
+new interval assertion fails with `87, expected 89`. Trace evidence is under
+ignored `build/diagnostic/silver-pair-spacing/`; the original measurement
+bench is retained as `tb_cart_dump_gb_pair_timing-initial.sv`.
+
+All **48/48** simulation and structural checks passed against exact candidate
+source, checked before and after the suite. The sisko FPGA job
+`silver-pair-spacing` completed with `rc=0` in 515 seconds on the same commit,
+Quartus Lite 25.1std build 1129. Setup **+1.075 ns**, hold **+0.121 ns**,
+minimum pulse width **+0.827 ns**; 9,141 ALMs and 129 RAM blocks. No timing
+constraints changed. Fetch or inspect this exact build with:
+
+```sh
+../tools/runner-build job sisko pocket-cartridge cart silver-pair-spacing 777643d
+../tools/runner-build fetch sisko pocket-cartridge cart silver-pair-spacing 777643d
+```
+
+Evidence is retained under ignored `build/diagnostic/candidate-777643d/`:
+full simulation log, runner result, ZIP, bitstream, timing report, build log,
+extracted package, verification script, and `VERIFIED.json`.
+
+| Artifact | SHA-256 |
+|---|---|
+| `simulation-777643d.log` | `47e5b7f78370135ddf6ade3a62380aa3bfc1bbe8620e6eae3396d939faab3111` |
+| `kroy.CartTools_0.9999.777643d.zip` | `f6c82cb278df5b64252d1f25bc2365eb1ffa3b333ab933a0d23cf6b5fa015338` |
+| `bitstream.rbf_r` | `cc7bdb3b8b62891d155e1384493f30806734999a61460dc46dec8c5d6eb09a38` |
+| `report.txt` | `311e5097303ddd16325a5608a758edc0b0adeb467a1d97bad40e215fe587e6e1` |
+| `build.log` | `42b6266811441f7a42749878a46b9318048190ebb68f8567f427fc161722c2e1` |
+
+Installed **7776** on 2026-09-12. The live mount was resolved as `/dev/sdb1`,
+writable exfat. The ZIP passed integrity and exact membership checks; package
+files match committed source except the bitstream and expected version/date
+stamps. The independent bitstream matches the packaged one. After filesystem
+flush, all 14 installed package files were byte-verified; all common files,
+including saves and restore inputs, are unchanged. Prior BB2B package,
+common files, and screenshots are retained under
+`build/diagnostic/deploy-777643d.m4CP74/`. The guarded installer is
+`build/diagnostic/install-777643d.sh`; its prior-BB2B precondition prevents
+blindly rerunning it now. The card was left mounted.
+
+Next hardware action: reload CartTools, confirm **7776**,
+dump **Silver once**, and capture the result screen. Preserve the ROM and
+screenshot before another dump can overwrite them. Compare sum/CRC, pair
+counts, and first mismatch with the retained BB2B results below. No additional
+Zelda run is requested. A change in those results measures the effect of this
+code timing change; Silver is verified only when the resulting ROM passes
+checksum `0DAE` and reference CRC32 `8AD48636`.
+No 7776 Pocket result has been collected yet.
+
 ## BB2B Zelda DX control passes, 2026-09-11
 
 New screenshot `20260911_234015.png` shows stamp **BB2B**, Zelda's MBC5
@@ -23,10 +102,9 @@ This establishes a clean **MBC5 control on BB2B** alongside Silver's two
 failed MBC3 runs below. It does not establish the cause of Silver's unstable
 reads or a result for the original MBC1 Zelda cartridge.
 
-Next: obtain the original Link's Awakening BB2B result screenshot and ROM,
-then trace the actual reader/bus timing and test the two-clock reread-spacing
-experiment described below. DX does not need another control dump at this
-stage. No further RTL change or build has started.
+The subsequent user direction supersedes the original request for another
+MBC1 control: proceed with the two-clock timing experiment above. The DX
+result is sufficient control evidence for this experiment.
 
 Evidence is preserved under ignored
 `build/hardware/bb2b-zelda-result-20260911.q_ae03xa/`: the screenshot, all
@@ -82,8 +160,8 @@ address, electrical, or sampling defect.
    DX controls. That intake contained two Silver screenshots only;
    unchanged Zelda files on the card do not establish paired-read controls
    on BB2B. The subsequent DX result above now satisfies the MBC5 control;
-   the original Zelda control remains pending. Preserve each result file and
-   screenshot before another attempt.
+   the user subsequently directed proceeding without the original Zelda
+   retest. Preserve each result file and screenshot before another attempt.
 2. Trace the paired request timing through the actual `gb_cart_bus` in
    simulation. The reader takes `ST_REREAD` directly after the first return;
    between a second return and the next byte it also traverses `ST_EMIT` and
@@ -95,7 +173,8 @@ address, electrical, or sampling defect.
    Verify the actual request/strobe spacing and reset/abort behavior before
    the full suite and exact-source build. This tests a read-cadence hypothesis;
    the delay also changes PHI phase, so any improvement alone will not
-   identify the electrical mechanism. No such RTL change or build has started.
+   identify the mechanism. This proposed change is now implemented as 7776,
+   as recorded above.
 
 All save and restore inputs are unchanged from the pre-deployment copies.
 Restore and save/RTC qualification remain separate; cartridge save writes

@@ -3,8 +3,27 @@
 What is actually true right now, as opposed to what is written. The plan in
 `plan.md` says where this is going; this file says where it is.
 
+Installed source: **`777643d`**, stamp **7776**, on 2026-09-12. The user directed
+the Silver timing experiment without further Zelda hardware retests. It adds two
+idle clocks before the second paired ROM read. Actual reader/bus simulation
+measures 89 clocks between both paired reads and consecutive bytes (output
+ready), versus BB2B's 87/89. Setup/strobe/hold remain 21/41/21 clocks; mapper
+writes, first-sample output, and default single-read restore are unchanged.
+The new timing test passes bank transition, backpressure, and aborts in both
+idle states. All 48/48 checks passed on the exact commit, with source checked
+before and after. Sisko job `silver-pair-spacing` completed in 515 seconds
+with setup +1.075 ns, hold +0.121 ns, and minimum pulse width +0.827 ns.
+All 14 installed package files were byte-verified after flush; common files,
+including saves and restore inputs, are unchanged. The card was left mounted.
+Build evidence is under `build/diagnostic/candidate-777643d/`; the prior BB2B
+package and card files are under `build/diagnostic/deploy-777643d.m4CP74/`.
+Next hardware step: reload, confirm 7776, dump Silver once, and capture the
+result screen. No 7776 Pocket result exists yet. The passing BB2B DX control
+is sufficient; no further Zelda run is requested. Cartridge save writes stay
+disabled. See `docs/HANDOFF.md` for exact hashes and the experiment.
+
 Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
-Development is on `save-restore-la`. Installed source `bb2b1d0`, expected
+Development is on `save-restore-la`. Previous installed source `bb2b1d0`,
 stamp `BB2B`, passed all 47 simulation/structural checks and sisko timing:
 setup `+0.906 ns`, hold `+0.120 ns`, minimum pulse width `+0.827 ns`. The full
 14-file package was installed and byte-verified on 2026-09-11. That deployment
@@ -15,7 +34,7 @@ package and card evidence are preserved under
 save writes remain disabled. Two subsequent Silver screenshots confirm BB2B
 running on the Pocket and reveal unequal paired reads; Silver still fails
 ROM validation. A subsequent Zelda DX BB2B control passes with zero unequal
-pairs. The original Zelda MBC1 control screenshot remains outstanding.
+pairs. No further control dump is required for the current timing experiment.
 
 BB2B Zelda DX control, 2026-09-11: screenshot `20260911_234015.png` confirms
 a completed 1 MB MBC5 ROM dump, valid image checksum, CRC32 `B38EB9DE`, and
@@ -38,9 +57,8 @@ The saved first-sample stream still matches all four preserved 12CD ROMs at
 every even address and throughout bank 0; all cross-dump differences are odd.
 The even mismatches appear within pairs, where the second read differs from
 the repeatable saved first value. This proves consecutive-read instability,
-not its cause. Next: establish the remaining BB2B MBC1 Zelda control, then
-trace and experiment with equalizing the first/second request spacing. No further RTL
-change or build has started. Both screenshots, the latest ROM, all common
+not its cause. The next step is now the timing experiment described above.
+Both screenshots, the latest ROM, all common
 files, and the unchanged installed package are hash-verified under
 `build/hardware/bb2b-result-20260911.3czsibhj/`. Card contents were unchanged
 during intake and the card was left mounted. See `docs/HANDOFF.md` for exact
@@ -64,9 +82,9 @@ and mismatch evidence is displayed after completion. The full 2 MB MBC3
 reader test, UI test, actual-top wiring check, and end-to-end file/CRC test
 pass. All 47 checks passed on exact source `bb2b1d0` (stamp `BB2B`), with the
 source checked before and after the suite. The exact-source sisko build
-`silver-paired-read` completed in 521 seconds with timing met. BB2B is now
-installed and byte-verified. See `docs/HANDOFF.md` for artifact hashes and the
-remaining MBC1 control and proposed timing experiment.
+`silver-paired-read` completed in 521 seconds with timing met. BB2B was
+installed and byte-verified for those hardware runs. See `docs/HANDOFF.md` for artifact hashes and the
+Silver timing experiment.
 
 The separate restore track remains at the 2026-09-08 pause. Candidate `2B0B`
 is fully simulation-tested but has not been FPGA-built or installed as a
