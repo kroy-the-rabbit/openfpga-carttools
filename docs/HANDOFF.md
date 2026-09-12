@@ -3,7 +3,83 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
-## BB2B installed: Silver paired-read hardware test next, 2026-09-11
+## BB2B hardware result: paired reads disagree, 2026-09-11
+
+Two new Silver result screenshots, `20260911_232618.png` and
+`20260911_232637.png`, both show stamp BB2B and `DUMP COMPLETE`. Both ROM
+checksums fail against stored `0DAE`. All 14 installed package files still
+match the verified BB2B package. This establishes a hardware diagnostic result,
+not a repair or a verified Silver ROM.
+
+| Screenshot | Image sum | CRC32 | Differing pairs | Even | Odd | First bank:offset, first/second byte |
+|---|---|---|---|---|---|---|
+| `232618` | `AB0C` | `BF370E7A` | `012748` = 75,592 | `00B45A` = 46,170 | `0072EE` = 29,422 | `001:097D`, `00/01` |
+| `232637` | `19D3` | `B25B0C54` | `012E88` = 77,448 | `00B43F` = 46,143 | `007A49` = 31,305 | `001:0376`, `00/36` |
+
+Counts describe unequal pairs, not the number of wrong bytes against a clean
+reference. The first ROM is no longer present under a separate filename; the
+card retains the second 2,097,152-byte ROM. Its independently computed sum
+`19D3` and CRC32 `B25B0C54` exactly match the second screenshot. MD5 is
+`7436223525584caef88f905a2d5b0d9e`; SHA-256 is
+`243cdc277ad4a86cc223f08e61443d463366933450d9865797a4b32ff7bf0521`.
+
+### What the new result establishes
+
+The latest file contains the retained **first** sample of each pair. Compared
+with each of the four preserved 12CD ROMs, it has **zero even-address
+changes and zero bank-0 changes**. Pairwise differences are 131,140, 133,758,
+128,258, and 95,478, all odd addresses, in the baseline order below.
+Nevertheless, the second screenshot counts 46,143 even-address disagreements
+within pairs. Thus the odd-only disagreement pattern remains in the saved
+first-sample stream; the newly observed even differences involve the second
+sample relative to the repeatable first-sample values. Repeatability still
+does not establish correctness.
+
+The first reported mismatch of the retained run is requested linear ROM
+address `0x4376` (bank 1, offset `0376`): first byte `00`, second byte `36`.
+The saved byte there is `00`, as in all four 12CD images. The two samples do
+not involve a ROM bank change between them. This is direct evidence of
+consecutive read instability before file packing, not proof of a particular
+address, electrical, or sampling defect.
+
+### Next steps
+
+1. Obtain BB2B ROM result screenshots for the original Link's Awakening and
+   DX controls. The current intake contains two Silver screenshots only;
+   unchanged Zelda files on the card do not establish paired-read controls
+   on BB2B. Preserve each result file and screenshot before another attempt.
+2. Trace the paired request timing through the actual `gb_cart_bus` in
+   simulation. The reader takes `ST_REREAD` directly after the first return;
+   between a second return and the next byte it also traverses `ST_EMIT` and
+   `ST_NEXT`. With output ready, that is two extra core clocks before the
+   next-byte request, with further delay possible under backpressure.
+3. The next proposed candidate should insert just those two clocks before
+   the second request, retaining the existing address-setup/strobe/hold
+   durations, mapper writes, first-sample file stream, and diagnostic rows.
+   Verify the actual request/strobe spacing and reset/abort behavior before
+   the full suite and exact-source build. This tests a read-cadence hypothesis;
+   the delay also changes PHI phase, so any improvement alone will not
+   identify the electrical mechanism. No such RTL change or build has started.
+
+All save and restore inputs are unchanged from the pre-deployment copies.
+Restore and save/RTC qualification remain separate; cartridge save writes
+stay disabled. The card was read only during intake and left mounted.
+
+### Retained evidence
+
+Ignored directory: `build/hardware/bb2b-result-20260911.3czsibhj/`. It holds
+both new screenshots, all common files, and the installed package: 25 files
+copied and hash-verified against the card, recorded in `SHA256SUMS` and
+`INTAKE.json`. `read-screen.py` reproduces the screenshot text by exact glyph
+matching against the shipped font, without resampling; `SCREEN-TEXT.json`
+retains the decoded rows. `analyze-rom.py`, `ANALYSIS.json`, and
+`verify-dump.txt` reproduce the local ROM comparison and checksum results.
+
+The four 12CD baselines, under `build/hardware/12cd3c1/silver/`, are
+`dump1/POKEMON_SLVAAXE.gbc`, `dumpN/POKEMON_SLVAAXE.gbc`,
+`dump6_POKEMON_SLVAAXE.gbc`, and `dump7_POKEMON_SLVAAXE.gbc`, in that order.
+
+## BB2B implementation and deployment, 2026-09-11
 
 The user resumed implementation. Ordinary GB/GBC ROM dumping now enables
 `cart_dump_gb.PAIR_READS`: two complete bus reads at each bank/address, with
@@ -57,9 +133,10 @@ unchanged. The card was left mounted. Prior package files, all common files,
 and screenshots are preserved in
 `build/diagnostic/deploy-bb2b1d0.TZ2htf/`. The guarded installer is
 `build/diagnostic/install-bb2b1d0.sh`; its prior-12CD precondition intentionally
-prevents blindly reinstalling now. No on-Pocket diagnostic result is claimed.
+prevents blindly reinstalling now. The subsequent Silver hardware results
+are recorded above.
 
-### Next on the Pocket
+### Original Pocket test procedure
 
 1. With Silver inserted, reload CartTools and confirm displayed stamp
    **BB2B**. Run a normal ROM dump with X. Capture the whole result screen, including
@@ -76,10 +153,10 @@ prevents blindly reinstalling now. No on-Pocket diagnostic result is claimed.
    experiment. Agreement can hide a consistently wrong byte; if corruption
    disappears, the changed read cadence is a clue, not a verified repair.
 
-The physical Pocket tests require the operator; they have not run in this
-implementation turn. Save/RTC and restore remain unqualified, and cartridge
-save writes remain disabled. The original experiment and interpretation
-limits are retained below.
+The deployment turn did not run the physical Pocket tests; the subsequent
+Silver results are recorded above. Save/RTC and restore remain unqualified,
+and cartridge save writes remain disabled. The original experiment and
+interpretation limits are retained below.
 
 ## Alignment snapshot before implementation, 2026-09-11
 

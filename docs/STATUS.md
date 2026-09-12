@@ -12,9 +12,28 @@ files, including saves and restore inputs, are unchanged. The previous 12CD
 package and card evidence are preserved under
 `build/diagnostic/deploy-bb2b1d0.TZ2htf/`; build evidence is under
 `build/diagnostic/candidate-bb2b1d0/`. The card was left mounted. Cartridge
-save writes remain disabled. Reload/stamp confirmation and the paired-read
-hardware experiment on the Pocket are the next steps; no BB2B hardware result
-has been collected.
+save writes remain disabled. Two subsequent Silver screenshots confirm BB2B
+running on the Pocket and reveal unequal paired reads; Silver still fails
+ROM validation. BB2B Zelda control screenshots remain outstanding.
+
+BB2B hardware result, 2026-09-11: two completed Silver dumps report 75,592 and
+77,448 unequal byte pairs. Even/odd counts are 46,170/29,422 and
+46,143/31,305 respectively. Image sums `AB0C` and `19D3` both fail stored
+`0DAE`; the retained second ROM independently gives sum `19D3` and CRC32
+`B25B0C54`, matching its screenshot. Its first reported pair is bank 1,
+offset `0376`, bytes `00/36`.
+
+The saved first-sample stream still matches all four preserved 12CD ROMs at
+every even address and throughout bank 0; all cross-dump differences are odd.
+The even mismatches appear within pairs, where the second read differs from
+the repeatable saved first value. This proves consecutive-read instability,
+not its cause. Next: establish BB2B Zelda paired-read controls, then trace and
+experiment with equalizing the first/second request spacing. No further RTL
+change or build has started. Both screenshots, the latest ROM, all common
+files, and the unchanged installed package are hash-verified under
+`build/hardware/bb2b-result-20260911.3czsibhj/`. Card contents were unchanged
+during intake and the card was left mounted. See `docs/HANDOFF.md` for exact
+counts, hashes, reproduction scripts, and the proposed timing experiment.
 
 Pokemon Silver, 2026-09-11: the first MBC3 cartridge this core has driven, and
 its ROM dumps on 12CD failed validation. Eight attempts, eight different
