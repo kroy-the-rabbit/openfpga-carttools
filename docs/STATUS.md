@@ -4,17 +4,22 @@ What is actually true right now, as opposed to what is written. The plan in
 `plan.md` says where this is going; this file says where it is.
 
 Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
-Development is on `save-restore-la`. Last verified installed source
-`12cd3c1`, stamp `12CD`, passed all 45 simulation and structural checks and sisko timing:
-setup `+0.788 ns`, hold `+0.095 ns`. The full 14-file package was installed
-and byte-verified on 2026-09-07. Restore inputs and corpus are
-unchanged. Replaced files and all build evidence are retained locally, and
-the card was left mounted as requested. Cartridge save writes remain disabled.
+Development is on `save-restore-la`. Installed source `bb2b1d0`, expected
+stamp `BB2B`, passed all 47 simulation/structural checks and sisko timing:
+setup `+0.906 ns`, hold `+0.120 ns`, minimum pulse width `+0.827 ns`. The full
+14-file package was installed and byte-verified on 2026-09-11. All common
+files, including saves and restore inputs, are unchanged. The previous 12CD
+package and card evidence are preserved under
+`build/diagnostic/deploy-bb2b1d0.TZ2htf/`; build evidence is under
+`build/diagnostic/candidate-bb2b1d0/`. The card was left mounted. Cartridge
+save writes remain disabled. Reload/stamp confirmation and the paired-read
+hardware experiment on the Pocket are the next steps; no BB2B hardware result
+has been collected.
 
 Pokemon Silver, 2026-09-11: the first MBC3 cartridge this core has driven, and
-its ROM does not dump. Eight attempts, eight different image sums, none
-matching the cartridge's stored `0DAE`. Rechecking the four preserved ROM
-images finds 128,457 distinct offsets with disagreement, all odd and in the
+its ROM dumps on 12CD failed validation. Eight attempts, eight different
+image sums, none matching the cartridge's stored `0DAE`. Rechecking the four
+preserved ROM images finds 128,457 distinct offsets with disagreement, all odd and in the
 banked ROM window; the first is `0x408B`. Bank 0 agrees across all four images,
 and three preserved 32 KB save reads are identical. With no clean Silver ROM
 reference or independently validated save, agreement means repeatability.
@@ -27,16 +32,20 @@ The paired-read diagnostic is now implemented for ordinary GB/GBC ROM dumps:
 the first sample feeds the file and checksums, while the second is compared
 and mismatch evidence is displayed after completion. The full 2 MB MBC3
 reader test, UI test, actual-top wiring check, and end-to-end file/CRC test
-pass. Full suite verification and the FPGA build are pending. See `docs/HANDOFF.md` for
-the next build and hardware steps. No new package has been installed.
+pass. All 47 checks passed on exact source `bb2b1d0` (stamp `BB2B`), with the
+source checked before and after the suite. The exact-source sisko build
+`silver-paired-read` completed in 521 seconds with timing met. BB2B is now
+installed and byte-verified. See `docs/HANDOFF.md` for artifact hashes and the
+next Silver/Zelda hardware comparison.
 
 The separate restore track remains at the 2026-09-08 pause. Candidate `2B0B`
-is fully simulation-tested but has not been FPGA-built or installed. Local
-The diagnostic builds on `79852fc` / the `2b0b0ba` implementation. Restore
-retains single reads and the disabled cartridge-write gate. The original
+is fully simulation-tested but has not been FPGA-built or installed as a
+standalone candidate. The diagnostic builds on `79852fc` / the `2b0b0ba`
+implementation. Restore retains single reads and the disabled cartridge-write gate. The original
 45/45 2B0B test log and its hash were verified during alignment; this new
-candidate needs its own full-suite and timing evidence. See the pending
-restore section in `docs/HANDOFF.md` when resuming that work.
+candidate has its own 47/47 and passing timing evidence; it does not qualify
+restore. See the pending restore section in `docs/HANDOFF.md` when resuming
+that work.
 
 Latest restore hardware result, 2026-09-08: 12CD still fails, but now at
 `SIZE NEW BACKUP`, error `3` (file not found), flags `2`, size `8192`.
@@ -59,8 +68,9 @@ Exact candidate source is `2b0b0ba500f3c37cd376016052fb0d50abfef2ab`, stamp
 under `build/restore/candidate-2b0b0ba/`. At the 2026-09-08 pause, the sisko
 build had not started because the runner was occupied by sibling GBA work.
 An optional switch to kira was offered but not selected. Recheck availability
-and resume on sisko unless directed otherwise. 12CD is the last verified
-installed package, with cartridge writes disabled.
+and resume on sisko unless directed otherwise. 12CD was the installed package
+for that restore attempt; BB2B now replaces it for Silver diagnostics. Cartridge
+save writes remain disabled.
 
 The previous `2BDA` screenshot localized APF error `4` to metadata input
 open, with 70 observed responses and its two displayed path words correct.

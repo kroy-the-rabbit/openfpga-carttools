@@ -3,7 +3,7 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
-## Silver paired-read diagnostic candidate, 2026-09-11
+## BB2B installed: Silver paired-read hardware test next, 2026-09-11
 
 The user resumed implementation. Ordinary GB/GBC ROM dumping now enables
 `cart_dump_gb.PAIR_READS`: two complete bus reads at each bank/address, with
@@ -17,19 +17,69 @@ Rows 15-17 after a completed GB/GBC ROM dump show `READ DIFF` (or
 All numbers are hex. Agreement is a repeatability observation, not a correct
 ROM verdict. Failed/partial dumps, saves, GBA, and rescans hide these rows.
 
-The full 2 MB MBC3 reader test, UI test, and actual-top wiring check have
-passed. The latter rejects count/address truncation and swapped parity
-connections. End-to-end verification also passes: faulted first samples reach
-the file/checksum/CRC exactly once, and loss of power during a second read
-aborts safely. The complete exact-source suite and FPGA synthesis are pending. The last verified installed
-package is 12CD. Sisko was idle at the resumed check; recheck before starting.
+Exact candidate source is `bb2b1d077aad201afe69b2ec3057bd6f265274e8`, stamp
+`BB2B`. All 47 simulation/structural checks passed, including the full 2 MB
+MBC3 reader, UI, actual-top wiring with three negative controls, first-sample
+file/checksum/CRC consistency, and power loss during the second bus read.
+The source was checked against the commit before and after the full suite.
+Evidence is retained in `build/diagnostic/candidate-bb2b1d0/`; simulation log
+SHA-256 is `bced943e09f3ff14a185747f41e97c7e94580467d0cd81666bace01ec8b395df`.
 
-Next: finish verification, build the tested commit on sisko, require timing
-closure, archive and install the complete package, then collect Silver and
-Zelda control dumps with the three diagnostic rows visible. Preserve all card
-files and screenshots. The original experiment and interpretation limits are
-retained below. A matching reread cannot establish correct addressing, and
-changing read cadence can itself change the failure.
+Sisko completed this exact source with `rc=0` in 521 seconds, Quartus Lite
+25.1std build 1129. Setup `+0.906 ns`, hold `+0.120 ns`, minimum pulse width
+`+0.827 ns`; 9,009 ALMs and 129 RAM blocks. No timing constraints changed.
+Inspect or fetch the durable job with:
+
+```sh
+../tools/runner-build job sisko pocket-cartridge cart silver-paired-read bb2b1d0
+../tools/runner-build fetch sisko pocket-cartridge cart silver-paired-read bb2b1d0
+```
+
+The ZIP passed integrity and exact package-membership checks. Its bitstream
+matches the independently fetched artifact; all package files match source
+except the expected version/date stamping in `core.json`. The package version
+is `0.9999.bb2b1d0`. Artifacts, the 47/47 simulation log, wrapper, extracted
+package, runner result, and `VERIFIED.json` are retained under ignored
+`build/diagnostic/candidate-bb2b1d0/`.
+
+| Artifact | SHA-256 |
+|---|---|
+| `kroy.CartTools_0.9999.bb2b1d0.zip` | `c852c75a5c09b25afc19987d12f968c323e46867023b5fdfe4d912a896692f44` |
+| `bitstream.rbf_r` | `5e8d79a74e4bca47b6a5095f4d834e0ad0d6d59b4cdbb4e1153ab2a11ab524ad` |
+| `report.txt` | `4e90fa703bc91df48097002863d6038e02e08fcf9033bfb853c4e0ee7dfcb82a` |
+| `build.log` | `8eabf974b9bd6cc8077f7eda70ef5f05644ab23d0bc76649c6e8992fc11e7ae1` |
+
+BB2B was installed on 2026-09-11 at approximately 23:21 CDT. The installer
+resolved and checked `/dev/sdb1` as the writable exfat mount, verified the
+prior 12CD bitstream and restore input hashes, then compared all 14 package
+files after filesystem flush. All common files and both restore inputs are
+unchanged. The card was left mounted. Prior package files, all common files,
+and screenshots are preserved in
+`build/diagnostic/deploy-bb2b1d0.TZ2htf/`. The guarded installer is
+`build/diagnostic/install-bb2b1d0.sh`; its prior-12CD precondition intentionally
+prevents blindly reinstalling now. No on-Pocket diagnostic result is claimed.
+
+### Next on the Pocket
+
+1. With Silver inserted, reload CartTools and confirm displayed stamp
+   **BB2B**. Run a normal ROM dump with X. Capture the whole result screen, including
+   image checksum, CRC32, and rows 15-17: `READ DIFF` or `PAIRED READS AGREE`,
+   `EVEN`/`ODD`, and `FIRST bank:offset byte1/byte2`. All values are hex.
+2. Copy that ROM and screenshot to a fresh ignored evidence directory before
+   another Silver dump overwrites the same filename. Verify hashes against
+   the card, then analyze the local copies. Keep every attempt separately.
+3. Repeat Silver, then Link's Awakening and DX as the MBC1/MBC5 controls.
+   Preserve every file and screenshot. Silver qualification still requires
+   repeatable 2,097,152-byte files with reference CRC32 `8AD48636` and checksum
+   `0DAE`; controls must retain their previously verified hashes.
+4. Use the mismatch counts and first pair to choose the next controlled bus
+   experiment. Agreement can hide a consistently wrong byte; if corruption
+   disappears, the changed read cadence is a clue, not a verified repair.
+
+The physical Pocket tests require the operator; they have not run in this
+implementation turn. Save/RTC and restore remain unqualified, and cartridge
+save writes remain disabled. The original experiment and interpretation
+limits are retained below.
 
 ## Alignment snapshot before implementation, 2026-09-11
 
@@ -49,9 +99,10 @@ changing read cadence can itself change the failure.
   operation was performed. Runner availability and the live card's mounted
   device/installed package need fresh checks before a build or deployment.
 
-Follow **Next steps: Silver diagnostic** below first. The dated restore
-sections retain the separate 2B0B build and recovery qualification procedure;
-their old "tomorrow" and runner-occupancy statements are historical.
+At alignment the next task was the Silver diagnostic; its original experiment
+plan is retained below. The dated restore sections retain the separate 2B0B
+build and recovery qualification procedure. Their old "tomorrow" and
+runner-occupancy statements are historical.
 
 ## Pokemon Silver, first MBC3 on hardware, dumps corrupt: 2026-09-11
 
