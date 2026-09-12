@@ -3,6 +3,65 @@
 Traps and next steps. Read `docs/STATUS.md` for the current position and
 `plan.md` for the direction.
 
+## Resume here — 2026-09-12
+
+This section is the current work queue. The dated entries below retain the
+evidence and history; their older next-step instructions are superseded.
+
+- **Repo and card:** branch `save-restore-la`; production source still matches
+  `777643d4691a53f1ee9af5ca07c842f672128a1b`, stamp **7776**. Later commits
+  record results and handoff updates. All 14 installed package files matched
+  that candidate at the latest intake; no newer candidate has been built.
+- **Known result:** 48/48 checks and FPGA timing passed, but Silver still
+  fails on hardware: 42,021 unequal pairs and 31,778 saved bytes differing
+  from the clean reference. These are different measurements. Across all six
+  preserved dumps, every wrong saved byte is odd-addressed and only changes
+  zero bits to ones. 7776 includes one bank-0 error. The cause is unresolved.
+- **Other work:** basic Silver HP/PP/money cheats are installed and file
+  verified; gameplay remains untested. Saves are backed up and unchanged.
+  Restore qualification remains paused, with `RESTORE_WRITE_ENABLED=0`.
+
+Next steps, in order:
+
+1. Trace the actual `core_top` → `gb_cart_bus` → `cart_pins` data-drive,
+   direction, release, and sample path. The concrete hypothesis is idle `FF`
+   precharge affecting reads. The shared bus also serves probe, save, and
+   restore traffic; `dump_busy` alone does not identify an ordinary ROM dump.
+2. Implement one experiment: disable idle precharge only during ordinary
+   GB/GBC ROM dumping. Preserve GB-first probe behavior, the 7776 two-clock
+   gap, bus setup/strobe/hold, mapper writes, and first-sample diagnostics.
+   Check actual pin behavior and transitions into and out of that scope.
+   Precharge is a hypothesis, not an established cause.
+3. Run focused checks for the changed path, then the full suite once on the
+   exact committed candidate. Build that commit on sisko through
+   `../tools/runner-build`; inspect timing and verify the fetched package.
+   Existing 7776 validation is retained evidence, not work to repeat first.
+4. Resolve the live card mount, preserve existing evidence, install and
+   byte-verify the candidate. Obtain **one Silver dump and screenshot**,
+   preserve both before another dump, and compare paired-read diagnostics
+   and saved bytes against the existing clean reference. Its checksum is
+   `0DAE`, CRC32 `8AD48636`; use the byte comparison as well as checksums.
+   The passing BB2B Zelda DX control is sufficient. The user explicitly
+   requested no further Zelda hardware retests for this investigation.
+
+Operational instructions that apply before running anything:
+
+- **The AVC is on the local host, not the builders.** Even a Podman runtime
+  probe inside the process sandbox triggers the known SELinux transition
+  denial. Run runtime probes and container tests in host execution context
+  (`sandbox_permissions=require_escalated`). The local `docker` command is
+  a Podman wrapper, so it does not avoid this. Do not retry in the sandbox or
+  change SELinux. Host-context runtime probes and tests have already worked.
+- Every FPGA build uses the runner interface and an exact committed source.
+  Direct SSH is for read-only diagnostics. See local
+  [`RUNNERS.local.md`](../RUNNERS.local.md) for runner and card procedures.
+  Recheck availability and the moving card device when needed for the next
+  action; the recorded mount is not a guarantee of the current mount.
+- Raw evidence and candidate packages under `build/` are ignored local files.
+  A fresh clone does not contain them or `RUNNERS.local.md`. A handoff to
+  another machine needs those referenced artifacts separately; their paths,
+  hashes, and reproduction scripts are recorded in the entries below.
+
 ## 7776 result and basic Silver cheats, 2026-09-12
 
 Screenshot `20260912_002340.png` confirms **7776**, Silver, and
@@ -2417,7 +2476,12 @@ checksummed positions.
 assignments, not `always @(*)`, to avoid a simulation and synthesis mismatch
 on a cold boot with an empty slot. See `docs/UI.md`.
 
-## What to do next, in order
+## Historical next steps (superseded)
+
+This queue predates the Silver investigation and is retained as history.
+Use **Resume here** at the top for current work. In particular, the contact
+hypothesis and missing-reference statement below concern the earlier
+Tetris/Othello/Tennis intake; they do not describe the current Silver evidence.
 
 1. **Probably dirty contacts, and downgraded accordingly.** Three cartridges
    have ever produced a corrupt dump - `TETRIS.gb`, `OTHELLO.gb`, `TENNIS.gb`

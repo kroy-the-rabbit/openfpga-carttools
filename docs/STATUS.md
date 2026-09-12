@@ -3,6 +3,10 @@
 What is actually true right now, as opposed to what is written. The plan in
 `plan.md` says where this is going; this file says where it is.
 
+Read [the handoff's resume section](HANDOFF.md#resume-here--2026-09-12) for
+the current work queue and local runtime/AVC instructions. Entries below
+retain earlier results; later evidence supersedes their historical next steps.
+
 7776 hardware result, 2026-09-12: Silver still fails checksum (`FF35` vs
 `0DAE`, CRC32 `13D8321B`). The screenshot reports 42,021 unequal pairs:
 17,937 even, 24,084 odd, first `001:00A4 00/01`. That is fewer unequal
@@ -93,8 +97,10 @@ its ROM dumps on 12CD failed validation. Eight attempts, eight different
 image sums, none matching the cartridge's stored `0DAE`. Rechecking the four
 preserved ROM images finds 128,457 distinct offsets with disagreement, all odd and in the
 banked ROM window; the first is `0x408B`. Bank 0 agrees across all four images,
-and three preserved 32 KB save reads are identical. With no clean Silver ROM
-reference or independently validated save, agreement means repeatability.
+and three preserved 32 KB save reads are identical. At that intake, no clean
+Silver ROM reference or independently validated save had been identified,
+so agreement established repeatability only. The September 12 reference
+comparison above supersedes that ROM-reference limitation.
 Link's Awakening at 512 KB and Link's Awakening DX at 1 MB both re-dumped
 byte-identical to the library in the same session. Those controls do not
 exonerate the reader or establish Silver's failure mechanism. The four ROM
