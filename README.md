@@ -142,18 +142,10 @@ clock edge of a full read, that `/WR` never falls while `/CS` is low.
 
 ## Versions
 
-Every project in this set sits at **0.9999** and none of them moves off it.
-1.0 is a claim to be finished, none of this is finished, and a version that
-never climbs cannot drift into making that claim by accident. This core never
-carried an inherited number, so nothing here is being renumbered; the cores it
-sits beside are.
-
-The projects are not kept in step with each other. A release adds the short
-SHA of the commit it was cut from, so a tag reads `v0.9999.250d6a0`, and two
-tags that share the prefix are unrelated releases. Read the tail, not the
-number.
-
-What 1.0 would mean for this core is listed below, and it is a long way off.
+Versions use `0.9999.YYYYMMDD`, where the date is UTC. Release tags add `v`,
+for example `v0.9999.20260913`. Each project releases independently.
+The source commit and bitstream checksums are recorded in build provenance.
+A published date is not reused for a different build.
 
 ## What 1.0 would mean
 
@@ -253,13 +245,16 @@ src/fpga/
   ui/          text renderer and screen
   apf/         the Pocket host interface, inherited
 tools/         simulation harness and the containerised build
-docs/          design notes, hardware notes, milestone records
+docs/          current reference documentation and engineering-history links
 ```
 
 There is no `src/fpga/cart/`; the buses live in `core/` under `cart_pins.sv`,
 which is the only module allowed to drive a connector pin.
 
 ## Documentation
+
+[Engineering history](https://github.com/kroy-the-rabbit/pocket-engineering/tree/main/carttools)
+is maintained separately in a private repository.
 
 | | |
 |---|---|

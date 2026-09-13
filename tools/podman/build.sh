@@ -12,6 +12,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+source "$HERE/version.sh"
+STAMP=$(pocket_version "${RELEASE_NAME:-}")
 REPO="$(cd "$HERE/../.." && pwd)"
 BDIR="$REPO/build/cart"
 WORK="$BDIR/work"
@@ -129,7 +131,6 @@ test -f "$RBF" || { echo "no .rbf produced, see $BDIR/build.log" >&2; exit 1; }
 
 # ---- 4. Bitstream, SD tree, zip -------------------------------------------
 RBF_NAME=$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1]))['core']['cores'][0]['filename'])" "$CORE_DIR/core.json")
-VERSION=$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1]))['core']['metadata']['version'])" "$CORE_DIR/core.json")
 
 "$PY" "$REPO/scripts/reverse_bitstream.py" "$RBF" "$BDIR/$RBF_NAME"
 
@@ -137,13 +138,8 @@ rm -rf "$BDIR/sd"
 rsync -a "$REPO/pkg/" "$BDIR/sd/"
 cp "$BDIR/$RBF_NAME" "$BDIR/sd/Cores/$CORE_NAME/$RBF_NAME"
 
-# The packaged core.json carries a version the Pocket menu can be read against,
-# so there is never a question of which commit is on the card. The checked-in
-# pkg/ keeps the plain upstream-style version.
-STAMP="${RELEASE_NAME:-}"
-STAMP="${STAMP#v}"
-[[ -n "$STAMP" ]] || STAMP="${VERSION}.${GIT_SHA}${GIT_DIRTY:+.dirty}"
-"$PY" - "$BDIR/sd/Cores/$CORE_NAME/core.json" "$STAMP" "$(date -u +%Y-%m-%d)" <<'PY'
+# Stamp the package date. The source commit is recorded in the build report.
+"$PY" - "$BDIR/sd/Cores/$CORE_NAME/core.json" "$STAMP" "$(pocket_version_date "$STAMP")" <<'PY'
 import json, sys
 path, version, date = sys.argv[1:]
 assert len(version) <= 31, f"version too long for APF: {version}"

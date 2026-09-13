@@ -41,6 +41,13 @@ jobs:
 
       # The gate. A tag is just a label and can be put on any commit, so this
       # asks git whether the tagged commit is actually reachable from main.
+      - name: Validate the release date
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          source tools/podman/version.sh
+          pocket_version "$GITHUB_REF_NAME"
+
       - name: Require the tag to be on main
         run: |
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main

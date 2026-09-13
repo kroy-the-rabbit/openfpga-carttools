@@ -35,6 +35,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Calendar version checks
+        run: bash tools/podman/test-version.sh
+
       - name: Build the Icarus image
         run: docker build -t carttools-sim:1 -f tools/podman/Containerfile.sim tools/podman
 
