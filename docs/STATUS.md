@@ -14,8 +14,9 @@ checksum `0DAE`, 0 wrong bytes), the on-device pair diagnostic reports
 retained copy. Screenshot `20260912_195433.png`. This is the first MBC3
 cartridge verified by this core, and the first Silver dump taken without the
 idle precharge. Evidence under `build/hardware/ff5d-result-20260912.Sv1KtW/`.
-Not yet done: one re-dump of a previously verified GB cartridge on FF5D to
-confirm the ordinary path is unchanged.
+Regression control on FF5D: Zelda DX (MBC5, 1 MB) re-dumped byte-identical
+to the library, CRC32 `B38EB9DE`, 0 unequal pairs; its save matches the
+retained `ZELDA_DX.sav`. Screenshot `20260912_200007.png`.
 
 Silver error analysis and precharge-release candidate, 2026-09-12: bit-level
 comparison of all six preserved dumps against the clean reference shows every

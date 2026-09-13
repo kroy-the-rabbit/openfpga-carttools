@@ -15,7 +15,9 @@ evidence and history; their older next-step instructions are superseded.
   handoff updates. The card was left mounted on `/dev/sdb1`.
 - **Result:** Silver dumps correctly on FF5D. The ROM is byte-identical to
   the clean reference, the pair diagnostic reports 0 unequal pairs, the save
-  read matches. See "FF5D Silver result, 2026-09-12" below. Every earlier
+  read matches. Zelda DX re-dumped on FF5D byte-identical to the library, so
+  the ordinary MBC5 path is unchanged. See "FF5D Silver result, 2026-09-12"
+  below. Every earlier
   Silver dump (six retained, all with the precharge on) had 6,030 to 89,671
   wrong bytes, all odd-addressed, all zero bits turned to ones.
 - **Cause, measured:** every wrong bit is on a data line the ROM last drove
@@ -36,14 +38,11 @@ evidence and history; their older next-step instructions are superseded.
 
 Next steps, in order:
 
-1. Re-dump one previously verified GB cartridge on FF5D (Zelda DX or
-   Tetris Plus) and check it against the library, to confirm the release did
-   not regress the ordinary path. Record the result.
-2. Decide whether the pair-read diagnostic (`PAIR_READS`) and the two-clock
+1. Decide whether the pair-read diagnostic (`PAIR_READS`) and the two-clock
    gap stay in the production reader now that the cause is fixed; both
    double dump time. If removed, keep `tb_cart_dump_gb_pair_timing` able to
    run with `PAIR_READS` on.
-3. Resume the paused restore track (`2B0B`, `RESTORE_WRITE_ENABLED=0`).
+2. Resume the paused restore track (`2B0B`, `RESTORE_WRITE_ENABLED=0`).
 
 Operational instructions that apply before running anything:
 
@@ -77,8 +76,11 @@ Operational instructions that apply before running anything:
 Screenshots `20260912_195433.png` (ROM, `PAIRED READS AGREE`) and
 `20260912_195441.png` (save, CRC32 `5373DBA3`). `20260912_184323.png` is a
 7776 Silver dump made before the install (4,396 unequal pairs); its ROM was
-overwritten on the card. Copies, package files and hashes are under
-`build/hardware/ff5d-result-20260912.Sv1KtW/`. Card unchanged, left mounted.
+overwritten on the card. Regression control `20260912_200007.png`: Zelda DX
+on FF5D, CRC32 `B38EB9DE`, 0 unequal pairs, ROM byte-identical to the
+library, save identical to the retained `ZELDA_DX.sav`. Copies, package
+files and hashes are under `build/hardware/ff5d-result-20260912.Sv1KtW/`.
+Card unchanged, left mounted.
 
 ## FF5D candidate, 2026-09-12
 
