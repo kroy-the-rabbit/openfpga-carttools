@@ -7,6 +7,16 @@ Read [the handoff's resume section](HANDOFF.md#resume-here--2026-09-12) for
 the current work queue and local runtime/AVC instructions. Entries below
 retain earlier results; later evidence supersedes their historical next steps.
 
+FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
+FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
+checksum `0DAE`, 0 wrong bytes), the on-device pair diagnostic reports
+`PAIRED READS AGREE` with 0 even and 0 odd, and the save read matches the
+retained copy. Screenshot `20260912_195433.png`. This is the first MBC3
+cartridge verified by this core, and the first Silver dump taken without the
+idle precharge. Evidence under `build/hardware/ff5d-result-20260912.Sv1KtW/`.
+Not yet done: one re-dump of a previously verified GB cartridge on FF5D to
+confirm the ordinary path is unchanged.
+
 Silver error analysis and precharge-release candidate, 2026-09-12: bit-level
 comparison of all six preserved dumps against the clean reference shows every
 wrong bit is on a data line the ROM last drove low and the GB bus's idle `FF`

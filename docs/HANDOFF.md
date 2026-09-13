@@ -13,40 +13,37 @@ evidence and history; their older next-step instructions are superseded.
   byte-verified on the card on 2026-09-12 (bitstream MD5
   `ad46751c8721746b189a146b25694e27`). Later commits record results and
   handoff updates. The card was left mounted on `/dev/sdb1`.
-- **Known result:** 48/48 checks and FPGA timing passed, but Silver still
-  fails on hardware: 42,021 unequal pairs and 31,778 saved bytes differing
-  from the clean reference. These are different measurements. Across all six
-  preserved dumps, every wrong saved byte is odd-addressed and only changes
-  zero bits to ones. 7776 includes one bank-0 error.
+- **Result:** Silver dumps correctly on FF5D. The ROM is byte-identical to
+  the clean reference, the pair diagnostic reports 0 unequal pairs, the save
+  read matches. See "FF5D Silver result, 2026-09-12" below. Every earlier
+  Silver dump (six retained, all with the precharge on) had 6,030 to 89,671
+  wrong bytes, all odd-addressed, all zero bits turned to ones.
 - **Cause, measured:** every wrong bit is on a data line the ROM last drove
   low and the idle `FF` precharge pulsed high before the read; a line last
   driven high has never flipped. Only reads with no fresh A1+ address change
   fail. See "Silver error analysis, 2026-09-12" below. The mechanism inside
   the ROM is inferred; the precharge correlation is what was measured.
-- **Experiment installed, untested on hardware:** FF5D releases D0-D7
-  between reads during ordinary GB/GBC ROM dumping. The GB-first probe
-  precharge, the 7776 two-clock gap, strobe timing, mapper writes and pair
-  diagnostics are unchanged. 48/48 checks; sisko and sisko2 builds are
-  byte-identical, setup +1.073 ns, hold +0.119 ns. See "FF5D candidate,
-  2026-09-12" below.
+- **Fix, verified on Silver:** FF5D releases D0-D7 between reads during
+  ordinary GB/GBC ROM dumping. The GB-first probe precharge, the 7776
+  two-clock gap, strobe timing, mapper writes and pair diagnostics are
+  unchanged. 48/48 checks; sisko and sisko2 builds are byte-identical, setup
+  +1.073 ns, hold +0.119 ns. See "FF5D candidate, 2026-09-12" below. The
+  pair-read diagnostic and the two-clock gap are still in the production
+  reader; whether to keep them is an open decision.
 - **Other work:** basic Silver HP/PP/money cheats are installed and file
   verified; gameplay remains untested. Saves are backed up and unchanged.
   Restore qualification remains paused, with `RESTORE_WRITE_ENABLED=0`.
 
 Next steps, in order:
 
-1. Reload CartTools, confirm **FF5D**, obtain **one Silver dump and
-   screenshot**, preserve both before another dump, and compare paired-read
-   diagnostics and saved bytes against the existing clean reference. Its
-   checksum is `0DAE`, CRC32 `8AD48636`; use the byte comparison as well as
-   checksums. Rerun the three analysis scripts on the new dump. The passing
-   BB2B Zelda DX control is sufficient. The user explicitly requested no
-   further Zelda hardware retests for this investigation.
-2. If Silver passes, re-dump one previously verified GB cartridge on FF5D to
-   confirm the release did not regress the ordinary path, then record.
-3. If Silver still fails, compare the new error signature with the analysis
-   entry: the same odd-only, low-line-only pattern would mean the precharge
-   pulse is not the only source; a different pattern is new evidence.
+1. Re-dump one previously verified GB cartridge on FF5D (Zelda DX or
+   Tetris Plus) and check it against the library, to confirm the release did
+   not regress the ordinary path. Record the result.
+2. Decide whether the pair-read diagnostic (`PAIR_READS`) and the two-clock
+   gap stay in the production reader now that the cause is fixed; both
+   double dump time. If removed, keep `tb_cart_dump_gb_pair_timing` able to
+   run with `PAIR_READS` on.
+3. Resume the paused restore track (`2B0B`, `RESTORE_WRITE_ENABLED=0`).
 
 Operational instructions that apply before running anything:
 
@@ -65,6 +62,23 @@ Operational instructions that apply before running anything:
   A fresh clone does not contain them or `RUNNERS.local.md`. A handoff to
   another machine needs those referenced artifacts separately; their paths,
   hashes, and reproduction scripts are recorded in the entries below.
+
+## FF5D Silver result, 2026-09-12
+
+| Measurement | FF5D |
+|---|---|
+| Image sum / wanted | `0DAE` / `0DAE` |
+| CRC32 | `8AD48636` |
+| Unequal pairs | 0 (even 0, odd 0) |
+| Bytes differing from reference | 0 of 2,097,152 |
+| ROM SHA-256 | `72b190859a59623cbef6c49d601f8de52c1d2331b4f08a8d2acc17274fc19a8c` |
+| Save SHA-256 | `ab5c24dd964d819569e695de8efab2a63d963f291b79ffa38ee612ae647d7ace` |
+
+Screenshots `20260912_195433.png` (ROM, `PAIRED READS AGREE`) and
+`20260912_195441.png` (save, CRC32 `5373DBA3`). `20260912_184323.png` is a
+7776 Silver dump made before the install (4,396 unequal pairs); its ROM was
+overwritten on the card. Copies, package files and hashes are under
+`build/hardware/ff5d-result-20260912.Sv1KtW/`. Card unchanged, left mounted.
 
 ## FF5D candidate, 2026-09-12
 
