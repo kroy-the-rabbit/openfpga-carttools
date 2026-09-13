@@ -33,6 +33,9 @@ module restore_engine #(
     // Save length of the latched geometry, stable from preflight_start until
     // the next one. The file service sizes every transfer from it.
     output reg [15:0] save_bytes,
+    // The live header describes a supported geometry. The guard opens the
+    // page on it; preflight_start applies the same test before latching.
+    output wire geometry_ok,
 
     // A request and its reply are synchronous to clk. op 0 loads metadata,
     // op 1 loads the save, op 2 writes and reads the recovery backup.
@@ -158,6 +161,7 @@ wire geometry_mbc1_8k = cart_type == 8'h03 && ram_size_code == 8'h02 &&
 wire geometry_mbc3_32k = (cart_type == 8'h10 || cart_type == 8'h13) &&
                          ram_size_code == 8'h03 &&
                          (cgb_flag == 8'h00 || cgb_flag == 8'h80) && rom_size_code <= 8'd6;
+assign geometry_ok = geometry_mbc1_8k || geometry_mbc3_32k;
 cart_dump_gb rom_reader (
     .clk(clk), .reset(reset || stopping), .start(rom_start),
     .cart_type(type_l), .rom_size_code(rom_l), .busy(rom_busy), .done(rom_done),

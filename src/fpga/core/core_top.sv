@@ -1777,9 +1777,10 @@ wire restore_stop_request = restore_cancel || restore_guard_state == 4'd10 ||
                             (restore_overlay && cont1_key_s[5]);
 wire restore_transaction_busy = restore_busy || restore_probe_pending ||
                                 restore_engine_start || cart_engine_busy;
-wire restore_available = id_valid && platform == 3'd2 &&
-    gbid_cart_type == 8'h03 && gbid_ram_size == 8'h02 && gbid_cgb_flag == 0 &&
-    gbid_rom_size <= 4 && !cart_engine_busy && !dump_busy && !action_pending &&
+// The supported geometries are defined once, in restore_engine.
+wire restore_geometry_ok;
+wire restore_available = id_valid && platform == 3'd2 && restore_geometry_ok &&
+    !cart_engine_busy && !dump_busy && !action_pending &&
     !restore_busy && !restore_probe_pending && !restore_poisoned_s && cart_mode_s;
 
 restore_guard restore_lock (
@@ -1894,6 +1895,7 @@ restore_engine #(.WRITE_ENABLED(RESTORE_WRITE_ENABLED)) restore (
     .done(restore_done), .failed(restore_failed), .phase(restore_phase),
     .error(restore_error), .rom_crc(restore_rom_crc), .save_crc(restore_save_crc),
     .mismatch_offset(), .save_bytes(restore_save_bytes),
+    .geometry_ok(restore_geometry_ok),
     .io_start(restore_io_start_sys), .io_op(restore_io_op_sys),
     .io_done(restore_io_done_sys), .io_failed(restore_io_failed_sys),
     .input_we(restore_input_we), .input_kind(restore_input_kind),

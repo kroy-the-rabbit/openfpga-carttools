@@ -420,6 +420,7 @@ initial begin
     // identity check. An early commit pulse has no authority.
     if (PART != 2) begin
     fresh(1);
+    check(dut.geometry_ok, "live header of the supported cartridge reports geometry_ok");
     launch_preflight();
     wait (phase == 3 || phase == 19);
     if (phase == 19) $fatal(1, "initial metadata failed: enabled=%0d error=%0d", WRITE_ENABLED, error);
@@ -571,15 +572,18 @@ initial begin
         fresh(18);
         cart_type = 'h1B;
         expect_preflight_failure(2);
+        check(!dut.geometry_ok, "unsupported mapper is not offered to the guard");
         check(metadata_calls == 0 && save_calls == 0 && backup_calls == 0,
               "unsupported mapper rejected before file I/O");
         fresh(21);
         ram_size_code = MBC3 ? 8'h02 : 8'h03;
         expect_preflight_failure(2);
+        check(!dut.geometry_ok, "other geometry's RAM code is not offered to the guard");
         check(metadata_calls == 0, "mapper with the other geometry's RAM code is rejected");
         fresh(22);
         cgb_flag = MBC3 ? 8'hC0 : 8'h80;
         expect_preflight_failure(2);
+        check(!dut.geometry_ok, "unsupported CGB flag is not offered to the guard");
         check(metadata_calls == 0, "unsupported CGB flag for the mapper is rejected");
     end
     finished = 1;
