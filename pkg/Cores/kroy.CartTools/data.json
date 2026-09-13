@@ -51,8 +51,7 @@
         "deferload": true,
         "extensions": ["sav"],
         "address": "0xB0000000",
-        "size_exact": "0x2000",
-        "size_maximum": "0x2000",
+        "size_maximum": "0x8000",
         "filename": "RESTORE.sav"
       },
       {
@@ -63,7 +62,7 @@
         "deferload": true,
         "extensions": ["sav"],
         "address": "0xA0000000",
-        "size_maximum": "0x2000"
+        "size_maximum": "0x8000"
       }
     ]
   }
