@@ -31,7 +31,15 @@ the guard uses it. 51/51 checks; the default fitter seed came back with hold
 -0.014 ns and was rejected; seed 2 built on two runners byte-identical (MD5
 `eeda9d525908a66a10ec7b2a1e5f7dba`), setup +0.579 ns, hold +0.112 ns,
 installed and byte-verified on 2026-09-13 with the Silver inputs unchanged.
-Awaiting the hardware preflight.
+Hardware result on 8927, 2026-09-13: the footer offers the Select hold, the
+page opens, and the preflight stops with `ROM IDENTITY MISMATCH` (error 4)
+while the ordinary dump on the same build reads Silver byte-identical (CRC32
+`8AD48636`, 0 unequal pairs) and the manifest carries that CRC. Cause: the
+precharge release followed only the dump engine's reader; the restore
+engine's identity pass reads the whole ROM through its own reader with the
+precharge on, which is the Silver failure mode FF5D fixed for dumps.
+`restore_engine` now exports `rom_reading` and the top releases the
+precharge for either reader. Awaiting the next build.
 
 FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
 FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
