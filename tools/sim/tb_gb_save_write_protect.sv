@@ -109,7 +109,7 @@ gb_cart_bus #(
     .HOLD_CYCLES       (2),
     .PHI_HALF_CYCLES   (6)
 ) bus (
-    .clk (clk), .reset (reset), .gb_mode (gb_mode),
+    .clk (clk), .reset (reset), .gb_mode (gb_mode), .idle_precharge (1'b1),
     .req (bus_req), .wr (bus_wr), .addr (bus_addr), .wdata (bus_wdata),
     .rdata (bus_rdata), .done (bus_done), .busy (),
     .e_ad_out (e_ad_out), .e_ad_oe (e_ad_oe),

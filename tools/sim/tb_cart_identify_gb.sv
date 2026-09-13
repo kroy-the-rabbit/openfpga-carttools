@@ -61,7 +61,7 @@ wire        e_p30_out, e_p30_oe;
 wire [7:0]  e_hi_in;
 
 gb_cart_bus bus (
-    .clk (clk), .reset (reset), .gb_mode (gb_mode),
+    .clk (clk), .reset (reset), .gb_mode (gb_mode), .idle_precharge (1'b1),
     .req (id_req), .wr (id_wr), .addr (id_addr), .wdata (id_wdata),
     .rdata (bus_rdata), .done (bus_done), .busy (bus_busy),
     .e_ad_out (e_ad_out), .e_ad_oe (e_ad_oe),

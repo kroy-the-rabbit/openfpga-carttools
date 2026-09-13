@@ -27,7 +27,7 @@ cart_dump_gb #(.PAIR_READS(1'b1)) reader (
     .pair_first_addr(first_addr), .pair_first_a(first_a), .pair_first_b(first_b)
 );
 gb_cart_bus bus (
-    .clk(clk), .reset(reset), .gb_mode(1'b1),
+    .clk(clk), .reset(reset), .gb_mode(1'b1), .idle_precharge(~busy),
     .req(req), .wr(wr), .addr(addr), .wdata(wdata),
     .rdata(rdata), .done(bus_done), .busy(bus_busy),
     .e_ad_out(pin_addr), .e_ad_oe(addr_oe), .e_hi_out(pin_data),
@@ -119,6 +119,20 @@ always @(posedge clk) begin
     request_was_high = req;
 end
 
+// A ROM dump drives the data pins for a mapper write and at no other time.
+// busy is delayed two clocks: the bus drops its idle precharge one clock
+// after the reader starts.
+reg write_in_flight = 0;
+reg busy_q = 0, busy_qq = 0;
+always @(posedge clk) begin
+    busy_qq = busy_q;
+    busy_q = busy;
+    if (req && wr) write_in_flight = 1;
+    if (bus_done) write_in_flight = 0;
+    if (!reset && !reader_abort && busy_qq && data_oe && !write_in_flight)
+        $fatal(1, "data pins driven during a ROM dump outside a mapper write at read %0d", reads);
+end
+
 // Measure pin timing independently of the reader and bus state encodings.
 always @(negedge ctl[1]) if (!reset) begin
     rd_at = cycles;
@@ -167,6 +181,9 @@ integer gap_cycle;
 initial begin
     repeat (4) @(negedge clk);
     reset = 0;
+    repeat (3) @(negedge clk);
+    if (data_oe !== 1'b1 || pin_data !== 8'hFF)
+        $fatal(1, "idle precharge missing before the dump");
     launch;
     // Stall a banked byte after its second sample; both requests still use
     // their fixed spacing and only the subsequent byte waits for output.
@@ -178,6 +195,9 @@ initial begin
     out_ready = 1;
     wait(done);
     @(negedge clk);
+    repeat (3) @(negedge clk);
+    if (data_oe !== 1'b1 || pin_data !== 8'hFF)
+        $fatal(1, "idle precharge did not return after the dump");
     if (reads != 65536 || emitted != 32768 || writes != 1 ||
         pairs_checked != 32768 || next_checked != 32766 ||
         stalled_cycles == 0 || stalled_next_checked != 1)

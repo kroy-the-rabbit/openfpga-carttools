@@ -58,7 +58,7 @@ wire [7:0]  gbid_wdata, gb_bus_rdata;
 wire        gb_bus_done, gb_bus_busy;
 
 gb_cart_bus gb_bus (
-    .clk (clk), .reset (reset), .gb_mode (gb_mode_s),
+    .clk (clk), .reset (reset), .gb_mode (gb_mode_s), .idle_precharge (1'b1),
     .req (gbid_req), .wr (gbid_wr), .addr (gbid_addr), .wdata (gbid_wdata),
     .rdata (gb_bus_rdata), .done (gb_bus_done), .busy (gb_bus_busy),
     .e_ad_out (gb_ad_out), .e_ad_oe (gb_ad_oe),

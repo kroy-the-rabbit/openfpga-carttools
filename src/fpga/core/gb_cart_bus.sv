@@ -35,6 +35,7 @@ module gb_cart_bus #(
     input  wire        clk,
     input  wire        reset,
     input  wire        gb_mode,       // low releases everything
+    input  wire        idle_precharge, // drive D0-D7 high between transactions
 
     input  wire        req,           // sampled in idle only
     input  wire        wr,
@@ -84,6 +85,11 @@ reg        data_drive;
 // driven. A GB cartridge only drives D0-D7 while /RD is low, so this does not
 // contend with it. A read request releases bank1 at the beginning of the
 // address setup window, 200 ns before /RD falls with the shipped timing.
+//
+// idle_precharge gates it. The owner drops it for an ordinary GB ROM dump:
+// between reads the precharge pulses every line the cartridge last drove low,
+// and on Pokemon Silver those are exactly the lines that read back wrong.
+// See docs/HANDOFF.md, Silver error analysis 2026-09-12.
 
 // One cycle of deafness after done, so a requester that waits for done before
 // dropping req cannot be given a second transaction. gba_cart_bus has that
@@ -165,7 +171,7 @@ always @(posedge clk) begin
                 rd_n       <= 1'b1;
                 wr_n       <= 1'b1;
                 addr_drive <= 1'b0;
-                data_drive    <= 1'b1;
+                data_drive    <= idle_precharge;
                 latched_wdata <= 8'hFF;
                 refuse     <= 1'b0;
                 if (req && !refuse) begin

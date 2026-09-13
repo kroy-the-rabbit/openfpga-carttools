@@ -814,6 +814,7 @@ wire [15:0] dmp_addr;
 wire [7:0]  dmp_wdata;
 
 wire restore_owns_cart = restore_want_mode != 0;
+wire        dump_gb_rom_reading;
 wire        gb_req_mux   = restore_owns_cart ? restore_req   : dump_busy ? dmp_req   : gbid_req;
 wire        gb_wr_mux    = restore_owns_cart ? restore_wr    : dump_busy ? dmp_wr    : gbid_wr;
 wire [15:0] gb_addr_mux  = restore_owns_cart ? restore_addr  : dump_busy ? dmp_addr  : gbid_addr;
@@ -823,6 +824,9 @@ gb_cart_bus gb_bus (
     .clk       ( clk_sys ),
     .reset     ( ~pll_core_locked ),
     .gb_mode   ( gb_mode_s ),
+    // Precharge stays for the probe, save and restore traffic; only an
+    // ordinary GB ROM dump releases the data pins between transactions.
+    .idle_precharge ( ~dump_gb_rom_reading ),
 
     .req       ( gb_req_mux ),
     .wr        ( gb_wr_mux ),
@@ -1668,6 +1672,7 @@ dump_engine dump (
     .pair_first_b  ( dump_pair_first_b ),
 
     .busy          ( dump_busy ),
+    .gb_rom_reading( dump_gb_rom_reading ),
     .done          ( dump_done ),
     .failed        ( dump_failed ),
     .err           ( dump_err ),

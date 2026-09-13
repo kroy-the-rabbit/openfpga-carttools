@@ -47,7 +47,7 @@ wire cs_n = e_ctl_out[0];
 // A logical reset of the writer must never reset this bus during an active
 // transaction. The real pin owner must maintain this separation as well.
 gb_cart_bus cart_bus (
-    .clk(clk), .reset(bus_reset), .gb_mode(cart_powered),
+    .clk(clk), .reset(bus_reset), .gb_mode(cart_powered), .idle_precharge(1'b1),
     .req(bus_req), .wr(bus_wr), .addr(bus_addr), .wdata(bus_wdata),
     .rdata(bus_rdata), .done(bus_done), .busy(bus_busy),
     .e_ad_out(e_ad_out), .e_ad_oe(e_ad_oe),

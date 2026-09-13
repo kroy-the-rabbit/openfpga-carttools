@@ -119,6 +119,8 @@ module dump_engine #(
     input  wire        cart_mode,
 
     output reg         busy,
+    // The GB ROM reader is running: bank writes, reads, pair rereads, stalls.
+    output wire        gb_rom_reading,
     output reg         done,              // one cycle
     output reg         failed,
     output reg  [2:0]  err,
@@ -698,6 +700,7 @@ wire       rd_busy, rd_done;
 wire [7:0] gb_data, gba_data, gsv_data, gee_data;
 wire       gb_valid, gba_valid, gsv_valid, gee_valid;
 wire       gb_busy, gb_done, gba_rd_busy, gba_rd_done;
+assign gb_rom_reading = gb_busy;
 wire       gsv_busy, gsv_done;
 wire [31:0] gsv_bytes;
 wire        gsv_responded, gsv_blank_ff, gsv_blank_00;

@@ -44,6 +44,14 @@ initial begin
          dut.screen.pair_even, dut.screen.pair_odd, dut.screen.pair_first_addr,
          dut.screen.pair_first_a, dut.screen.pair_first_b} !== 112'd0)
         $fatal(1, "diagnostic clear did not reach screen");
+    force dut.dump.gb_rom_reading = 1;
+    #1;
+    if (dut.gb_bus.idle_precharge !== 1'b0)
+        $fatal(1, "GB ROM dump does not release the idle precharge");
+    force dut.dump.gb_rom_reading = 0;
+    #1;
+    if (dut.gb_bus.idle_precharge !== 1'b1)
+        $fatal(1, "idle precharge not restored outside a GB ROM dump");
     $display("TB PASS: dump diagnostic top wiring");
     $finish;
 end
@@ -71,7 +79,9 @@ def main():
                                     capture_output=True, timeout=30)
             log = result.stdout + result.stderr
             if negative:
-                if result.returncode == 0 or "diagnostic output lost or changed" not in log:
+                if result.returncode == 0 or not any(
+                        m in log for m in ("diagnostic output lost or changed",
+                                           "does not release the idle precharge")):
                     raise AssertionError("wiring test missed a mutation:\n" + log)
             elif result.returncode or "TB PASS: dump diagnostic top wiring" not in log:
                 raise AssertionError("diagnostic top wiring failed:\n" + log)
@@ -90,7 +100,13 @@ def main():
             if count != 1:
                 raise AssertionError(f"expected one screen connection for {port}")
             simulate(top_text[:split] + tail, negative=True)
-    print("check_dump_pair_integration: actual top wiring and three negative controls pass")
+        # A precharge left on during the dump must be caught too.
+        mutated, count = re.subn(r"(\.idle_precharge\s*\()\s*~dump_gb_rom_reading\s*(\))",
+                                 lambda m: m[1] + "1'b1" + m[2], top_text)
+        if count != 1:
+            raise AssertionError("expected one idle_precharge connection on gb_bus")
+        simulate(mutated, negative=True)
+    print("check_dump_pair_integration: actual top wiring and four negative controls pass")
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ always #5 clk = ~clk;              // 100 MHz, near enough clk_sys
 
 reg reset   = 1'b1;
 reg gb_mode = 1'b0;
+reg idle_precharge = 1'b1;
 
 reg         req = 1'b0;
 reg         wr = 1'b0;
@@ -48,6 +49,7 @@ gb_cart_bus #(
     .HOLD_CYCLES       ( HOLD )
 ) dut (
     .clk (clk), .reset (reset), .gb_mode (gb_mode),
+    .idle_precharge (idle_precharge),
     .req (req), .wr (wr), .addr (addr), .wdata (wdata),
     .rdata (rdata), .done (done), .busy (busy),
     .e_ad_out (e_ad_out), .e_ad_oe (e_ad_oe),
@@ -181,6 +183,27 @@ initial begin
         fail("idle GB data-bus precharge is not FF");
     if (rd_n !== 1'b1 || wr_n !== 1'b1)
         fail("a strobe active during idle GB data-bus precharge");
+
+    // With idle_precharge low the data pins are released between
+    // transactions, which is what an ordinary GB ROM dump asks for.
+    idle_precharge = 1'b0;
+    repeat (2) @(negedge clk);
+    if (e_hi_oe !== 1'b0)
+        fail("data bus still driven in idle with idle_precharge low");
+    xfer(1'b0, 16'h0000, 8'h00);  expect8("rom 0000 without precharge", rdata, 8'hAA);
+    repeat (2) @(negedge clk);
+    if (e_hi_oe !== 1'b0)
+        fail("data bus driven after a read with idle_precharge low");
+    xfer(1'b1, 16'h2000, 8'h01);
+    if (last_write_addr !== 16'h2000 || last_write_data !== 8'h01)
+        fail("mapper write without precharge did not reach the cartridge");
+    repeat (2) @(negedge clk);
+    if (e_hi_oe !== 1'b0)
+        fail("data bus driven after a write with idle_precharge low");
+    idle_precharge = 1'b1;
+    repeat (2) @(negedge clk);
+    if (e_hi_oe !== 1'b1 || e_hi_out !== 8'hFF)
+        fail("idle precharge did not return when idle_precharge rose");
 
     // ---- 2. ROM reads -----------------------------------------------------
     xfer(1'b0, 16'h0000, 8'h00);  expect8("rom 0000", rdata, 8'hAA);

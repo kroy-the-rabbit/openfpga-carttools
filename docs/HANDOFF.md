@@ -16,33 +16,35 @@ evidence and history; their older next-step instructions are superseded.
   fails on hardware: 42,021 unequal pairs and 31,778 saved bytes differing
   from the clean reference. These are different measurements. Across all six
   preserved dumps, every wrong saved byte is odd-addressed and only changes
-  zero bits to ones. 7776 includes one bank-0 error. The cause is unresolved.
+  zero bits to ones. 7776 includes one bank-0 error.
+- **Cause, measured:** every wrong bit is on a data line the ROM last drove
+  low and the idle `FF` precharge pulsed high before the read; a line last
+  driven high has never flipped. Only reads with no fresh A1+ address change
+  fail. See "Silver error analysis, 2026-09-12" below. The mechanism inside
+  the ROM is inferred; the precharge correlation is what was measured.
+- **Experiment in progress:** release D0-D7 between reads during ordinary
+  GB/GBC ROM dumping. The GB-first probe precharge, the 7776 two-clock gap,
+  strobe timing, mapper writes and pair diagnostics stay unchanged.
 - **Other work:** basic Silver HP/PP/money cheats are installed and file
   verified; gameplay remains untested. Saves are backed up and unchanged.
   Restore qualification remains paused, with `RESTORE_WRITE_ENABLED=0`.
 
 Next steps, in order:
 
-1. Trace the actual `core_top` → `gb_cart_bus` → `cart_pins` data-drive,
-   direction, release, and sample path. The concrete hypothesis is idle `FF`
-   precharge affecting reads. The shared bus also serves probe, save, and
-   restore traffic; `dump_busy` alone does not identify an ordinary ROM dump.
-2. Implement one experiment: disable idle precharge only during ordinary
-   GB/GBC ROM dumping. Preserve GB-first probe behavior, the 7776 two-clock
-   gap, bus setup/strobe/hold, mapper writes, and first-sample diagnostics.
-   Check actual pin behavior and transitions into and out of that scope.
-   Precharge is a hypothesis, not an established cause.
-3. Run focused checks for the changed path, then the full suite once on the
-   exact committed candidate. Build that commit on sisko through
+1. Finish the RTL experiment above, with a testbench that pins the data bus
+   released between dump reads and still precharged in idle outside a dump.
+2. Run focused checks for the changed path, then the full suite once on the
+   exact committed candidate. Build that commit on sisko and sisko2 through
    `../tools/runner-build`; inspect timing and verify the fetched package.
    Existing 7776 validation is retained evidence, not work to repeat first.
-4. Resolve the live card mount, preserve existing evidence, install and
+3. Resolve the live card mount, preserve existing evidence, install and
    byte-verify the candidate. Obtain **one Silver dump and screenshot**,
    preserve both before another dump, and compare paired-read diagnostics
    and saved bytes against the existing clean reference. Its checksum is
    `0DAE`, CRC32 `8AD48636`; use the byte comparison as well as checksums.
-   The passing BB2B Zelda DX control is sufficient. The user explicitly
-   requested no further Zelda hardware retests for this investigation.
+   Rerun the three analysis scripts on the new dump. The passing BB2B Zelda
+   DX control is sufficient. The user explicitly requested no further Zelda
+   hardware retests for this investigation.
 
 Operational instructions that apply before running anything:
 
@@ -61,6 +63,44 @@ Operational instructions that apply before running anything:
   A fresh clone does not contain them or `RUNNERS.local.md`. A handoff to
   another machine needs those referenced artifacts separately; their paths,
   hashes, and reproduction scripts are recorded in the entries below.
+
+## Silver error analysis, 2026-09-12
+
+All six retained dumps compared bit by bit against the clean reference.
+Measured:
+
+- A wrong bit at odd address N occurs only when that bit is 0 in both N and
+  N-1. A line the ROM last drove high never flips: across 274,655 wrong bytes
+  and about 1.2 million wrong bits in the six dumps, every bit position, the
+  only exception is a single event in 12CD `dump7` bit 3 (rate 1e-5).
+- Failure rate rises superlinearly with k, the number of lines that are 0 in
+  both bytes:
+
+  | Dump | k=1 | k=4 | k=8 |
+  |---|---:|---:|---:|
+  | 7776 | 0.01% | 0.13% | 6.5% |
+  | BB2B | 0.05% | 0.47% | 18.2% |
+  | 12CD `dump7` | | | 1.2% |
+
+  Zero-filled regions therefore dominate; wrong bytes per 16 KB bank range 0
+  to 1,625 in 7776 and 0 to 3,200 in BB2B.
+- A line low for 8 or more consecutive bytes flips at 2.7% versus about 0.2%
+  for 1 to 7 (7776).
+- Only reads with no fresh A1+ address change fail: odd bytes, and the paired
+  second read of the same address (17,937 even pairs in 7776). No even first
+  read has ever been wrong.
+- The idle `FF` precharge (commit `250d6a0`, 2026-09-04) predates every
+  Silver dump. Silver was first driven on 2026-09-11 and has never been
+  dumped without it. `gb_cart_bus.sv` drives `FF` for the idle clocks
+  between transactions (`ST_IDLE`), so every line the ROM last drove low
+  receives a 0-to-1 pulse before the next read. Those are exactly the lines
+  that fail.
+
+Inferred, not measured: the pulse flips the ROM's output keeper; a fresh row
+access rewrites it, a byte-select-only or repeat read does not.
+
+Reproduction: `silver_errors.py`, `pulse_dep.py` and `runlen.py` with their
+`.out` files under `build/hardware/7776-result-20260912.89j90kdu/`.
 
 ## 7776 result and basic Silver cheats, 2026-09-12
 
@@ -111,6 +151,8 @@ only 6,030. Run-to-run variability prevents claiming that the two-clock
 change consistently improves correctness.
 
 ### Next code investigation
+
+Superseded by the 2026-09-12 analysis entry above.
 
 Follow the GB data-drive/release/sample path through `gb_cart_bus` and
 `cart_pins`. The bus currently drives `FF` during every idle cycle, releases

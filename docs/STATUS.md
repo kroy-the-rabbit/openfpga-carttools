@@ -7,6 +7,21 @@ Read [the handoff's resume section](HANDOFF.md#resume-here--2026-09-12) for
 the current work queue and local runtime/AVC instructions. Entries below
 retain earlier results; later evidence supersedes their historical next steps.
 
+Silver error analysis and precharge-release candidate, 2026-09-12: bit-level
+comparison of all six preserved dumps against the clean reference shows every
+wrong bit is on a data line the ROM last drove low and the GB bus's idle `FF`
+precharge pulsed high before the read; a line last driven high has never
+flipped. Only reads without a fresh A1+ address change fail, and the failure
+rate rises superlinearly with the number of lines pulsed at once. The
+precharge predates every Silver dump. `gb_cart_bus` now takes
+`idle_precharge`; `core_top` drops it while `dump_engine`'s GB ROM reader is
+running, so an ordinary GB/GBC ROM dump releases D0-D7 between transactions
+while the GB-first probe, save reads and restore keep the precharge. Read
+spacing, strobe timing, mapper writes and pair diagnostics are unchanged.
+Testbenches pin both behaviours and the top-level wiring, with a negative
+control. The candidate is built on sisko and sisko2 and awaits one Silver
+hardware dump. Details and reproduction in `docs/HANDOFF.md`.
+
 7776 hardware result, 2026-09-12: Silver still fails checksum (`FF35` vs
 `0DAE`, CRC32 `13D8321B`). The screenshot reports 42,021 unequal pairs:
 17,937 even, 24,084 odd, first `001:00A4 00/01`. That is fewer unequal
@@ -18,10 +33,8 @@ against it establishes that every wrong byte is odd-addressed and every
 error only turns zero bits into ones. 7776 has 31,778 wrong bytes (BB2B had
 89,671); it also has one bank-0 error at `00231B`, `CD` read as `FD`.
 An older 12CD dump has only 6,030 wrong bytes, so the spacing change is not
-established as consistently better. Next: inspect the GB bus's idle `FF`
-precharge, data release, and sample path, then test gating precharge off
-during normal GB ROM dumps while preserving GB-first probing. No further
-Zelda hardware retest is requested. Evidence and reproduction are under
+established as consistently better. The follow-up analysis and candidate
+are in the entry above. No further Zelda hardware retest is requested. Evidence and reproduction are under
 `build/hardware/7776-result-20260912.89j90kdu/` and `docs/HANDOFF.md`.
 
 Basic English Silver cheats are installed beside the existing SD ROM and
