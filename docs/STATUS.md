@@ -23,8 +23,15 @@ Commit `c7ab1a6`, stamp **C7AB**, identical RTL, raises the restore save and
 recovery slots to `size_maximum 0x8000` with no `size_exact`; structural
 checks 7/7, built on two runners byte-identical (MD5
 `c13cf350f28707536feb7da657603798`), setup +0.686 ns, hold +0.121 ns,
-installed and byte-verified. Writes stay clamped. Awaiting the hardware
-preflight.
+installed and byte-verified. Writes stay clamped. On hardware C7AB loads
+with the 32 KiB inputs, but holding Select never opened the restore page:
+the top-level guard still required the MBC1 header. Commit `89279ce`, stamp
+**8927**, moves the geometry test into `restore_engine` (`geometry_ok`) and
+the guard uses it. 51/51 checks; the default fitter seed came back with hold
+-0.014 ns and was rejected; seed 2 built on two runners byte-identical (MD5
+`eeda9d525908a66a10ec7b2a1e5f7dba`), setup +0.579 ns, hold +0.112 ns,
+installed and byte-verified on 2026-09-13 with the Silver inputs unchanged.
+Awaiting the hardware preflight.
 
 FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
 FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
