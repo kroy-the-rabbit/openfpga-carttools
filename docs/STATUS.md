@@ -7,6 +7,19 @@ Read [the handoff's resume section](HANDOFF.md#resume-here--2026-09-12) for
 the current work queue and local runtime/AVC instructions. Entries below
 retain earlier results; later evidence supersedes their historical next steps.
 
+E2E5 restore candidate, 2026-09-12: the restore track resumes with Pokemon
+Silver as its subject. Commit `e2e53d7` adds the MBC3 32 KiB geometry (type
+`10`/`13`, RAM `03`, CGB `00`/`80`, ROM code to `06`) beside MBC1 8 KiB:
+`save_bytes` latched from the RAM code sizes the engine loops, manifest
+check, 32 KiB staging and the recovery file; the writer banks `0..3` through
+`4000` and never touches `6000`. `prepare_restore.py` accepts both
+geometries. 51/51 checks; built on sisko and sisko2 with byte-identical
+bitstreams (MD5 `c8d693404a374b20f2d91cf283641857`), setup +0.443 ns, hold
++0.105 ns, 227 of 308 RAM blocks. Installed and byte-verified; the Silver
+`RESTORE.sav`/`RESTORE.meta` (save CRC32 `18801E27`, a finished game: Mattia,
+16 badges, Pokedex 251) are on the card. Writes stay clamped. Awaiting the
+hardware preflight. See `docs/HANDOFF.md`.
+
 FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
 FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
 checksum `0DAE`, 0 wrong bytes), the on-device pair diagnostic reports

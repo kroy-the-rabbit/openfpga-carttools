@@ -9,10 +9,16 @@ This section is the current work queue. The dated entries below retain the
 evidence and history; their older next-step instructions are superseded.
 
 - **Repo and card:** branch `save-restore-la`; production source is
-  `ff5dd0321e77c9537879f804f853cc0037da1b0a`, stamp **FF5D**, installed and
+  `e2e53d728f74c31deae984b30275cfa4232842cd`, stamp **E2E5**, installed and
   byte-verified on the card on 2026-09-12 (bitstream MD5
-  `ad46751c8721746b189a146b25694e27`). Later commits record results and
-  handoff updates. The card was left mounted on `/dev/sdb1`.
+  `c8d693404a374b20f2d91cf283641857`). It contains the FF5D dump fix. The
+  card also carries the Silver restore inputs. Later commits record results
+  and handoff updates. The card was left mounted on `/dev/sdb1`.
+- **Restore track, in progress:** E2E5 adds the MBC3 32 KiB geometry for
+  Silver; writes are still clamped. See "E2E5 MBC3 restore candidate,
+  2026-09-12" below. The last hardware restore attempt on any geometry was
+  12CD's `SIZE NEW BACKUP` error 3; the 2B0B create/resize fix has been in
+  every build since but has not been run on hardware.
 - **Result:** Silver dumps correctly on FF5D. The ROM is byte-identical to
   the clean reference, the pair diagnostic reports 0 unequal pairs, the save
   read matches. Zelda DX re-dumped on FF5D byte-identical to the library, so
@@ -40,11 +46,19 @@ evidence and history; their older next-step instructions are superseded.
 
 Next steps, in order:
 
-1. Resume the paused restore track (`2B0B`, `RESTORE_WRITE_ENABLED=0`) with
-   the Silver cartridge as the test subject. Its ROM now dumps clean, so a
-   restore can be judged by re-reading the save after the write; both Silver
-   saves are backed up under `build/diagnostic/silver-basic-y_38w75f/`. Read
-   "Pending restore track: 2B0B ready to build, 2026-09-08" first.
+1. With Silver in the slot, reload CartTools, confirm **E2E5**, hold Select
+   three seconds, release, tap A. Expect `CHECK COMPLETE`, `CORE WRITES
+   DISABLED`, and a new 32,768-byte `PRE0000.sav`. Capture the whole result
+   screen (`SEQ P/C/N/R`, `NEW SIZE`, stage, filename). Copy any `PRE*.sav`
+   and the screenshot off the card before another attempt; power-cycle and
+   confirm the recovery file survives and matches the cart's SRAM
+   (`ab5c24dd...`, uninitialized noise, expendable).
+2. If the SD path fails, diagnose from the trace; do not weaken the recovery
+   gate. If it passes twice, set `RESTORE_WRITE_ENABLED = 1`, rerun the
+   suite, build, install, and restore the Mattia save. Success is the cart
+   booting to CONTINUE with PLAYER Mattia, BADGES 16, POKéDEX 251, TIME
+   56:44 after a power cycle, then a FF5D-style dump of the save matching
+   `RESTORE.sav` byte for byte.
 
 Operational instructions that apply before running anything:
 
@@ -63,6 +77,41 @@ Operational instructions that apply before running anything:
   A fresh clone does not contain them or `RUNNERS.local.md`. A handoff to
   another machine needs those referenced artifacts separately; their paths,
   hashes, and reproduction scripts are recorded in the entries below.
+
+## E2E5 MBC3 restore candidate, 2026-09-12
+
+Commit `e2e53d7`. Restore accepts two geometries: MBC1 `{03,02,00}` at
+8,192 bytes and MBC3 `{10 or 13, 03, 00 or 80}` at 32,768 bytes, ROM code
+up to `06`. `restore_engine` latches `save_bytes` from the RAM code and
+exports it to `restore_file_io`, which sizes the slot check, resize, write
+and readback from it; staging and readback arrays are 32 KiB, originals
+4 x 8 KiB. `cart_restore_gb` gains a bank loop for MBC3 (`4000 = 0..3`,
+bank number formed from the offset so `08-0C` cannot be written; `6000`
+never written on MBC3). `ui_restore_screen` rows 3 and 4 name both targets.
+`scripts/prepare_restore.py` derives the save length from the header.
+Metadata format unchanged.
+
+Coverage: `tb_cart_restore_gb` MBC3 rig, `tb_restore_engine_mbc3` and
+`tb_restore_engine_mbc3_commit` (split for the 300 s runner limit),
+`tb_restore_file_io_32k`, `check_restore_package` MBC3 fixture. 51/51 on the
+exact source. sisko 542 s, sisko2 532 s, job `silver-restore-mbc3`,
+bitstreams byte-identical MD5 `c8d693404a374b20f2d91cf283641857`, SHA-256
+`c6362f036e83c2a9b5a4641ee5f6ab4767ba6c0399816f94f2a98eeb663c042f`; setup
++0.443 ns, hold +0.105 ns, 9,309 ALMs, 227 of 308 RAM blocks.
+
+Installed with `build/diagnostic/install-e2e53d7.sh` on `/dev/sdb1` from a
+card carrying FF5D; prior files under `build/diagnostic/deploy-e2e53d7.5DO6cj/`.
+Silver inputs then placed on the card: `RESTORE.sav` SHA-256
+`4774f63f192c3908073331fba27525f15ff6c71cb477af77ff453a6a1ddbd8a9` (CRC32
+`18801E27`, from `~/Desktop/roms/Pokémon - Silver Version.zip` with the
+48-byte RTC trailer stripped; mGBA shows PLAYER Mattia, BADGES 16, POKéDEX
+251, TIME 56:44) and `RESTORE.meta` SHA-256
+`cc29e596b000e33e874cc226ebd76fd876466ba50cbe3f5c587c35b3d6eedb3b`
+(geometry `80060310`, ROM CRC `8AD48636`, generated from the FF5D dump).
+The Link's Awakening inputs are retained under
+`deploy-e2e53d7.5DO6cj/common-before/`. Candidate artifacts and the full
+simulation log under `build/diagnostic/candidate-e2e53d7/`. No hardware
+result yet.
 
 ## FF5D Silver result, 2026-09-12
 
