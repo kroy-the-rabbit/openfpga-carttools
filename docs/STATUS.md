@@ -19,8 +19,11 @@ running, so an ordinary GB/GBC ROM dump releases D0-D7 between transactions
 while the GB-first probe, save reads and restore keep the precharge. Read
 spacing, strobe timing, mapper writes and pair diagnostics are unchanged.
 Testbenches pin both behaviours and the top-level wiring, with a negative
-control. The candidate is built on sisko and sisko2 and awaits one Silver
-hardware dump. Details and reproduction in `docs/HANDOFF.md`.
+control. Candidate `ff5dd03`, stamp **FF5D**: 48/48 checks on the exact
+source; built on sisko and sisko2 with byte-identical bitstreams (MD5
+`ad46751c8721746b189a146b25694e27`), setup +1.073 ns, hold +0.119 ns;
+installed and byte-verified on the card, which was left mounted. It awaits
+one Silver hardware dump. Details and reproduction in `docs/HANDOFF.md`.
 
 7776 hardware result, 2026-09-12: Silver still fails checksum (`FF35` vs
 `0DAE`, CRC32 `13D8321B`). The screenshot reports 42,021 unequal pairs:

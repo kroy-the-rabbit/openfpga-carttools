@@ -8,10 +8,11 @@ Traps and next steps. Read `docs/STATUS.md` for the current position and
 This section is the current work queue. The dated entries below retain the
 evidence and history; their older next-step instructions are superseded.
 
-- **Repo and card:** branch `save-restore-la`; production source still matches
-  `777643d4691a53f1ee9af5ca07c842f672128a1b`, stamp **7776**. Later commits
-  record results and handoff updates. All 14 installed package files matched
-  that candidate at the latest intake; no newer candidate has been built.
+- **Repo and card:** branch `save-restore-la`; production source is
+  `ff5dd0321e77c9537879f804f853cc0037da1b0a`, stamp **FF5D**, installed and
+  byte-verified on the card on 2026-09-12 (bitstream MD5
+  `ad46751c8721746b189a146b25694e27`). Later commits record results and
+  handoff updates. The card was left mounted on `/dev/sdb1`.
 - **Known result:** 48/48 checks and FPGA timing passed, but Silver still
   fails on hardware: 42,021 unequal pairs and 31,778 saved bytes differing
   from the clean reference. These are different measurements. Across all six
@@ -22,29 +23,30 @@ evidence and history; their older next-step instructions are superseded.
   driven high has never flipped. Only reads with no fresh A1+ address change
   fail. See "Silver error analysis, 2026-09-12" below. The mechanism inside
   the ROM is inferred; the precharge correlation is what was measured.
-- **Experiment in progress:** release D0-D7 between reads during ordinary
-  GB/GBC ROM dumping. The GB-first probe precharge, the 7776 two-clock gap,
-  strobe timing, mapper writes and pair diagnostics stay unchanged.
+- **Experiment installed, untested on hardware:** FF5D releases D0-D7
+  between reads during ordinary GB/GBC ROM dumping. The GB-first probe
+  precharge, the 7776 two-clock gap, strobe timing, mapper writes and pair
+  diagnostics are unchanged. 48/48 checks; sisko and sisko2 builds are
+  byte-identical, setup +1.073 ns, hold +0.119 ns. See "FF5D candidate,
+  2026-09-12" below.
 - **Other work:** basic Silver HP/PP/money cheats are installed and file
   verified; gameplay remains untested. Saves are backed up and unchanged.
   Restore qualification remains paused, with `RESTORE_WRITE_ENABLED=0`.
 
 Next steps, in order:
 
-1. Finish the RTL experiment above, with a testbench that pins the data bus
-   released between dump reads and still precharged in idle outside a dump.
-2. Run focused checks for the changed path, then the full suite once on the
-   exact committed candidate. Build that commit on sisko and sisko2 through
-   `../tools/runner-build`; inspect timing and verify the fetched package.
-   Existing 7776 validation is retained evidence, not work to repeat first.
-3. Resolve the live card mount, preserve existing evidence, install and
-   byte-verify the candidate. Obtain **one Silver dump and screenshot**,
-   preserve both before another dump, and compare paired-read diagnostics
-   and saved bytes against the existing clean reference. Its checksum is
-   `0DAE`, CRC32 `8AD48636`; use the byte comparison as well as checksums.
-   Rerun the three analysis scripts on the new dump. The passing BB2B Zelda
-   DX control is sufficient. The user explicitly requested no further Zelda
-   hardware retests for this investigation.
+1. Reload CartTools, confirm **FF5D**, obtain **one Silver dump and
+   screenshot**, preserve both before another dump, and compare paired-read
+   diagnostics and saved bytes against the existing clean reference. Its
+   checksum is `0DAE`, CRC32 `8AD48636`; use the byte comparison as well as
+   checksums. Rerun the three analysis scripts on the new dump. The passing
+   BB2B Zelda DX control is sufficient. The user explicitly requested no
+   further Zelda hardware retests for this investigation.
+2. If Silver passes, re-dump one previously verified GB cartridge on FF5D to
+   confirm the release did not regress the ordinary path, then record.
+3. If Silver still fails, compare the new error signature with the analysis
+   entry: the same odd-only, low-line-only pattern would mean the precharge
+   pulse is not the only source; a different pattern is new evidence.
 
 Operational instructions that apply before running anything:
 
@@ -63,6 +65,26 @@ Operational instructions that apply before running anything:
   A fresh clone does not contain them or `RUNNERS.local.md`. A handoff to
   another machine needs those referenced artifacts separately; their paths,
   hashes, and reproduction scripts are recorded in the entries below.
+
+## FF5D candidate, 2026-09-12
+
+Commit `ff5dd03`: `gb_cart_bus` takes `idle_precharge`; `dump_engine`
+exports `gb_rom_reading`; `core_top` wires `idle_precharge =
+~dump_gb_rom_reading`. Coverage: `tb_gb_cart_bus` both polarities,
+`tb_cart_dump_gb_pair_timing` no data drive during a dump outside a mapper
+write and precharge present before and after, `check_dump_pair_integration`
+real-top wiring plus a negative control with the precharge left on.
+
+48/48 on the exact source. Built on sisko (519 s) and sisko2 (511 s), job
+`silver-precharge-release`; bitstreams byte-identical, MD5
+`ad46751c8721746b189a146b25694e27`, SHA-256
+`33f4c0b0143b92b559e9a9a8155430bdc993e6ec046bf10e0e5d2cc1979492ba`. Setup
++1.073 ns, hold +0.119 ns, 8,963 ALMs. Installed with
+`build/diagnostic/install-ff5dd03.sh` on `/dev/sdb1` from a card carrying
+7776; 14 files byte-verified, common files unchanged, prior files under
+`build/diagnostic/deploy-ff5dd03.37SPdT/`. Candidate artifacts, per-runner
+copies, hashes and the simulation log are under
+`build/diagnostic/candidate-ff5dd03/`. No hardware result yet.
 
 ## Silver error analysis, 2026-09-12
 
