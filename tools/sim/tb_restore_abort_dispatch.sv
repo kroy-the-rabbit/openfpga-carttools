@@ -39,9 +39,9 @@ restore_engine #(.WRITE_ENABLED(1), .WAKE_CYCLES(4), .TIMEOUT_CYCLES(10000)) dut
     .busy(busy), .want_mode(want_mode), .preflight_done(preflight_done),
     .preflight_ok(preflight_ok), .done(done), .failed(failed),
     .phase(phase), .error(error), .rom_crc(), .save_crc(), .mismatch_offset(),
-    .io_start(), .io_op(), .io_done(1'b0), .io_failed(1'b0),
-    .input_we(1'b0), .input_kind(2'd0), .input_index(11'd0), .input_data(32'd0),
-    .backup_addr(11'd0), .backup_data(), .bus_req(bus_req), .bus_wr(bus_wr),
+    .save_bytes(), .io_start(), .io_op(), .io_done(1'b0), .io_failed(1'b0),
+    .input_we(1'b0), .input_kind(2'd0), .input_index(13'd0), .input_data(32'd0),
+    .backup_addr(13'd0), .backup_data(), .bus_req(bus_req), .bus_wr(bus_wr),
     .bus_addr(bus_addr), .bus_wdata(bus_wdata), .bus_rdata(8'h55),
     .bus_done(bus_done), .bus_busy(bus_busy)
 );

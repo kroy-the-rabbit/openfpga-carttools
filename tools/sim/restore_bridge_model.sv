@@ -66,7 +66,7 @@ wire [15:0] r_target_id;
 wire [31:0] r_target_offset, r_target_bridge, r_target_length, r_target_struct;
 wire [31:0] r_target_response;
 wire input_we;
-wire [10:0] input_index;
+wire [12:0] input_index;
 wire [31:0] input_data;
 integer input_count = 0;
 function [31:0] payload_word(input integer index);
@@ -75,7 +75,7 @@ endfunction
 function [31:0] backup_word(input integer index);
     backup_word = 32'h4937A2E8 ^ (index * 32'h03210517);
 endfunction
-wire [10:0] backup_rd_addr;
+wire [12:0] backup_rd_addr;
 reg [31:0] backup_q1, backup_q;
 always @(posedge clk) begin
     backup_q1 <= backup_word(backup_rd_addr);
@@ -113,7 +113,8 @@ always @(posedge clk) if (done) completions = completions + 1;
 // TOP_MUX
 
 restore_file_io #(.TIMEOUT_CYCLES(1000000)) files (
-    .clk(clk), .reset(reset), .start(start), .op(op), .busy(restore_io_busy),
+    .clk(clk), .reset(reset), .start(start), .op(op), .save_bytes(16'd8192),
+    .busy(restore_io_busy),
     .done(done), .failed(failed), .err(err), .debug_status(debug_status),
     .debug_detail(debug_detail), .debug_sequence(debug_sequence),
     .observed_bridge_data(bridge_rd_data),

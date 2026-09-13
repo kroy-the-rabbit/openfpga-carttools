@@ -16,8 +16,11 @@ reg cart_powered = 1'b1;
 reg authorized = 1'b1;
 reg [7:0] cart_type = 8'h03;
 reg [7:0] ram_size_code = 8'h02;
+// The physical model's mapper. Set together with cart_type so a live identity
+// change to the writer does not silently change what the cartridge does.
+reg mbc3_model = 1'b0;
 wire supported, busy, done, failed;
-wire [12:0] source_offset;
+wire [14:0] source_offset;
 reg [7:0] source_data;
 wire bus_req, bus_wr, bus_done, bus_busy;
 wire [15:0] bus_addr;
@@ -67,13 +70,15 @@ endfunction
 // Real synchronous staging memory behavior. Poison its output while a bus
 // transfer is underway to prove that accepted data is held independently.
 always @(posedge clk) begin
-    source_data <= restore_byte({19'd0, source_offset}) ^
+    source_data <= restore_byte({17'd0, source_offset}) ^
                    (bus_busy ? 8'hFF : 8'h00);
 end
 
-// A writable MBC1 cartridge model. Starting in mode1/bank3 with RAM enabled
-// ensures that setup is necessary. Unselected banks are canaries. The model
-// latches only physical /WR edges and never consults the writer's FSM.
+// A writable MBC1 cartridge model, or with mbc3_model an MBC3 one whose RAM
+// bank is always the 0x4000 register and whose 0x6000 is the clock latch.
+// Starting in mode1/bank3 with RAM enabled ensures that setup is necessary.
+// Unselected MBC1 banks are canaries. The model latches only physical /WR
+// edges and never consults the writer's FSM.
 reg [7:0] ram [0:32767];
 reg ram_enabled = 1'b0;
 reg mbc1_mode = 1'b1;
@@ -132,15 +137,21 @@ always @(negedge wr_n) begin
         if ((e_ad_out >= 16'hA000 && e_ad_out <= 16'hBFFF) != !cs_n)
             $fatal(1, "incorrect RAM chip select at address %04x", e_ad_out);
         if (e_ad_out >= 16'hA000 && e_ad_out <= 16'hBFFF) begin
-            if (!ram_enabled || mbc1_mode || ram_bank != 2'd0)
-                $fatal(1, "save write before MBC1 setup completed");
-            if (e_ad_out !== (16'hA000 + ram_writes))
+            if (!ram_enabled || (!mbc3_model && (mbc1_mode || ram_bank != 2'd0)))
+                $fatal(1, "save write before mapper setup completed");
+            if (mbc3_model && ram_bank != ram_writes / 8192)
+                $fatal(1, "save write to bank %0d for byte %0d", ram_bank, ram_writes);
+            if (e_ad_out !== (16'hA000 + ram_writes % 8192))
                 $fatal(1, "save address %04x is not expected sequential byte %0d",
                        e_ad_out, ram_writes);
             if (e_hi_out !== restore_byte(ram_writes))
                 $fatal(1, "wrong staged byte at offset %0d", ram_writes);
             if (ram_writes == 0)
                 first_byte_cycle = clock_count - cycles_at_start;
+        end else if (mbc3_model) begin
+            if (!((e_ad_out == 16'h0000 && (e_hi_out == 8'h00 || e_hi_out == 8'h0A)) ||
+                  (e_ad_out == 16'h4000 && e_hi_out <= 8'h03)))
+                $fatal(1, "unexpected MBC3 mapper write %04x=%02x", e_ad_out, e_hi_out);
         end else if (!((e_ad_out == 16'h0000 &&
                         (e_hi_out == 8'h00 || e_hi_out == 8'h0A)) ||
                        (e_ad_out == 16'h4000 && e_hi_out == 8'h00) ||
@@ -172,7 +183,7 @@ always @(posedge wr_n) begin
                 16'h6000: mbc1_mode = pulse_data[0];
                 default: begin
                     if (pulse_addr >= 16'hA000 && pulse_addr <= 16'hBFFF) begin
-                        physical_offset = (mbc1_mode ? ram_bank * 8192 : 0) +
+                        physical_offset = ((mbc3_model || mbc1_mode) ? ram_bank * 8192 : 0) +
                                           (pulse_addr - 16'hA000);
                         ram[physical_offset] = pulse_data;
                         ram_writes = ram_writes + 1;
@@ -205,6 +216,7 @@ task setup_case;
         authorized = 1'b1;
         cart_type = 8'h03;
         ram_size_code = 8'h02;
+        mbc3_model = 1'b0;
         allow_power_loss = 1'b0;
         repeat (3) @(negedge clk);
         reset = 1'b0;
@@ -243,7 +255,8 @@ task finish_run(input expect_failed);
     integer deadline;
     begin
         deadline = 0;
-        while (!done && deadline < 1000000) begin
+        // A 32 KiB MBC3 restore is about 2.9 M clocks at the shipped timing.
+        while (!done && deadline < 4000000) begin
             @(negedge clk);
             deadline = deadline + 1;
         end
@@ -251,18 +264,18 @@ task finish_run(input expect_failed);
             $fatal(1, "writer did not terminate with an idle bus");
         if (failed !== expect_failed)
             $fatal(1, "unexpected failure result %b, wanted %b", failed, expect_failed);
-        if (ram_enabled || mbc1_mode)
+        if (ram_enabled || (!mbc3_model && mbc1_mode))
             $fatal(1, "termination left RAM enabled or MBC1 mode1 selected");
         if (ram_writes != accepted_data)
             $fatal(1, "accepted %0d bytes but committed %0d", accepted_data, ram_writes);
         // During the sweep check every touched byte and the first untouched
         // byte. The physical model forbids out-of-order or wrong-bank writes.
         // Complete runs additionally compare every byte and all canary banks.
-        for (i = 0; i < (sweep_active ? ram_writes + 1 : 8192); i = i + 1) begin
+        for (i = 0; i < (sweep_active ? ram_writes + 1 : (mbc3_model ? 32768 : 8192)); i = i + 1) begin
             if (ram[i] !== ((i < ram_writes) ? restore_byte(i) : original_byte(i)))
                 $fatal(1, "RAM mismatch after operation at offset %0d", i);
         end
-        if (!sweep_active) begin
+        if (!sweep_active && !mbc3_model) begin
             for (i = 8192; i < 32768; i = i + 1)
                 if (ram[i] !== original_byte(i))
                     $fatal(1, "unselected RAM bank changed at %0d", i);
@@ -307,6 +320,43 @@ initial begin
                ram_writes, write_pulses);
     byte_start = first_byte_cycle;
     $display("Full restore: 8192 exact bytes, mapper cleanup, synchronous source, stable pins");
+
+    // MBC3: four banks through 0x4000 = 0..3, no 0x6000 write at all, and
+    // one disable at the end. Seven mapper transactions around 32768 bytes.
+    setup_case; mbc3_model = 1'b1; cart_type = 8'h10; ram_size_code = 8'h03;
+    if (!supported) $fatal(1, "MBC3 32 KiB configuration refused");
+    launch;
+    finish_run(1'b0);
+    if (ram_writes != 32768 || write_pulses != 32775)
+        $fatal(1, "MBC3 restore wrote %0d save bytes and %0d total transactions",
+               ram_writes, write_pulses);
+    $display("MBC3 full restore: 32768 bytes across four banks, no latch writes");
+    setup_case; mbc3_model = 1'b1; cart_type = 8'h13; ram_size_code = 8'h03;
+    if (!supported) $fatal(1, "MBC3 without timer refused");
+    setup_case; cart_type = 8'h10; ram_size_code = 8'h02; refuse_start;
+    setup_case; mbc3_model = 1'b1; cart_type = 8'h11; ram_size_code = 8'h03; refuse_start;
+    setup_case; mbc3_model = 1'b1; cart_type = 8'h0F; ram_size_code = 8'h03; refuse_start;
+    // Cancellation on either side of the first bank switch must still clean
+    // up without another accepted byte, including while the bank write itself
+    // is on the bus.
+    for (kind = 0; kind < 3; kind = kind + 1) begin
+        for (i = 8191; i <= 8193; i = i + 1) begin
+            setup_case; mbc3_model = 1'b1; cart_type = 8'h10; ram_size_code = 8'h03;
+            launch;
+            wait (ram_writes == i);
+            @(negedge clk);
+            before_cancel = accepted_data;
+            case (kind)
+                0: abort = 1'b1;
+                1: authorized = 1'b0;
+                2: reset = 1'b1;
+            endcase
+            finish_run(1'b1);
+            if (ram_writes != before_cancel)
+                $fatal(1, "MBC3 cancellation kind %0d at byte %0d accepted another byte", kind, i);
+        end
+    end
+    $display("MBC3 cancellation around the bank switch: 9 cases clean");
 
     setup_case; authorized = 1'b0; refuse_start;
     setup_case; abort = 1'b1; refuse_start;

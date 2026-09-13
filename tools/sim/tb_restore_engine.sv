@@ -5,6 +5,7 @@ module tb_restore_engine;
 reg clk = 0, clk_io = 0;
 always #5 clk = ~clk;
 always #7 clk_io = ~clk_io;
+// MBC1 geometry. tb_restore_engine_mbc3 runs the same cases at 32 KiB.
 wire dry_finished, write_finished;
 wire [31:0] dry_errors, write_errors;
 restore_engine_case #(.WRITE_ENABLED(0)) dry_case(

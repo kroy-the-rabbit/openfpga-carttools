@@ -288,9 +288,9 @@ always @* begin
                           hex_digit(shown_backup[7:4]), hex_digit(shown_backup[3:0]), ".sav             "} :
                          "FILE: RESTORE.sav             ";
         5'd3: line_next = sd_failure ? {"PATH ", path_text(shown_path, shown_path_seen, 0, 25)} :
-                                     "FIRST TARGET: MBC1 8K         ";
+                                     "TARGETS: MBC1 8K / MBC3 32K   ";
         5'd4: line_next = sd_failure ? {"NAME ", path_text(shown_path, shown_path_seen, 25, 15)} :
-                                     "LINK'S AWAKENING (NON-DX)     ";
+                                     "LINKS AWAKENING OR SILVER     ";
         5'd5: line_next = shown_writes ? "CARTRIDGE WRITES ENABLED      " :
                                          "CORE WRITES DISABLED          ";
         5'd6: line_next = sd_failure ? {"SEQ P", result_text(shown_probe_result, shown_sequence_seen[3]),

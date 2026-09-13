@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 `default_nettype none
 
-// The initial restore writer supports one physical save organization:
-// MBC1 + RAM + battery (03), with one 8 KiB RAM bank (02). Identification,
-// immutable source staging, the recovery backup, and confirmation belong to
-// the caller. authorized must represent all of those checks, and remain high
-// throughout the operation. No title or particular save content is assumed.
+// The restore writer supports two physical save organizations: MBC1 + RAM +
+// battery (03) with one 8 KiB RAM bank (02), and MBC3 + battery RAM (10 or
+// 13) with four 8 KiB banks (03). Identification, immutable source staging,
+// the recovery backup, and confirmation belong to the caller. authorized must
+// represent all of those checks, and remain high throughout the operation.
+// No title or particular save content is assumed.
+//
+// MBC3 selects a bank by writing 0x00-0x03 to 0x4000. Values 0x08-0x0C map
+// the clock registers over the RAM window; this module can only form the
+// two-bit bank number, so it can never write them. MBC3 has no mode register,
+// so the 0x6000 writes belong to MBC1 only; on MBC3 that address latches the
+// clock and is left alone.
 //
 // Requests remain revocable until gb_cart_bus accepts them. An accepted byte
 // finishes before cancellation closes the RAM gate and restores MBC1 mode 0.
@@ -35,7 +42,7 @@ module cart_restore_gb (
 
     // The source must stay immutable for the operation. Offset is presented
     // for a complete clock before data is captured, permitting synchronous RAM.
-    output reg  [12:0] source_offset,
+    output reg  [14:0] source_offset,
     input  wire [7:0]  source_data,
 
     output wire        bus_req,
@@ -47,7 +54,14 @@ module cart_restore_gb (
     input  wire        bus_busy
 );
 
-assign supported = (cart_type == 8'h03) && (ram_size_code == 8'h02);
+wire geometry_mbc1 = (cart_type == 8'h03) && (ram_size_code == 8'h02);
+wire geometry_mbc3 = (cart_type == 8'h10 || cart_type == 8'h13) && (ram_size_code == 8'h03);
+assign supported = geometry_mbc1 || geometry_mbc3;
+
+// Latched at start so a live identity change cancels through the sequence
+// that was begun rather than switching mapper mid-cleanup.
+reg mbc1_l;
+wire [14:0] last_offset = mbc1_l ? 15'd8191 : 15'd32767;
 
 localparam [3:0] ST_DISABLE_INITIAL = 4'd0;
 localparam [3:0] ST_MODE_INITIAL    = 4'd1;
@@ -61,6 +75,7 @@ localparam [3:0] ST_WAIT            = 4'd8;
 localparam [3:0] ST_DISABLE_FINAL   = 4'd9;
 localparam [3:0] ST_MODE_FINAL      = 4'd10;
 localparam [3:0] ST_DONE            = 4'd11;
+localparam [3:0] ST_BANK_NEXT       = 4'd12;
 
 reg [3:0] state;
 reg [3:0] after_transfer;
@@ -120,7 +135,8 @@ always @(posedge clk) begin
             case (state)
                 ST_DISABLE_INITIAL: begin
                     if (bus_available)
-                        queue_write(16'h0000, 8'h00, ST_MODE_INITIAL, 1'b0);
+                        queue_write(16'h0000, 8'h00,
+                                    mbc1_l ? ST_MODE_INITIAL : ST_BANK_INITIAL, 1'b0);
                 end
                 ST_MODE_INITIAL: begin
                     if (bus_available)
@@ -141,10 +157,18 @@ always @(posedge clk) begin
                 end
                 ST_WRITE: begin
                     if (bus_available)
-                        queue_write({3'b101, source_offset}, source_byte,
-                                    (source_offset == 13'd8191) ?
-                                        ST_DISABLE_FINAL : ST_SOURCE_WAIT,
+                        queue_write({3'b101, source_offset[12:0]}, source_byte,
+                                    (source_offset == last_offset) ? ST_DISABLE_FINAL :
+                                    (source_offset[12:0] == 13'd8191) ? ST_BANK_NEXT :
+                                                                        ST_SOURCE_WAIT,
                                     1'b1);
+                end
+                ST_BANK_NEXT: begin
+                    // source_offset already names the first byte of the next
+                    // bank, so its top two bits are the bank to select.
+                    if (bus_available)
+                        queue_write(16'h4000, {6'd0, source_offset[14:13]},
+                                    ST_SOURCE_WAIT, 1'b0);
                 end
                 ST_ACCEPT: begin
                     if (bus_req) begin
@@ -159,10 +183,10 @@ always @(posedge clk) begin
                 ST_WAIT: begin
                     if (bus_done) begin
                         if (data_transfer) begin
-                            if (source_offset == 13'd8191)
+                            if (source_offset == last_offset)
                                 all_written <= 1'b1;
                             else
-                                source_offset <= source_offset + 13'd1;
+                                source_offset <= source_offset + 15'd1;
                         end
                         if (cancel_run && !cleanup) begin
                             cleanup <= 1'b1;
@@ -177,7 +201,8 @@ always @(posedge clk) begin
                 ST_DISABLE_FINAL: begin
                     cleanup <= 1'b1;
                     if (bus_available)
-                        queue_write(16'h0000, 8'h00, ST_MODE_FINAL, 1'b0);
+                        queue_write(16'h0000, 8'h00,
+                                    mbc1_l ? ST_MODE_FINAL : ST_DONE, 1'b0);
                 end
                 ST_MODE_FINAL: begin
                     if (bus_available)
@@ -203,8 +228,9 @@ always @(posedge clk) begin
         busy           <= 1'b0;
         done           <= 1'b0;
         failed         <= 1'b0;
-        source_offset  <= 13'd0;
+        source_offset  <= 15'd0;
         source_byte    <= 8'd0;
+        mbc1_l         <= 1'b1;
         bus_wr         <= 1'b0;
         bus_addr       <= 16'd0;
         bus_wdata      <= 8'd0;
@@ -226,7 +252,8 @@ always @(posedge clk) begin
         failed <= 1'b0;
         if (supported && cart_powered && authorized && !abort && bus_available) begin
             busy          <= 1'b1;
-            source_offset <= 13'd0;
+            source_offset <= 15'd0;
+            mbc1_l        <= geometry_mbc1;
             cancelled     <= 1'b0;
             all_written   <= 1'b0;
             pending       <= 1'b0;

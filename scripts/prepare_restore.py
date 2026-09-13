@@ -18,25 +18,39 @@ import zlib
 
 MAGIC = b"CTRS"
 FORMAT_VERSION = 1
-SAVE_BYTES = 8192
 META_BYTES = 64
+
+# Supported geometries: (cartridge type, RAM code) -> (save bytes, CGB flags, max ROM code).
+GEOMETRIES = {
+    (0x03, 0x02): (8192, (0x00,), 4),
+    (0x10, 0x03): (32768, (0x00, 0x80), 6),
+    (0x13, 0x03): (32768, (0x00, 0x80), 6),
+}
 
 
 def crc32(data):
     return zlib.crc32(data) & 0xFFFFFFFF
 
 
+def save_bytes_for(rom):
+    """Save length the core expects for this ROM's header geometry."""
+    return GEOMETRIES[(rom[0x147], rom[0x149])][0]
+
+
 def validate_rom(rom):
-    """Limit preparation to ordinary GB MBC1 with battery and one RAM bank."""
+    """Limit preparation to MBC1 8 KiB or MBC3 32 KiB battery cartridges."""
     if len(rom) < 0x150:
         raise ValueError("ROM is too short to contain a complete GB header")
-    if rom[0x143] != 0x00:
-        raise ValueError("initial restore supports GB only, with CGB flag 00")
-    if rom[0x147] != 0x03 or rom[0x149] != 0x02:
-        raise ValueError("initial restore requires MBC1+RAM+BAT type 03, RAM code 02")
+    geometry = GEOMETRIES.get((rom[0x147], rom[0x149]))
+    if geometry is None:
+        raise ValueError("restore requires MBC1+RAM+BAT type 03 with RAM code 02, "
+                         "or MBC3 type 10/13 with RAM code 03")
+    _, cgb_flags, max_code = geometry
+    if rom[0x143] not in cgb_flags:
+        raise ValueError("CGB flag {:02X} is not supported for this mapper".format(rom[0x143]))
     code = rom[0x148]
-    if code > 4 or len(rom) != (32768 << code):
-        raise ValueError("ROM length does not match a supported MBC1 header size")
+    if code > max_code or len(rom) != (32768 << code):
+        raise ValueError("ROM length does not match a supported header size")
     complement = 0
     for byte in rom[0x134:0x14D]:
         complement = (complement - byte - 1) & 0xFF
@@ -49,8 +63,9 @@ def validate_rom(rom):
 
 def make_manifest(rom, save):
     validate_rom(rom)
-    if len(save) != SAVE_BYTES:
-        raise ValueError("restore save must be exactly 8192 bytes")
+    expected = save_bytes_for(rom)
+    if len(save) != expected:
+        raise ValueError("restore save must be exactly {} bytes for this cartridge".format(expected))
     header_flags = (rom[0x147] | (rom[0x149] << 8)
                     | (rom[0x148] << 16) | (rom[0x143] << 24))
     revision = rom[0x14D] | (rom[0x14C] << 8)
@@ -95,7 +110,7 @@ def prepare(rom_path, save_path, output_dir):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("rom", type=Path, help="verified original GB ROM")
-    parser.add_argument("save", type=Path, help="raw 8192-byte save associated with that ROM")
+    parser.add_argument("save", type=Path, help="raw save associated with that ROM, 8192 or 32768 bytes")
     parser.add_argument("output", type=Path, help="directory for RESTORE.sav and RESTORE.meta")
     args = parser.parse_args(argv)
     try:

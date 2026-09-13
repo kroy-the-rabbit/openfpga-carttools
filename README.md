@@ -30,9 +30,10 @@ what was written here.
 | Save RAM banking, to 128 KB | **works** at 8 KB one bank and 32 KB four banks; 64 KB and 128 KB built, untested |
 | GBA save backup | **works**, eleven cartridges: 32 KiB SRAM, 64 KiB Flash, and EEPROM at 512 bytes and 8 KiB, each loaded in an emulator with its state intact. None of it writes to the cartridge; the EEPROM reader cannot even express a write. 128 KiB Flash refused, it needs a bank-select write |
 | A write that is cut short mid-pulse | **safe**, the cartridge captures the byte that was asked for rather than a floating bus |
-| Save restore | experimental MBC1 8 KiB implementation; first hardware candidate keeps save writes disabled while staging and recovery are qualified. See [restore plan](docs/SAVE-RESTORE-PLAN.md) |
+| Save restore | experimental MBC1 8 KiB and MBC3 32 KiB implementation; hardware candidates keep save writes disabled while staging and recovery are qualified. See [restore plan](docs/SAVE-RESTORE-PLAN.md) |
 | MBC3 RTC | not started |
-| MBC2, MBC3, MBC1 above 512 KB | simulation only, no cartridge to test |
+| MBC3 ROM and save dumping | **works**, Pokemon Silver, 2 MB and 32 KiB, after the idle-bus fix in `ff5dd03` |
+| MBC2, MBC1 above 512 KB | simulation only, no cartridge to test |
 | MBC2's 512 nibbles of save RAM | refused, and the screen says so |
 | GBA cartridges above 16 MB | untested |
 | Reading a file back off the card to verify it | not built |
@@ -123,8 +124,8 @@ left.
 ## What this core writes to a cartridge
 
 **The released core and the current default build do not write save data to a
-cartridge.** The experimental restore engine has a separate MBC1 writer,
-disabled by `RESTORE_WRITE_ENABLED = 0` in `core_top.sv`. The first candidate
+cartridge.** The experimental restore engine has a separate MBC1 and MBC3
+writer, disabled by `RESTORE_WRITE_ENABLED = 0` in `core_top.sv`. The first candidate
 qualifies file staging, identity checks, and recovery backups on hardware.
 Enabling cartridge writes requires the gates in
 [docs/SAVE-RESTORE-PLAN.md](docs/SAVE-RESTORE-PLAN.md).

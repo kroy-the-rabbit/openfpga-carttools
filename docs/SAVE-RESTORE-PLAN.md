@@ -1,9 +1,13 @@
-# Save restore: first target
+# Save restore: targets
 
 The first physical target is the original, non-DX **The Legend of Zelda:
 Link's Awakening**. Its verified corpus pair is GB MBC1+RAM+BAT, cartridge type
-`03`, RAM code `02`, with one 8 KiB RAM bank. Restore support begins with that
-write technology. GBA restore follows later.
+`03`, RAM code `02`, with one 8 KiB RAM bank. The second, added 2026-09-12, is
+**Pokemon Silver**: MBC3+TIMER+RAM+BATTERY, type `10` (or `13` without the
+timer), RAM code `03`, four 8 KiB banks, CGB flag `80` (or `00`), ROM code up
+to `06`. The save length follows the RAM code: 8,192 or 32,768 bytes. Every
+check below applies to both; where a step names 8 KiB, read the geometry's
+save length. GBA restore follows later.
 
 This is experimental work after `v0.9999.250d6a0`. Corpus backup verification
 does not establish that a new restore implementation is safe on hardware.
@@ -38,10 +42,12 @@ python3 scripts/prepare_restore.py \
 ```
 
 The tool refuses existing output files. It verifies the ROM header checksum,
-global checksum, exact ROM length up to 512 KiB, GB flag, MBC1 battery type, and
-8 KiB RAM capacity. The save must be exactly 8,192 bytes. The raw save is copied unchanged.
-The tool supports the initial MBC1 RAM technology without identifying games by
-filename. Core support may be narrower during hardware qualification.
+global checksum, exact ROM length for the header's ROM code, the CGB flag
+allowed for the mapper, and one of the two supported type and RAM-code pairs.
+The save must be exactly the geometry's length, 8,192 or 32,768 bytes; an
+emulator's RTC trailer must be stripped first. The raw save is copied
+unchanged. The tool never identifies games by filename. Core support may be
+narrower during hardware qualification.
 
 The UI uses two deliberate holds with a separate check action between them:
 
@@ -172,8 +178,12 @@ times out cannot be reused while a late completion might still arrive.
 
 MBC1 restore must explicitly select RAM bank zero, enable RAM, write only
 `A000-BFFF`, reread the complete bank, compare all 8,192 bytes, and disable RAM
-on every safe exit. Mapper setup writes are separately constrained. Other
-mapper types, additional RAM banks, GBA saves, and RTC data remain refused.
+on every safe exit. MBC3 restore enables RAM, selects banks `0` to `3` in
+order through `4000` (values `08-0C` would map the clock registers and cannot
+be formed by the writer), writes each bank's `A000-BFFF`, rereads all four
+banks, compares all 32,768 bytes, and disables RAM; it never writes `6000`,
+the clock latch. Mapper setup writes are separately constrained. Other mapper
+types, GBA saves, and RTC data remain refused.
 Protocol tests must prove that no save-memory write can occur before every
 authorization condition passes. Cancel/reset must not leave RAM enabled or
 silently label a partial operation successful.
@@ -187,7 +197,7 @@ report that the cartridge needs recovery, with no automatic repeated writes.
 
 1. Establish APF staging, exact sizes, metadata checks, deliberate unlock, and
    recovery create/reopen/readback with cartridge save writes clamped off.
-2. Exercise a synthetic writable MBC1 model: bank selection, data order,
+2. Exercise synthetic writable MBC1 and MBC3 models: bank selection, data order,
    wrong identity, bad CRC, wrong size, backup errors, stale authorization,
    reset, cancellation, cartridge changes, and readback mismatches.
 3. Build on the requested runner through `../tools/runner-build` and pass normal simulation

@@ -117,8 +117,8 @@ task expect_hidden_evidence;
         expect_row(14, "                              ");
         expect_row(15, "                              ");
         expect_row(16, "                              ");
-        expect_row(3, "FIRST TARGET: MBC1 8K         ");
-        expect_row(4, "LINK'S AWAKENING (NON-DX)     ");
+        expect_row(3, "TARGETS: MBC1 8K / MBC3 32K   ");
+        expect_row(4, "LINKS AWAKENING OR SILVER     ");
     end
 endtask
 
@@ -135,8 +135,8 @@ initial begin
     settle();
     expect_row(0, "CARTRIDGE SAVE RESTORE        ");
     expect_row(2, "FILE: RESTORE.sav             ");
-    expect_row(3, "FIRST TARGET: MBC1 8K         ");
-    expect_row(4, "LINK'S AWAKENING (NON-DX)     ");
+    expect_row(3, "TARGETS: MBC1 8K / MBC3 32K   ");
+    expect_row(4, "LINKS AWAKENING OR SILVER     ");
     expect_row(5, "CORE WRITES DISABLED          ");
     expect_row(7, "HOLD SELECT TO ENTER RESTORE  ");
     expect_row(8, "KEEP SELECT HELD FOR 3 SECONDS");

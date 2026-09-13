@@ -229,7 +229,7 @@ its target, and reversible.
 
 ## Restore input (older design target)
 
-For the initial experimental MBC1 implementation, use
+For the experimental MBC1 and MBC3 implementation, use
 [SAVE-RESTORE-PLAN.md](SAVE-RESTORE-PLAN.md) instead. In particular, metadata
 is required for cartridge writes and an identity mismatch is refused, with no
 override. The raw save remains usable independently in emulators and recovery

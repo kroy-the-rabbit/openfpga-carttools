@@ -2,7 +2,11 @@
 `default_nettype none
 `timescale 1ns/1ps
 
-module tb_restore_file_io;
+// SAVE_BYTES selects the geometry under test: 8192 (MBC1) or 32768 (MBC3).
+// tb_restore_file_io_32k wraps this bench at the larger size.
+module tb_restore_file_io #(parameter integer SAVE_BYTES = 8192);
+localparam integer SAVE_WORDS = SAVE_BYTES / 4;
+localparam [31:0] SAVE_BYTES_W = SAVE_BYTES;
 reg clk = 0;
 always #5 clk = ~clk;
 reg reset = 1, start = 0;
@@ -22,10 +26,10 @@ reg [31:0] bridge_addr = 0, bridge_wr_data = 0;
 reg bridge_rd = 0, bridge_wr = 0, bridge_endian_little = 0;
 wire [31:0] bridge_rd_data;
 wire bridge_rd_hit;
-wire [10:0] backup_rd_addr;
+wire [12:0] backup_rd_addr;
 reg [31:0] backup_rd_q;
 wire input_we;
-wire [10:0] input_index;
+wire [12:0] input_index;
 wire [31:0] input_data;
 wire [1:0] input_kind;
 wire [9:0] datatable_addr;
@@ -37,8 +41,11 @@ wire [31:0] t_response;
 reg t_done = 1;
 reg [15:0] t_err = 0;
 
-restore_file_io #(.TIMEOUT_CYCLES(30000)) dut (
+// The modeled host reads a recovery write one word per eight clocks, so the
+// command timeout scales with the file; the real service allows 1.8 s.
+restore_file_io #(.TIMEOUT_CYCLES(30000 * (SAVE_BYTES / 8192))) dut (
     .clk(clk), .reset(reset), .start(start), .op(op),
+    .save_bytes(SAVE_BYTES_W[15:0]),
     .busy(busy), .done(done), .failed(failed), .err(err),
     .poisoned(poisoned), .backup_index(backup_index),
     .debug_status(debug_status),
@@ -59,9 +66,9 @@ restore_file_io #(.TIMEOUT_CYCLES(30000)) dut (
 
 reg [31:0] datatable [0:15];
 reg [31:0] datatable_read;
-reg [31:0] backup_memory [0:2047];
-reg [31:0] written_file [0:2047];
-reg [31:0] received [0:2047];
+reg [31:0] backup_memory [0:SAVE_WORDS-1];
+reg [31:0] written_file [0:SAVE_WORDS-1];
+reg [31:0] received [0:SAVE_WORDS-1];
 reg [7:0] structure [0:255];
 integer errors = 0, n_open = 0, n_read = 0, n_write = 0, n_inputs = 0, n_resize = 0;
 integer n_get = 0, name_error = 0, name_fault = 0, name_transfer_fault = 0;
@@ -176,7 +183,7 @@ task automatic check_open_struct(output integer flags, output integer name);
         for (j = 0; j < 25; j = j + 1)
             check(structure[j] === prefix[199-j*8 -: 8], "correct absolute Assets prefix");
         check(flags == 0 || flags == 1 || flags == 2, "never combine create and resize");
-        check(desired_size == (flags == 2 ? 8192 : 0), "only resize has a nonzero desired size");
+        check(desired_size == (flags == 2 ? SAVE_BYTES : 0), "only resize has a nonzero desired size");
         name = -1;
         if (t_id == 21) begin
             meta_name = "RESTORE.meta";
@@ -217,7 +224,7 @@ task automatic check_open_struct(output integer flags, output integer name);
         check(debug_detail[145:139] == 66 && debug_detail[138:132] == 0,
               "complete unique structure trace with no repeat");
         check(debug_detail[103] == 0, "correct responses never set mismatch latch");
-        check(debug_detail[31:0] == (flags == 2 ? 8192 : 0), "trace observed actual desired size");
+        check(debug_detail[31:0] == (flags == 2 ? SAVE_BYTES : 0), "trace observed actual desired size");
         check(debug_detail[155:146] == 10'h3FF, "trace retained every path word");
         for (j = 0; j < 40; j = j + 1)
             check(debug_detail[156+j*8 +: 8] === structure[j], "full observed path matches host");
@@ -233,7 +240,7 @@ task automatic model_open;
         if (mute_command != 1) begin
             check_open_struct(flags, name);
             table_index = t_id == 21 ? 4 : t_id == 22 ? 6 : 8;
-            size = t_id == 21 ? 64 : 8192;
+            size = t_id == 21 ? 64 : SAVE_BYTES;
             if (open_error >= 0) t_err = open_error;
             else if (t_id != 23) begin
                 check(flags == 0, "input opens never create");
@@ -253,7 +260,7 @@ task automatic model_open;
                 check(name == created_name && name == last_open_name && n_write == 0,
                       "only this operation's new pinned backup may be preallocated");
                 check(n_get == 1, "created recovery association queried before resize");
-                if (!resize_error) created_size = 8192;
+                if (!resize_error) created_size = SAVE_BYTES;
                 size = created_size;
                 t_err = resize_error;
             end else if (name < occupied_names || name == created_name) begin
@@ -343,12 +350,12 @@ task automatic model_write;
         t_done = 0;
         check(t_id == 23 && created_name >= 0 && created_name == last_open_name,
               "write only newly created recovery slot");
-        check(created_size == 8192, "recovery size must be exact before write");
-        check(t_offset == 0 && t_address == 32'hA0000000 && t_length == 8192,
+        check(created_size == SAVE_BYTES, "recovery size must be exact before write");
+        check(t_offset == 0 && t_address == 32'hA0000000 && t_length == SAVE_BYTES,
               "complete backup transfer arguments");
         if (mute_command != 3) begin
             host_word(t_address, stream_word, 0);
-            for (w = 0; w < 2048; w = w + 1) begin
+            for (w = 0; w < SAVE_WORDS; w = w + 1) begin
                 host_word(t_address + (w+1)*4, stream_word, 1);
                 written_file[w] = stream_word;
                 check(written_file[w] === backup_memory[w], "outbound RAM word order");
@@ -366,7 +373,7 @@ task automatic model_read;
     begin
         n_read = n_read + 1;
         t_done = 0;
-        words = t_id == 21 ? 16 : 2048;
+        words = t_id == 21 ? 16 : SAVE_WORDS;
         check(t_address == 32'hB0000000 && t_offset == 0 && t_length == words*4,
               "complete input transfer arguments");
         if (t_id == 23) check(last_open_name == created_name, "reopened exact recovery name");
@@ -428,8 +435,8 @@ task automatic fresh;
         t_done = 1; t_err = 0;
         for (i = 0; i < 16; i = i + 1) datatable[i] = 0;
         datatable[4] = 21; datatable[5] = 64;
-        datatable[6] = 22; datatable[7] = 8192;
-        for (i = 0; i < 2048; i = i + 1) begin
+        datatable[6] = 22; datatable[7] = SAVE_BYTES;
+        for (i = 0; i < SAVE_WORDS; i = i + 1) begin
             backup_memory[i] = 32'hBD630127 ^ (i * 32'h01130703);
             written_file[i] = 0;
             received[i] = 0;
@@ -447,13 +454,13 @@ task automatic run(input [1:0] requested_op);
         op = requested_op;
         if (requested_op < 2) begin
             datatable[requested_op == 0 ? 4 : 6] = wrong_table_id ? 77 : 21 + requested_op;
-            datatable[requested_op == 0 ? 5 : 7] = (requested_op == 0 ? 64 : 8192) + size_delta;
+            datatable[requested_op == 0 ? 5 : 7] = (requested_op == 0 ? 64 : SAVE_BYTES) + size_delta;
         end
         start = 1;
         @(negedge clk);
         start = 0;
         cycles = 0;
-        while (!done && cycles < 200000) begin
+        while (!done && cycles < 200000 * (SAVE_BYTES / 8192)) begin
             @(negedge clk);
             cycles = cycles + 1;
         end
@@ -486,9 +493,9 @@ initial begin
 
         fresh();
         run(1);
-        check(!failed && n_inputs == 2048 && n_get == 1 && n_open == 0 && n_read == 1 && n_write == 0,
+        check(!failed && n_inputs == SAVE_WORDS && n_get == 1 && n_open == 0 && n_read == 1 && n_write == 0,
               "save staged completely with no SD writes");
-        for (i = 0; i < 2048; i = i + 1)
+        for (i = 0; i < SAVE_WORDS; i = i + 1)
             check(received[i] === input_word(22, i), "save bytes preserved");
         before_count = n_inputs;
         bridge_addr = 32'hB0000000;
@@ -530,7 +537,7 @@ initial begin
               "probe, create, query association, preallocate, write, reopen, reread sequence");
         check(debug_sequence === {4'hF,32'd0,16'd3,16'd1,16'd0,16'd0},
               "all exact completion results and observed creation size retained");
-        for (i = 0; i < 2048; i = i + 1)
+        for (i = 0; i < SAVE_WORDS; i = i + 1)
             check(received[i] === backup_memory[i], "entire recovery file returned for comparison");
 
         // A new run clears recovery breadcrumbs even without a hardware reset.
@@ -643,7 +650,7 @@ initial begin
     size_delta = -4;
     run(1);
     check(failed && err == 9 && n_read == 0, "short slot length blocks read");
-    check(debug_stage == 3 && debug_detail[103:32] == {1'b1, 7'd7, 32'd8188, 32'd8192},
+    check(debug_stage == 3 && debug_detail[103:32] == {1'b1, 7'd7, SAVE_BYTES_W - 32'd4, SAVE_BYTES_W},
           "size failure retains table address, actual size, and expected size");
     fresh();
     size_delta = 4;
@@ -740,12 +747,13 @@ initial begin
     run(3);
     check(failed && err == 12 && n_open == 0, "undefined operation is refused");
     if (errors) $fatal(1, "%0d failures", errors);
+    $display("Geometry: %0d-byte save and recovery file", SAVE_BYTES);
     $display("TB PASS: tb_restore_file_io");
     $finish;
 end
 
 initial begin
-    #100000000;
+    #(100000000 * (SAVE_BYTES / 8192));
     $fatal(1, "testbench watchdog");
 end
 endmodule

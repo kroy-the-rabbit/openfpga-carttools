@@ -33,6 +33,9 @@ module restore_file_io #(
     input wire reset,
     input wire start,
     input wire [1:0] op,       // 0 metadata, 1 save, 2 recovery write and reread
+    // Save and recovery length, 8192 or 32768. Latched by the engine before it
+    // requests an operation and constant while one runs.
+    input wire [15:0] save_bytes,
     output reg busy,
     output reg done,
     output reg failed,
@@ -57,10 +60,10 @@ module restore_file_io #(
     output wire [31:0] bridge_rd_data,
     output wire bridge_rd_hit,
 
-    output reg [10:0] backup_rd_addr,
+    output reg [12:0] backup_rd_addr,
     input wire [31:0] backup_rd_q,
     output reg input_we,
-    output reg [10:0] input_index,
+    output reg [12:0] input_index,
     output reg [31:0] input_data,
     output reg [1:0] input_kind,
 
@@ -104,7 +107,7 @@ reg checking_created;
 reg trace_name;
 reg saw_busy;
 reg [31:0] timeout;
-reg [11:0] received_words;
+reg [13:0] received_words;
 reg receive_bad;
 reg [6:0] name_words;
 reg name_transfer_bad, name_path_bad;
@@ -201,7 +204,7 @@ function automatic [31:0] struct_word(input [6:0] index);
             struct_word = {30'd0, open_flags};
         else if (index == 65)
             // Numeric field, independent of the preceding string's packing.
-            struct_word = open_flags[1] ? 32'd8192 : 32'd0;
+            struct_word = open_flags[1] ? {16'd0, save_bytes} : 32'd0;
         else struct_word = 0;
     end
 endfunction
@@ -216,7 +219,7 @@ wire struct_hit = bridge_addr[31:28] == STRUCT_BASE[31:28]
                   && bridge_addr[27:9] == 0 && bridge_addr[8:0] < 264
                   && bridge_addr[1:0] == 0;
 wire backup_hit = bridge_addr[31:28] == BACKUP_BASE[31:28]
-                  && bridge_addr[27:13] == 0 && bridge_addr[1:0] == 0;
+                  && bridge_addr[27:15] == 0 && bridge_addr[1:0] == 0;
 
 always @(posedge clk) begin
     if (reset) begin
@@ -229,7 +232,7 @@ always @(posedge clk) begin
         hit_hold <= 0;
         reply_word_index <= 0;
     end else begin
-        backup_rd_addr <= bridge_addr[12:2];
+        backup_rd_addr <= bridge_addr[14:2];
         struct_addr <= bridge_addr[8:2];
         struct_q <= struct_word(struct_addr);
         select_struct_1 <= struct_hit;
@@ -349,11 +352,11 @@ end
 
 wire receive_write = bridge_wr && bridge_addr[31:28] == BUF_BASE[31:28]
                      && state == ST_READ_WAIT;
-wire receive_in_order = bridge_addr[27:13] == 0 && bridge_addr[1:0] == 0
-                        && {1'b0, bridge_addr[12:2]} == received_words
-                        && received_words < expected_bytes[13:2];
+wire receive_in_order = bridge_addr[27:15] == 0 && bridge_addr[1:0] == 0
+                        && {1'b0, bridge_addr[14:2]} == received_words
+                        && received_words < expected_bytes[15:2];
 wire [31:0] receive_native = endian_3 ? swap_bytes(bridge_wr_data) : bridge_wr_data;
-wire [11:0] received_after = received_words + (receive_write && receive_in_order ? 12'd1 : 12'd0);
+wire [13:0] received_after = received_words + (receive_write && receive_in_order ? 14'd1 : 14'd0);
 // Preserve known firmware errors, but never alias an unsupported 16-bit result
 // onto success or newly-created ownership through the legacy three-bit summary.
 wire [3:0] command_error = target_dataslot_result <= 16'd5 ?
@@ -422,10 +425,10 @@ always @(posedge clk) begin
         if (receive_write) begin
             if (!receive_in_order) receive_bad <= 1;
             else begin
-                received_words <= received_words + 12'd1;
+                received_words <= received_words + 14'd1;
                 if (!receive_bad) begin
                     input_we <= 1;
-                    input_index <= bridge_addr[12:2];
+                    input_index <= bridge_addr[14:2];
                     input_data <= swap_bytes(receive_native);
                 end
             end
@@ -443,7 +446,7 @@ always @(posedge clk) begin
                 check_before_write <= 0;
                 checking_created <= 0;
                 debug_sequence <= {4'd0, 32'hFFFFFFFF, 64'd0};
-                expected_bytes <= op == 0 ? 32'd64 : 32'd8192;
+                expected_bytes <= op == 0 ? 32'd64 : {16'd0, save_bytes};
                 target_dataslot_id <= op == 0 ? META_SLOT : op == 1 ? SAVE_SLOT : BACKUP_SLOT;
                 table_base <= op == 0 ? META_TABLE : op == 1 ? SAVE_TABLE : BACKUP_TABLE;
                 if (poisoned) fail_command(ERR_TIMEOUT);
@@ -535,8 +538,8 @@ always @(posedge clk) begin
             ST_SIZE_CHECK: begin
                 if (checking_created) begin
                     // The contract does not promise zero size for create-only.
-                    // Retain what firmware reported; exact 8192-byte checks still
-                    // guard both payload write and reread after the resize.
+                    // Retain what firmware reported; exact save-length checks
+                    // still guard both payload write and reread after the resize.
                     debug_sequence[95:64] <= datatable_q;
                     checking_created <= 0;
                     state <= ST_RESIZE;
@@ -559,7 +562,7 @@ always @(posedge clk) begin
                 if (saw_busy && target_dataslot_done) begin
                     if (target_dataslot_result != 0) fail_command(command_error);
                     else if (receive_bad || (receive_write && !receive_in_order)
-                             || received_after != expected_bytes[13:2])
+                             || received_after != expected_bytes[15:2])
                         fail_command(ERR_TRANSFER);
                     else state <= ST_FINISH;
                 end else if (timeout == 0) begin
@@ -656,7 +659,7 @@ always @(posedge clk) begin
                 if (!created_owned) fail_command(ERR_CREATE_RACE);
                 else begin
                     target_dataslot_bridgeaddr <= BACKUP_BASE;
-                    target_dataslot_length <= 32'd8192;
+                    target_dataslot_length <= {16'd0, save_bytes};
                     target_dataslot_write <= 1;
                     begin_wait();
                     state <= ST_WRITE_WAIT;

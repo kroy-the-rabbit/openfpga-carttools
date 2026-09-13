@@ -1848,11 +1848,15 @@ synch_3 s_restore_failed (restore_io_failed_74a, restore_io_failed_sys, clk_sys)
 assign restore_io_done_sys = restore_io_result_s != restore_io_result_seen;
 wire restore_input_we;
 wire [1:0] restore_input_kind;
-wire [10:0] restore_input_index, restore_backup_addr;
+wire [12:0] restore_input_index, restore_backup_addr;
 wire [31:0] restore_input_data, restore_backup_data;
+// Latched in clk_sys before the request toggle crosses, constant until the
+// next preflight, so the file service reads it as a static value.
+wire [15:0] restore_save_bytes;
 restore_file_io restore_files (
     .clk(clk_74a), .reset(~pll_core_locked_s),
     .start(restore_io_request_s != restore_io_request_seen), .op(restore_io_op_74a),
+    .save_bytes(restore_save_bytes),
     .busy(restore_io_busy), .done(restore_io_done_74a), .failed(restore_io_failed_74a),
     .err(restore_io_err), .poisoned(restore_poisoned), .backup_index(restore_backup_index),
     .debug_status(restore_io_debug),
@@ -1889,7 +1893,8 @@ restore_engine #(.WRITE_ENABLED(RESTORE_WRITE_ENABLED)) restore (
     .preflight_done(restore_preflight_done), .preflight_ok(restore_preflight_ok),
     .done(restore_done), .failed(restore_failed), .phase(restore_phase),
     .error(restore_error), .rom_crc(restore_rom_crc), .save_crc(restore_save_crc),
-    .mismatch_offset(), .io_start(restore_io_start_sys), .io_op(restore_io_op_sys),
+    .mismatch_offset(), .save_bytes(restore_save_bytes),
+    .io_start(restore_io_start_sys), .io_op(restore_io_op_sys),
     .io_done(restore_io_done_sys), .io_failed(restore_io_failed_sys),
     .input_we(restore_input_we), .input_kind(restore_input_kind),
     .input_index(restore_input_index), .input_data(restore_input_data),

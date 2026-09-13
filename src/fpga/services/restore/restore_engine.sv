@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 `default_nettype none
 
-// Restore transaction for the first supported geometry, MBC1 + 8 KiB RAM.
+// Restore transaction for two save geometries: MBC1 + 8 KiB RAM (type 03,
+// RAM code 02, DMG) and MBC3 + battery RAM with four 8 KiB banks (type 10 or
+// 13, RAM code 03, DMG or CGB flag 80). save_bytes follows the RAM code.
 // Identity comes from the prepared metadata, never a title or a built-in CRC.
 // The default build exercises every preflight check with save writes disabled.
 // SD completion events cross clocks outside this module. Buffer ownership is
@@ -27,7 +29,10 @@ module restore_engine #(
     output reg [5:0] phase,
     output reg [4:0] error,
     output reg [31:0] rom_crc, save_crc,
-    output reg [12:0] mismatch_offset,
+    output reg [14:0] mismatch_offset,
+    // Save length of the latched geometry, stable from preflight_start until
+    // the next one. The file service sizes every transfer from it.
+    output reg [15:0] save_bytes,
 
     // A request and its reply are synchronous to clk. op 0 loads metadata,
     // op 1 loads the save, op 2 writes and reads the recovery backup.
@@ -38,9 +43,9 @@ module restore_engine #(
     // is bits 7:0. The service checks the full transfer and exact file length.
     input wire input_we,
     input wire [1:0] input_kind,
-    input wire [10:0] input_index,
+    input wire [12:0] input_index,
     input wire [31:0] input_data,
-    input wire [10:0] backup_addr,
+    input wire [12:0] backup_addr,
     output reg [31:0] backup_data,
 
     output wire bus_req, bus_wr,
@@ -59,12 +64,12 @@ reg mode_owned;
 assign want_mode = mode_owned ? 2'b10 : 2'b00;
 
 reg [31:0] meta [0:15];
-reg [31:0] staged [0:2047];
-reg [31:0] readback [0:2047];
-reg [7:0] original0 [0:2047];
-reg [7:0] original1 [0:2047];
-reg [7:0] original2 [0:2047];
-reg [7:0] original3 [0:2047];
+reg [31:0] staged [0:8191];
+reg [31:0] readback [0:8191];
+reg [7:0] original0 [0:8191];
+reg [7:0] original1 [0:8191];
+reg [7:0] original2 [0:8191];
+reg [7:0] original3 [0:8191];
 reg [2:0] load_meta_sync, load_save_sync, load_backup_sync;
 always @(posedge clk_io) begin
     if (reset) begin
@@ -92,15 +97,15 @@ always @(posedge clk_io) begin
 end
 
 reg [31:0] offset;
-wire [12:0] writer_offset;
+wire [14:0] writer_offset;
 wire writer_busy, writer_done, writer_failed;
-wire [12:0] mem_offset = phase == PROGRAM ? writer_offset : offset[12:0];
+wire [14:0] mem_offset = phase == PROGRAM ? writer_offset : offset[14:0];
 reg [31:0] stage_q, original_q, readback_q, meta_q;
 always @(posedge clk) begin
-    stage_q <= staged[mem_offset[12:2]];
-    original_q <= {original3[mem_offset[12:2]], original2[mem_offset[12:2]],
-                   original1[mem_offset[12:2]], original0[mem_offset[12:2]]};
-    readback_q <= readback[mem_offset[12:2]];
+    stage_q <= staged[mem_offset[14:2]];
+    original_q <= {original3[mem_offset[14:2]], original2[mem_offset[14:2]],
+                   original1[mem_offset[14:2]], original0[mem_offset[14:2]]};
+    readback_q <= readback[mem_offset[14:2]];
     meta_q <= meta[offset[5:2]];
 end
 wire [7:0] stage_byte = stage_q >> (8 * mem_offset[1:0]);
@@ -148,6 +153,11 @@ reg [15:0] ctl_addr;
 reg [7:0] ctl_data;
 
 wire stopping = aborting || cancel || !cart_powered;
+wire geometry_mbc1_8k = cart_type == 8'h03 && ram_size_code == 8'h02 &&
+                        cgb_flag == 8'h00 && rom_size_code <= 8'd4;
+wire geometry_mbc3_32k = (cart_type == 8'h10 || cart_type == 8'h13) &&
+                         ram_size_code == 8'h03 &&
+                         (cgb_flag == 8'h00 || cgb_flag == 8'h80) && rom_size_code <= 8'd6;
 cart_dump_gb rom_reader (
     .clk(clk), .reset(reset || stopping), .start(rom_start),
     .cart_type(type_l), .rom_size_code(rom_l), .busy(rom_busy), .done(rom_done),
@@ -194,10 +204,10 @@ assign bus_wdata = phase == PROGRAM ? writer_wdata : use_save ? save_wdata :
 always @(posedge clk) begin
     if (!reset && phase == CAPTURE && save_valid && !stopping) begin
         case (offset[1:0])
-            0: original0[offset[12:2]] <= save_data;
-            1: original1[offset[12:2]] <= save_data;
-            2: original2[offset[12:2]] <= save_data;
-            3: original3[offset[12:2]] <= save_data;
+            0: original0[offset[14:2]] <= save_data;
+            1: original1[offset[14:2]] <= save_data;
+            2: original2[offset[14:2]] <= save_data;
+            3: original3[offset[14:2]] <= save_data;
         endcase
     end
 end
@@ -247,6 +257,7 @@ always @(posedge clk) begin
         rom_crc <= 0;
         save_crc <= 0;
         mismatch_offset <= 0;
+        save_bytes <= 16'd8192;
         offset <= 0;
         crc <= 32'hFFFFFFFF;
         expected_save_crc <= 0;
@@ -313,14 +324,14 @@ always @(posedge clk) begin
                 save_crc <= 0;
                 mismatch_offset <= 0;
                 timer <= TIMEOUT_CYCLES;
-                if (!target_ok || !cart_powered || cart_type != 8'h03 ||
-                    ram_size_code != 8'h02 || cgb_flag != 0 || rom_size_code > 4) begin
+                if (!target_ok || !cart_powered || !(geometry_mbc1_8k || geometry_mbc3_32k)) begin
                     phase <= META;
                     fail_with(5'd2);
                 end else begin
                     type_l <= cart_type;
                     ram_l <= ram_size_code;
                     rom_l <= rom_size_code;
+                    save_bytes <= geometry_mbc3_32k ? 16'd32768 : 16'd8192;
                     geometry <= {cgb_flag,rom_size_code,ram_size_code,cart_type};
                     identity <= {16'd0,sw_version,header_checksum};
                     io_op <= 0;
@@ -346,7 +357,7 @@ always @(posedge clk) begin
                         crc <= crc_byte(crc,meta_byte);
                         offset <= offset + 1'b1;
                     end else if (meta[0] != 32'h53525443 || meta[1] != 1 ||
-                        meta[2] != 8192 || meta[4] != (32'd32768 << rom_l) ||
+                        meta[2] != {16'd0, save_bytes} || meta[4] != (32'd32768 << rom_l) ||
                         meta[6] != geometry || meta[7] != identity ||
                         meta[12] != 0 || meta[13] != 0 || meta[14] != 0 ||
                         meta[15] != ~crc) fail_with(5'd1);
@@ -375,7 +386,7 @@ always @(posedge clk) begin
                 // Compare the registered final CRC on a separate cycle. The
                 // BRAM -> byte mux -> CRC -> equality -> error/timer path
                 // otherwise exceeds clk_sys setup timing in the fitted core.
-                if (offset == 8192) begin
+                if (offset == {16'd0, save_bytes}) begin
                     if (save_crc != expected_save_crc) fail_with(5'd3);
                     else begin
                         phase <= WAKE;
@@ -388,7 +399,7 @@ always @(posedge clk) begin
                     memory_wait <= 0;
                     crc <= crc_byte(crc,stage_byte);
                     offset <= offset + 1'b1;
-                    if (offset == 8191)
+                    if (offset == {16'd0, save_bytes} - 1)
                         save_crc <= ~crc_byte(crc,stage_byte);
                 end
             end
@@ -442,14 +453,14 @@ always @(posedge clk) begin
                 if (save_valid) begin
                     if (phase != CAPTURE && save_data !=
                         ((phase == VERIFY1 || phase == VERIFY2) ? stage_byte : original_byte)) begin
-                        if (!mismatch) mismatch_offset <= offset[12:0];
+                        if (!mismatch) mismatch_offset <= offset[14:0];
                         mismatch <= 1;
                     end
                     offset <= offset + 1'b1;
                     reader_count <= reader_count + 1'b1;
                 end
                 if (save_done) begin
-                    if (reader_count != 8192 || !save_responded || mismatch)
+                    if (reader_count != {16'd0, save_bytes} || !save_responded || mismatch)
                         fail_with(phase == VERIFY1 || phase == VERIFY2 ? 5'd9 :
                                   phase == FINAL_SAVE ? 5'd8 : 5'd5);
                     else if (phase == CAPTURE) begin_save(COMPARE);
@@ -488,9 +499,9 @@ always @(posedge clk) begin
                 else begin
                     memory_wait <= 0;
                     if (readback_byte != original_byte) begin
-                        mismatch_offset <= offset[12:0];
+                        mismatch_offset <= offset[14:0];
                         fail_with(5'd7);
-                    end else if (offset == 8191) begin
+                    end else if (offset == {16'd0, save_bytes} - 1) begin
                         phase <= READY;
                         preflight_ok <= 1;
                         preflight_done <= 1;
