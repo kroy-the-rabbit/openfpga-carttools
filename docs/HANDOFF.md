@@ -225,20 +225,79 @@ exposes the three toggles. The existing SD ROM loads its matching sidecar.
 Only those two new cheat files were written to the card. ROMs, dumps, saves,
 restore inputs, and core files were preserved; the card was left mounted.
 
-## Silver timing experiment: 7776, 2026-09-11/12
+## Silver BB2B and 7776 steps, 2026-09-11 to 2026-09-12
 
-The user directed proceeding with the code timing experiment without further
-Zelda hardware retests. The passing BB2B DX result is the retained control;
-another original-Zelda dump is not a prerequisite for this work.
+Alignment on 2026-09-11 before implementation: HEAD
+`79852fce77e47b1f793fcedcc2657b211952cc27`, implementation matching
+`2b0b0ba`; last hardware-verified installed source `12cd3c1`, stamp `12CD`;
+released baseline `v0.9999.250d6a0`. Restore `2b0b0ba` (stamp `2B0B`) had
+45/45 checks and no FPGA build; the latest restore attempt on 12CD failed at
+`SIZE NEW BACKUP`, error 3; `RESTORE_WRITE_ENABLED` zero. All nine manifest
+entries passed.
 
-Exact candidate source: `777643d4691a53f1ee9af5ca07c842f672128a1b`, stamp
-**7776**. `cart_dump_gb` now inserts two idle states before the second read
-when `PAIR_READS` is enabled. This is the only production change. The default
-single-read restore identity path, bus setup/strobe/hold parameters, mapper
-writes, first-sample file stream, and diagnostics are preserved. Cartridge
-save writes remain disabled.
+### BB2B, paired reads
 
-The actual `cart_dump_gb` + `gb_cart_bus` trace establishes the experiment:
+Source `bb2b1d077aad201afe69b2ec3057bd6f265274e8`, stamp `BB2B`, package
+version `0.9999.bb2b1d0`. Ordinary GB/GBC ROM dumps enable
+`cart_dump_gb.PAIR_READS`: two bus reads per byte, the first byte emitted to
+the file/checksum/CRC stream, counts and first differing pair retained until
+reset or a new ROM read. Result rows 15-17 show `READ DIFF` or
+`PAIRED READS AGREE`, `EVEN`/`ODD`, and `FIRST bank:offset byte1/byte2`, all
+hex; hidden for failed/partial dumps, saves, GBA and rescans. Restore uses
+single reads. 47/47 checks, simulation log SHA-256
+`bced943e09f3ff14a185747f41e97c7e94580467d0cd81666bace01ec8b395df`. Sisko
+job `silver-paired-read`, 521 s, Quartus Lite 25.1std build 1129: setup
+`+0.906 ns`, hold `+0.120 ns`, minimum pulse width `+0.827 ns`, 9,009 ALMs,
+129 RAM blocks.
+
+| Artifact | SHA-256 |
+|---|---|
+| `kroy.CartTools_0.9999.bb2b1d0.zip` | `c852c75a5c09b25afc19987d12f968c323e46867023b5fdfe4d912a896692f44` |
+| `bitstream.rbf_r` | `5e8d79a74e4bca47b6a5095f4d834e0ad0d6d59b4cdbb4e1153ab2a11ab524ad` |
+| `report.txt` | `4e90fa703bc91df48097002863d6038e02e08fcf9033bfb853c4e0ee7dfcb82a` |
+| `build.log` | `8eabf974b9bd6cc8077f7eda70ef5f05644ab23d0bc76649c6e8992fc11e7ae1` |
+
+```sh
+../tools/runner-build job sisko pocket-cartridge cart silver-paired-read bb2b1d0
+../tools/runner-build fetch sisko pocket-cartridge cart silver-paired-read bb2b1d0
+```
+
+Installed 2026-09-11 about 23:21 CDT on `/dev/sdb1` from 12CD with
+`build/diagnostic/install-bb2b1d0.sh`; 14 package files byte-verified after
+flush, common files and both restore inputs unchanged. Prior files under
+`build/diagnostic/deploy-bb2b1d0.TZ2htf/`; candidate evidence, log, wrapper,
+extracted package, runner result and `VERIFIED.json` under
+`build/diagnostic/candidate-bb2b1d0/`.
+
+### BB2B hardware result
+
+Two Silver screenshots, stamp BB2B, `DUMP COMPLETE`, both failing stored
+`0DAE`; all 14 package files still matched BB2B.
+
+| Screenshot | Image sum | CRC32 | Differing pairs | Even | Odd | First bank:offset, first/second byte |
+|---|---|---|---|---|---|---|
+| `20260911_232618.png` | `AB0C` | `BF370E7A` | `012748` = 75,592 | `00B45A` = 46,170 | `0072EE` = 29,422 | `001:097D`, `00/01` |
+| `20260911_232637.png` | `19D3` | `B25B0C54` | `012E88` = 77,448 | `00B43F` = 46,143 | `007A49` = 31,305 | `001:0376`, `00/36` |
+
+Counts are unequal pairs, not wrong bytes against a reference. The card
+retains only the second 2,097,152-byte ROM: sum `19D3`, CRC32 `B25B0C54`,
+MD5 `7436223525584caef88f905a2d5b0d9e`, SHA-256
+`243cdc277ad4a86cc223f08e61443d463366933450d9865797a4b32ff7bf0521`. Against
+the four 12CD ROMs under `build/hardware/12cd3c1/silver/` (`dump1/`,
+`dumpN/`, `dump6_`, `dump7_` `POKEMON_SLVAAXE.gbc`) it has zero even-address
+and zero bank-0 changes; odd-address differences 131,140, 133,758, 128,258
+and 95,478. First mismatch: linear `0x4376`, bank 1 offset `0376`, first
+`00`, second `36`, saved `00` in all four 12CD images, no bank change between
+the samples. Evidence `build/hardware/bb2b-result-20260911.3czsibhj/`: 25
+files in `SHA256SUMS` and `INTAKE.json`; `read-screen.py` and
+`SCREEN-TEXT.json`; `analyze-rom.py`, `ANALYSIS.json`, `verify-dump.txt`.
+
+### 7776, two-clock pair gap
+
+Source `777643d4691a53f1ee9af5ca07c842f672128a1b`, stamp `7776`:
+`cart_dump_gb` inserts two idle states before the second read when
+`PAIR_READS` is enabled; the only production change. The delay also moves
+PHI phase.
 
 | Core-clock interval | BB2B | 7776 |
 |---|---:|---:|
@@ -246,35 +305,15 @@ The actual `cart_dump_gb` + `gb_cart_bus` trace establishes the experiment:
 | Second to next-byte request, output ready | 89 | 89 |
 | Address setup / strobe / address hold | 21 / 41 / 21 | 21 / 41 / 21 |
 
-The existing bus's counters produce 21/41/21 clock intervals from parameter
-values 20/40/20; this experiment does not change them. Output backpressure
-can still extend the next-byte interval, and bank changes still include the
-mapper transaction. The delay also changes PHI phase.
-
-`tb_cart_dump_gb_pair_timing.sv` exercises the shipped bus on an MBC3 dump:
-32,768 paired bytes, the bank-0/bank-1 boundary, the bank-register write,
-output backpressure, and a reader-only abort in each added idle state. A
-deliberate second-sample difference verifies that the first byte reaches the
-stream and the mismatch reaches the diagnostics. BB2B compiled against the
-new interval assertion fails with `87, expected 89`. Trace evidence is under
-ignored `build/diagnostic/silver-pair-spacing/`; the original measurement
-bench is retained as `tb_cart_dump_gb_pair_timing-initial.sv`.
-
-All **48/48** simulation and structural checks passed against exact candidate
-source, checked before and after the suite. The sisko FPGA job
-`silver-pair-spacing` completed with `rc=0` in 515 seconds on the same commit,
-Quartus Lite 25.1std build 1129. Setup **+1.075 ns**, hold **+0.121 ns**,
-minimum pulse width **+0.827 ns**; 9,141 ALMs and 129 RAM blocks. No timing
-constraints changed. Fetch or inspect this exact build with:
-
-```sh
-../tools/runner-build job sisko pocket-cartridge cart silver-pair-spacing 777643d
-../tools/runner-build fetch sisko pocket-cartridge cart silver-pair-spacing 777643d
-```
-
-Evidence is retained under ignored `build/diagnostic/candidate-777643d/`:
-full simulation log, runner result, ZIP, bitstream, timing report, build log,
-extracted package, verification script, and `VERIFIED.json`.
+`tb_cart_dump_gb_pair_timing.sv` covers 32,768 paired bytes on the shipped
+bus, the bank-0/bank-1 boundary, the bank-register write, backpressure, a
+reader-only abort in each added idle state, and one deliberate second-sample
+difference; BB2B against the new assertion fails with `87, expected 89`.
+Trace evidence `build/diagnostic/silver-pair-spacing/`; the original bench
+is `tb_cart_dump_gb_pair_timing-initial.sv`. 48/48 checks. Sisko job
+`silver-pair-spacing`, 515 s, Quartus Lite 25.1std build 1129: setup
+`+1.075 ns`, hold `+0.121 ns`, minimum pulse width `+0.827 ns`, 9,141 ALMs,
+129 RAM blocks.
 
 | Artifact | SHA-256 |
 |---|---|
@@ -284,25 +323,18 @@ extracted package, verification script, and `VERIFIED.json`.
 | `report.txt` | `311e5097303ddd16325a5608a758edc0b0adeb467a1d97bad40e215fe587e6e1` |
 | `build.log` | `42b6266811441f7a42749878a46b9318048190ebb68f8567f427fc161722c2e1` |
 
-Installed **7776** on 2026-09-12. The live mount was resolved as `/dev/sdb1`,
-writable exfat. The ZIP passed integrity and exact membership checks; package
-files match committed source except the bitstream and expected version/date
-stamps. The independent bitstream matches the packaged one. After filesystem
-flush, all 14 installed package files were byte-verified; all common files,
-including saves and restore inputs, are unchanged. Prior BB2B package,
-common files, and screenshots are retained under
-`build/diagnostic/deploy-777643d.m4CP74/`. The guarded installer is
-`build/diagnostic/install-777643d.sh`; its prior-BB2B precondition prevents
-blindly rerunning it now. The card was left mounted.
+```sh
+../tools/runner-build job sisko pocket-cartridge cart silver-pair-spacing 777643d
+../tools/runner-build fetch sisko pocket-cartridge cart silver-pair-spacing 777643d
+```
 
-Original hardware test procedure: reload CartTools, confirm **7776**,
-dump **Silver once**, and capture the result screen. Preserve the ROM and
-screenshot before another dump can overwrite them. Compare sum/CRC, pair
-counts, and first mismatch with the retained BB2B results below. No additional
-Zelda run is requested. A change in those results measures the effect of this
-code timing change; Silver is verified only when the resulting ROM passes
-checksum `0DAE` and reference CRC32 `8AD48636`.
-The subsequent 7776 result is recorded above.
+Installed 2026-09-12 on `/dev/sdb1` from BB2B with
+`build/diagnostic/install-777643d.sh`; 14 package files byte-verified after
+flush, common files, saves and restore inputs unchanged. Prior files under
+`build/diagnostic/deploy-777643d.m4CP74/`; candidate evidence, full
+simulation log, runner result, extracted package, verification script and
+`VERIFIED.json` under `build/diagnostic/candidate-777643d/`. The 7776
+hardware result is recorded above.
 
 ## BB2B Zelda DX control passes, 2026-09-11
 
@@ -336,187 +368,6 @@ and `SCREEN-TEXT.json` retain exact glyph decoding; `ANALYSIS.json` and
 `verify-dump.txt` record ROM validation. Screenshot SHA-256:
 `98f3bc9defc6cd71dd7d48f79c79d92b6b3c45e06abe655f2898eb88235970f8`.
 The card was read only during intake and left mounted.
-
-## BB2B hardware result: paired reads disagree, 2026-09-11
-
-Two new Silver result screenshots, `20260911_232618.png` and
-`20260911_232637.png`, both show stamp BB2B and `DUMP COMPLETE`. Both ROM
-checksums fail against stored `0DAE`. All 14 installed package files still
-match the verified BB2B package. This establishes a hardware diagnostic result,
-not a repair or a verified Silver ROM.
-
-| Screenshot | Image sum | CRC32 | Differing pairs | Even | Odd | First bank:offset, first/second byte |
-|---|---|---|---|---|---|---|
-| `232618` | `AB0C` | `BF370E7A` | `012748` = 75,592 | `00B45A` = 46,170 | `0072EE` = 29,422 | `001:097D`, `00/01` |
-| `232637` | `19D3` | `B25B0C54` | `012E88` = 77,448 | `00B43F` = 46,143 | `007A49` = 31,305 | `001:0376`, `00/36` |
-
-Counts describe unequal pairs, not the number of wrong bytes against a clean
-reference. The first ROM is no longer present under a separate filename; the
-card retains the second 2,097,152-byte ROM. Its independently computed sum
-`19D3` and CRC32 `B25B0C54` exactly match the second screenshot. MD5 is
-`7436223525584caef88f905a2d5b0d9e`; SHA-256 is
-`243cdc277ad4a86cc223f08e61443d463366933450d9865797a4b32ff7bf0521`.
-
-### What the new result establishes
-
-The latest file contains the retained **first** sample of each pair. Compared
-with each of the four preserved 12CD ROMs, it has **zero even-address
-changes and zero bank-0 changes**. Pairwise differences are 131,140, 133,758,
-128,258, and 95,478, all odd addresses, in the baseline order below.
-Nevertheless, the second screenshot counts 46,143 even-address disagreements
-within pairs. Thus the odd-only disagreement pattern remains in the saved
-first-sample stream; the newly observed even differences involve the second
-sample relative to the repeatable first-sample values. Repeatability still
-does not establish correctness.
-
-The first reported mismatch of the retained run is requested linear ROM
-address `0x4376` (bank 1, offset `0376`): first byte `00`, second byte `36`.
-The saved byte there is `00`, as in all four 12CD images. The two samples do
-not involve a ROM bank change between them. This is direct evidence of
-consecutive read instability before file packing, not proof of a particular
-address, electrical, or sampling defect.
-
-### Next steps at the Silver intake
-
-1. Obtain BB2B ROM result screenshots for the original Link's Awakening and
-   DX controls. That intake contained two Silver screenshots only;
-   unchanged Zelda files on the card do not establish paired-read controls
-   on BB2B. The subsequent DX result above now satisfies the MBC5 control;
-   the user subsequently directed proceeding without the original Zelda
-   retest. Preserve each result file and screenshot before another attempt.
-2. Trace the paired request timing through the actual `gb_cart_bus` in
-   simulation. The reader takes `ST_REREAD` directly after the first return;
-   between a second return and the next byte it also traverses `ST_EMIT` and
-   `ST_NEXT`. With output ready, that is two extra core clocks before the
-   next-byte request, with further delay possible under backpressure.
-3. The next proposed candidate should insert just those two clocks before
-   the second request, retaining the existing address-setup/strobe/hold
-   durations, mapper writes, first-sample file stream, and diagnostic rows.
-   Verify the actual request/strobe spacing and reset/abort behavior before
-   the full suite and exact-source build. This tests a read-cadence hypothesis;
-   the delay also changes PHI phase, so any improvement alone will not
-   identify the mechanism. This proposed change is now implemented as 7776,
-   as recorded above.
-
-All save and restore inputs are unchanged from the pre-deployment copies.
-Restore and save/RTC qualification remain separate; cartridge save writes
-stay disabled. The card was read only during intake and left mounted.
-
-### Retained evidence
-
-Ignored directory: `build/hardware/bb2b-result-20260911.3czsibhj/`. It holds
-both new screenshots, all common files, and the installed package: 25 files
-copied and hash-verified against the card, recorded in `SHA256SUMS` and
-`INTAKE.json`. `read-screen.py` reproduces the screenshot text by exact glyph
-matching against the shipped font, without resampling; `SCREEN-TEXT.json`
-retains the decoded rows. `analyze-rom.py`, `ANALYSIS.json`, and
-`verify-dump.txt` reproduce the local ROM comparison and checksum results.
-
-The four 12CD baselines, under `build/hardware/12cd3c1/silver/`, are
-`dump1/POKEMON_SLVAAXE.gbc`, `dumpN/POKEMON_SLVAAXE.gbc`,
-`dump6_POKEMON_SLVAAXE.gbc`, and `dump7_POKEMON_SLVAAXE.gbc`, in that order.
-
-## BB2B implementation and deployment, 2026-09-11
-
-The user resumed implementation. Ordinary GB/GBC ROM dumping now enables
-`cart_dump_gb.PAIR_READS`: two complete bus reads at each bank/address, with
-only the retained first byte emitted to the file/checksum/CRC stream. Counts
-and the first differing pair are retained until reset or a new ROM read.
-Restore uses the default single-read mode. This source includes the earlier
-2B0B restore changes, but neither qualifies restore nor enables save writes.
-
-Rows 15-17 after a completed GB/GBC ROM dump show `READ DIFF` (or
-`PAIRED READS AGREE`), `EVEN`/`ODD`, and `FIRST bank:offset byte1/byte2`.
-All numbers are hex. Agreement is a repeatability observation, not a correct
-ROM verdict. Failed/partial dumps, saves, GBA, and rescans hide these rows.
-
-Exact candidate source is `bb2b1d077aad201afe69b2ec3057bd6f265274e8`, stamp
-`BB2B`. All 47 simulation/structural checks passed, including the full 2 MB
-MBC3 reader, UI, actual-top wiring with three negative controls, first-sample
-file/checksum/CRC consistency, and power loss during the second bus read.
-The source was checked against the commit before and after the full suite.
-Evidence is retained in `build/diagnostic/candidate-bb2b1d0/`; simulation log
-SHA-256 is `bced943e09f3ff14a185747f41e97c7e94580467d0cd81666bace01ec8b395df`.
-
-Sisko completed this exact source with `rc=0` in 521 seconds, Quartus Lite
-25.1std build 1129. Setup `+0.906 ns`, hold `+0.120 ns`, minimum pulse width
-`+0.827 ns`; 9,009 ALMs and 129 RAM blocks. No timing constraints changed.
-Inspect or fetch the durable job with:
-
-```sh
-../tools/runner-build job sisko pocket-cartridge cart silver-paired-read bb2b1d0
-../tools/runner-build fetch sisko pocket-cartridge cart silver-paired-read bb2b1d0
-```
-
-The ZIP passed integrity and exact package-membership checks. Its bitstream
-matches the independently fetched artifact; all package files match source
-except the expected version/date stamping in `core.json`. The package version
-is `0.9999.bb2b1d0`. Artifacts, the 47/47 simulation log, wrapper, extracted
-package, runner result, and `VERIFIED.json` are retained under ignored
-`build/diagnostic/candidate-bb2b1d0/`.
-
-| Artifact | SHA-256 |
-|---|---|
-| `kroy.CartTools_0.9999.bb2b1d0.zip` | `c852c75a5c09b25afc19987d12f968c323e46867023b5fdfe4d912a896692f44` |
-| `bitstream.rbf_r` | `5e8d79a74e4bca47b6a5095f4d834e0ad0d6d59b4cdbb4e1153ab2a11ab524ad` |
-| `report.txt` | `4e90fa703bc91df48097002863d6038e02e08fcf9033bfb853c4e0ee7dfcb82a` |
-| `build.log` | `8eabf974b9bd6cc8077f7eda70ef5f05644ab23d0bc76649c6e8992fc11e7ae1` |
-
-BB2B was installed on 2026-09-11 at approximately 23:21 CDT. The installer
-resolved and checked `/dev/sdb1` as the writable exfat mount, verified the
-prior 12CD bitstream and restore input hashes, then compared all 14 package
-files after filesystem flush. All common files and both restore inputs are
-unchanged. The card was left mounted. Prior package files, all common files,
-and screenshots are preserved in
-`build/diagnostic/deploy-bb2b1d0.TZ2htf/`. The guarded installer is
-`build/diagnostic/install-bb2b1d0.sh`; its prior-12CD precondition intentionally
-prevents blindly reinstalling now. The subsequent Silver hardware results
-are recorded above.
-
-### Original Pocket test procedure
-
-1. With Silver inserted, reload CartTools and confirm displayed stamp
-   **BB2B**. Run a normal ROM dump with X. Capture the whole result screen, including
-   image checksum, CRC32, and rows 15-17: `READ DIFF` or `PAIRED READS AGREE`,
-   `EVEN`/`ODD`, and `FIRST bank:offset byte1/byte2`. All values are hex.
-2. Copy that ROM and screenshot to a fresh ignored evidence directory before
-   another Silver dump overwrites the same filename. Verify hashes against
-   the card, then analyze the local copies. Keep every attempt separately.
-3. Repeat Silver, then Link's Awakening and DX as the MBC1/MBC5 controls.
-   Preserve every file and screenshot. Silver qualification still requires
-   repeatable 2,097,152-byte files with reference CRC32 `8AD48636` and checksum
-   `0DAE`; controls must retain their previously verified hashes.
-4. Use the mismatch counts and first pair to choose the next controlled bus
-   experiment. Agreement can hide a consistently wrong byte; if corruption
-   disappears, the changed read cadence is a clue, not a verified repair.
-
-The deployment turn did not run the physical Pocket tests; the subsequent
-Silver results are recorded above. Save/RTC and restore remain unqualified,
-and cartridge save writes remain disabled. The original experiment and
-interpretation limits are retained below.
-
-## Alignment snapshot before implementation, 2026-09-11
-
-- Branch `save-restore-la`, HEAD `79852fce77e47b1f793fcedcc2657b211952cc27`.
-  The working changes are the Silver notes in this file and `docs/STATUS.md`.
-  Implementation, tests, scripts, and package still match `2b0b0ba` exactly.
-- Last hardware-verified installed source: `12cd3c1`, stamp `12CD`. The
-  released baseline remains `v0.9999.250d6a0`; these are development builds.
-- Immediate investigation: Silver's banked MBC3 ROM reads disagree. The
-  diagnostic candidate described below has not been implemented or built.
-- Pending restore work: `2b0b0ba`, stamp `2B0B`, passed all 45 checks but has
-  no retained FPGA build. The latest restore attempt on 12CD failed at
-  `SIZE NEW BACKUP`, error 3. `RESTORE_WRITE_ENABLED` is still zero.
-- This alignment checked local evidence only: all nine manifest entries
-  passed, the Silver statistics below were recomputed, and the 2B0B test-log
-  hash and 45/45 result match the retained record. No RTL, build, or card
-  operation was performed. Runner availability and the live card's mounted
-  device/installed package need fresh checks before a build or deployment.
-
-At alignment the next task was the Silver diagnostic; its original experiment
-plan is retained below. The dated restore sections retain the separate 2B0B
-build and recovery qualification procedure. Their old "tomorrow" and
-runner-occupancy statements are historical.
 
 ## Pokemon Silver, first MBC3 on hardware, dumps corrupt: 2026-09-11
 
