@@ -815,6 +815,7 @@ wire [7:0]  dmp_wdata;
 
 wire restore_owns_cart = restore_want_mode != 0;
 wire        dump_gb_rom_reading;
+wire        restore_rom_reading;
 wire        gb_req_mux   = restore_owns_cart ? restore_req   : dump_busy ? dmp_req   : gbid_req;
 wire        gb_wr_mux    = restore_owns_cart ? restore_wr    : dump_busy ? dmp_wr    : gbid_wr;
 wire [15:0] gb_addr_mux  = restore_owns_cart ? restore_addr  : dump_busy ? dmp_addr  : gbid_addr;
@@ -824,9 +825,10 @@ gb_cart_bus gb_bus (
     .clk       ( clk_sys ),
     .reset     ( ~pll_core_locked ),
     .gb_mode   ( gb_mode_s ),
-    // Precharge stays for the probe, save and restore traffic; only an
-    // ordinary GB ROM dump releases the data pins between transactions.
-    .idle_precharge ( ~dump_gb_rom_reading ),
+    // Precharge stays for the probe, save and restore RAM traffic; a GB ROM
+    // read pass (the dump, or the restore identity check, which reads the
+    // whole ROM the same way) releases the data pins between transactions.
+    .idle_precharge ( ~(dump_gb_rom_reading || restore_rom_reading) ),
 
     .req       ( gb_req_mux ),
     .wr        ( gb_wr_mux ),
@@ -1895,7 +1897,7 @@ restore_engine #(.WRITE_ENABLED(RESTORE_WRITE_ENABLED)) restore (
     .done(restore_done), .failed(restore_failed), .phase(restore_phase),
     .error(restore_error), .rom_crc(restore_rom_crc), .save_crc(restore_save_crc),
     .mismatch_offset(), .save_bytes(restore_save_bytes),
-    .geometry_ok(restore_geometry_ok),
+    .geometry_ok(restore_geometry_ok), .rom_reading(restore_rom_reading),
     .io_start(restore_io_start_sys), .io_op(restore_io_op_sys),
     .io_done(restore_io_done_sys), .io_failed(restore_io_failed_sys),
     .input_we(restore_input_we), .input_kind(restore_input_kind),

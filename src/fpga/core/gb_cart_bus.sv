@@ -86,9 +86,10 @@ reg        data_drive;
 // contend with it. A read request releases bank1 at the beginning of the
 // address setup window, 200 ns before /RD falls with the shipped timing.
 //
-// idle_precharge gates it. The owner drops it for an ordinary GB ROM dump:
-// between reads the precharge pulses every line the cartridge last drove low,
-// and on Pokemon Silver those are exactly the lines that read back wrong.
+// idle_precharge gates it. The owner drops it for every GB ROM read pass, the
+// dump and the restore identity check alike: between reads the precharge
+// pulses every line the cartridge last drove low, and on Pokemon Silver those
+// are exactly the lines that read back wrong.
 // See docs/HANDOFF.md, Silver error analysis 2026-09-12.
 
 // One cycle of deafness after done, so a requester that waits for done before

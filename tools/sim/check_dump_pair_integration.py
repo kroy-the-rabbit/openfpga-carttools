@@ -44,11 +44,22 @@ initial begin
          dut.screen.pair_even, dut.screen.pair_odd, dut.screen.pair_first_addr,
          dut.screen.pair_first_a, dut.screen.pair_first_b} !== 112'd0)
         $fatal(1, "diagnostic clear did not reach screen");
+    // No clock runs here, so the restore reader's busy flag is undefined
+    // until forced. Each term is exercised with the other held low.
+    force dut.restore.rom_reading = 0;
     force dut.dump.gb_rom_reading = 1;
     #1;
     if (dut.gb_bus.idle_precharge !== 1'b0)
         $fatal(1, "GB ROM dump does not release the idle precharge");
     force dut.dump.gb_rom_reading = 0;
+    #1;
+    if (dut.gb_bus.idle_precharge !== 1'b1)
+        $fatal(1, "idle precharge not restored outside a GB ROM dump");
+    force dut.restore.rom_reading = 1;
+    #1;
+    if (dut.gb_bus.idle_precharge !== 1'b0)
+        $fatal(1, "restore ROM identity read does not release the idle precharge");
+    force dut.restore.rom_reading = 0;
     #1;
     if (dut.gb_bus.idle_precharge !== 1'b1)
         $fatal(1, "idle precharge not restored outside a GB ROM dump");
@@ -100,13 +111,15 @@ def main():
             if count != 1:
                 raise AssertionError(f"expected one screen connection for {port}")
             simulate(top_text[:split] + tail, negative=True)
-        # A precharge left on during the dump must be caught too.
-        mutated, count = re.subn(r"(\.idle_precharge\s*\()\s*~dump_gb_rom_reading\s*(\))",
-                                 lambda m: m[1] + "1'b1" + m[2], top_text)
-        if count != 1:
-            raise AssertionError("expected one idle_precharge connection on gb_bus")
-        simulate(mutated, negative=True)
-    print("check_dump_pair_integration: actual top wiring and four negative controls pass")
+        # A precharge left on during the dump, or during the restore identity
+        # read, must be caught too.
+        pattern = r"(\.idle_precharge\s*\()\s*~\(dump_gb_rom_reading \|\| restore_rom_reading\)\s*(\))"
+        for replacement in ("1'b1", "~dump_gb_rom_reading", "~restore_rom_reading"):
+            mutated, count = re.subn(pattern, lambda m: m[1] + replacement + m[2], top_text)
+            if count != 1:
+                raise AssertionError("expected one idle_precharge connection on gb_bus")
+            simulate(mutated, negative=True)
+    print("check_dump_pair_integration: actual top wiring and six negative controls pass")
 
 
 if __name__ == "__main__":

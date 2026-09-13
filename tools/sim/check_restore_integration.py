@@ -179,6 +179,7 @@ reg [7:0] gbid_cart_type = 3, gbid_ram_size = 2, gbid_cgb_flag = 0, gbid_rom_siz
 // Geometry acceptance lives in restore_engine (geometry_ok); the engine's own
 // benches cover it. Here it is a supported cartridge.
 reg restore_geometry_ok = 1;
+reg restore_rom_reading = 0;
 reg probe_busy = 0, probe_sizing = 0, sz_start = 0, probe_done = 0;
 reg dump_busy = 0, action_rom_available = 1, action_save_available = 1;
 reg action_validation_complete = 0;

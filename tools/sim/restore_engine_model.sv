@@ -221,6 +221,12 @@ always @(posedge clk) begin
         end
     end else if (bus_req) begin
         check(cart_powered && want_mode == 2, "bus request owns the powered GB connector");
+        // The top releases the idle precharge on rom_reading; every ROM read
+        // must carry it and no RAM access may.
+        if (!bus_wr && bus_addr < 'h8000)
+            check(dut.rom_reading, "ROM identity read asserts rom_reading");
+        else if (bus_addr >= 'hA000 && bus_addr < 'hC000)
+            check(!dut.rom_reading, "RAM access never asserts rom_reading");
         if (bus_wr && bus_addr >= 'hA000 && bus_addr < 'hC000) begin
             check(WRITE_ENABLED && phase == 15 && commit_permitted && preflight_ok
                   && retained_complete && !failed && !cancel,
