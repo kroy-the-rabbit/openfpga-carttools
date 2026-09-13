@@ -30,19 +30,21 @@ evidence and history; their older next-step instructions are superseded.
   two-clock gap, strobe timing, mapper writes and pair diagnostics are
   unchanged. 48/48 checks; sisko and sisko2 builds are byte-identical, setup
   +1.073 ns, hold +0.119 ns. See "FF5D candidate, 2026-09-12" below. The
-  pair-read diagnostic and the two-clock gap are still in the production
-  reader; whether to keep them is an open decision.
+  pair-read diagnostic and the two-clock gap stay in the production reader
+  by decision on 2026-09-12: the bus portion of a 2 MB dump is 3.7 s instead
+  of 1.85 s, and the check is what exposes a marginal cartridge or contact
+  without a reference ROM.
 - **Other work:** basic Silver HP/PP/money cheats are installed and file
   verified; gameplay remains untested. Saves are backed up and unchanged.
   Restore qualification remains paused, with `RESTORE_WRITE_ENABLED=0`.
 
 Next steps, in order:
 
-1. Decide whether the pair-read diagnostic (`PAIR_READS`) and the two-clock
-   gap stay in the production reader now that the cause is fixed; both
-   double dump time. If removed, keep `tb_cart_dump_gb_pair_timing` able to
-   run with `PAIR_READS` on.
-2. Resume the paused restore track (`2B0B`, `RESTORE_WRITE_ENABLED=0`).
+1. Resume the paused restore track (`2B0B`, `RESTORE_WRITE_ENABLED=0`) with
+   the Silver cartridge as the test subject. Its ROM now dumps clean, so a
+   restore can be judged by re-reading the save after the write; both Silver
+   saves are backed up under `build/diagnostic/silver-basic-y_38w75f/`. Read
+   "Pending restore track: 2B0B ready to build, 2026-09-08" first.
 
 Operational instructions that apply before running anything:
 
