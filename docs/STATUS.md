@@ -13,7 +13,7 @@ Silver as its subject. Commit `e2e53d7` adds the MBC3 32 KiB geometry (type
 `save_bytes` latched from the RAM code sizes the engine loops, manifest
 check, 32 KiB staging and the recovery file; the writer banks `0..3` through
 `4000` and never touches `6000`. `prepare_restore.py` accepts both
-geometries. 51/51 checks; built on sisko and sisko2 with byte-identical
+geometries. 51/51 checks; built on two runners with byte-identical
 bitstreams (MD5 `c8d693404a374b20f2d91cf283641857`), setup +0.443 ns, hold
 +0.105 ns, 227 of 308 RAM blocks. Installed and byte-verified; the Silver
 `RESTORE.sav`/`RESTORE.meta` (save CRC32 `18801E27`, a finished game: Mattia,
@@ -44,7 +44,7 @@ while the GB-first probe, save reads and restore keep the precharge. Read
 spacing, strobe timing, mapper writes and pair diagnostics are unchanged.
 Testbenches pin both behaviours and the top-level wiring, with a negative
 control. Candidate `ff5dd03`, stamp **FF5D**: 48/48 checks on the exact
-source; built on sisko and sisko2 with byte-identical bitstreams (MD5
+source; built on two runners with byte-identical bitstreams (MD5
 `ad46751c8721746b189a146b25694e27`), setup +1.073 ns, hold +0.119 ns;
 installed and byte-verified on the card, which was left mounted. It awaits
 one Silver hardware dump. Details and reproduction in `docs/HANDOFF.md`.
@@ -92,7 +92,7 @@ disabled. See `docs/HANDOFF.md` for exact hashes and the experiment.
 
 Released baseline: `v0.9999.250d6a0`, published from exact commit `250d6a0`.
 Development is on `save-restore-la`. Previous installed source `bb2b1d0`,
-stamp `BB2B`, passed all 47 simulation/structural checks and sisko timing:
+stamp `BB2B`, passed all 47 simulation/structural checks and FPGA timing:
 setup `+0.906 ns`, hold `+0.120 ns`, minimum pulse width `+0.827 ns`. The full
 14-file package was installed and byte-verified on 2026-09-11. That deployment
 preserved all common files, including saves and restore inputs. The previous 12CD
@@ -151,7 +151,7 @@ the first sample feeds the file and checksums, while the second is compared
 and mismatch evidence is displayed after completion. The full 2 MB MBC3
 reader test, UI test, actual-top wiring check, and end-to-end file/CRC test
 pass. All 47 checks passed on exact source `bb2b1d0` (stamp `BB2B`), with the
-source checked before and after the suite. The exact-source sisko build
+source checked before and after the suite. The exact-source build job
 `silver-paired-read` completed in 521 seconds with timing met. BB2B was
 installed and byte-verified for those hardware runs. See `docs/HANDOFF.md` for artifact hashes and the
 Silver timing experiment.
@@ -183,10 +183,9 @@ actual-command/SPI, and full-top integration tests pass, including a deliberate
 result-truncation negative control. This is not yet a proven hardware fix.
 Exact candidate source is `2b0b0ba500f3c37cd376016052fb0d50abfef2ab`, stamp
 `2B0B`. All 45 checks passed on that exact source. The verified log is retained
-under `build/restore/candidate-2b0b0ba/`. At the 2026-09-08 pause, the sisko
+under `build/restore/candidate-2b0b0ba/`. At the 2026-09-08 pause, the
 build had not started because the runner was occupied by sibling GBA work.
-An optional switch to kira was offered but not selected. Recheck availability
-and resume on sisko unless directed otherwise. 12CD was the installed package
+Recheck availability before resuming. 12CD was the installed package
 for that restore attempt; BB2B now replaces it for Silver diagnostics. Cartridge
 save writes remain disabled.
 
@@ -211,7 +210,7 @@ the already assigned fixed input paths, checks slot ID and exact size, and
 reads those read-only slots without reopening them. Recovery-file operations
 and all cartridge identity and write gates are unchanged. Focused tests pass.
 Exact candidate `ac63333`, stamp `AC63`, has completed verification:
-all 44 checks passed, and kira timing passed
+all 44 checks passed, and FPGA timing passed
 with setup `+0.474 ns`, hold `+0.025 ns`, and pulse width `+0.827 ns`.
 The full package and logs are verified and retained under ignored
 `build/restore/candidate-ac63333/`. AC63 was installed. All 14 files passed
@@ -232,7 +231,7 @@ RAM output. Updating the test model alone reproduces AC63's error 9 at stage 2.
 The candidate adds the missing settle cycle for both ID and size comparisons,
 retains actual/expected table words on failure, and leaves every write gate
 unchanged. Exact corrected source `154097c`, stamp `1540`, passed all 45
-simulation and structural checks and completed its kira build with `rc=0`:
+simulation and structural checks and completed its runner build with `rc=0`:
 setup `+0.969 ns`, hold `+0.013 ns`, pulse `+0.827 ns`. The complete verified
 package and logs are retained under ignored `build/restore/candidate-154097c/`.
 The first attempt `3401e31` failed synthesis on diagnostic-register ownership;
