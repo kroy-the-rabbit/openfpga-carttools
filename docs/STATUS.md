@@ -15,10 +15,16 @@ check, 32 KiB staging and the recovery file; the writer banks `0..3` through
 `4000` and never touches `6000`. `prepare_restore.py` accepts both
 geometries. 51/51 checks; built on two runners with byte-identical
 bitstreams (MD5 `c8d693404a374b20f2d91cf283641857`), setup +0.443 ns, hold
-+0.105 ns, 227 of 308 RAM blocks. Installed and byte-verified; the Silver
-`RESTORE.sav`/`RESTORE.meta` (save CRC32 `18801E27`, a finished game: Mattia,
-16 badges, Pokedex 251) are on the card. Writes stay clamped. Awaiting the
-hardware preflight. See `docs/HANDOFF.md`.
++0.105 ns, 227 of 308 RAM blocks. The Silver `RESTORE.sav`/`RESTORE.meta`
+(save CRC32 `18801E27`, a finished game: Mattia, 16 badges, Pokedex 251) are
+on the card. With E2E5 the Pocket refused to load the core: "Error in
+framework [22] size is bad", data slot 22 still declared `size_exact 0x2000`.
+Commit `c7ab1a6`, stamp **C7AB**, identical RTL, raises the restore save and
+recovery slots to `size_maximum 0x8000` with no `size_exact`; structural
+checks 7/7, built on two runners byte-identical (MD5
+`c13cf350f28707536feb7da657603798`), setup +0.686 ns, hold +0.121 ns,
+installed and byte-verified. Writes stay clamped. Awaiting the hardware
+preflight.
 
 FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
 FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
