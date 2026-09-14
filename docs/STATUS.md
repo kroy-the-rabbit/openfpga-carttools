@@ -76,7 +76,12 @@ Silver.** `PREFLIGHT CHECKS PASSED`, `RECOVERY FILE VERIFIED`, ROM CRC
 final checks to `CHECK COMPLETE`, `WRITES DISABLED`, `CHECKS FINISHED`.
 `PRE0001.sav` on the card is byte-identical to the cart's save as the dump
 engine reads it and passes the Gen 2 checksum. First complete pass of the
-preflight on any cartridge. Cartridge writes remain compiled out.
+preflight on any cartridge. A second pass four minutes later passed the same
+way with recovery ID `0002`, again byte-identical to the dump engine's save
+read. Between the passes 193 bytes of SRAM bank 0 (`0x1F38..0x1FFB`, a
+scratch region outside the checksummed save) changed on the cart; both
+recovery files match the SRAM at their own moment. Cartridge writes remain
+compiled out.
 
 FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
 FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
