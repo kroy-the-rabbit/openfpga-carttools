@@ -75,9 +75,9 @@ integer n_get = 0, name_error = 0, name_fault = 0, name_transfer_fault = 0;
 integer name_length_words = 64, name_padding = 0, name_done_with_last = 0;
 integer occupied_names = 0, created_name = -1, last_open_name = -1, created_size = 0;
 integer wrong_table_id = 0, size_delta = 0, reopen_size_delta = 0, open_error = -1;
-integer read_error = 0, write_error = 0, resize_error = 0, mute_command = 0;
+integer read_error = 0, write_error = 0, mute_command = 0;
 integer short_words = 0, malformed_receive = 0, create_race = 0;
-integer create_result_override = -1, creation_reported_size = 0, wrong_created_id = 0;
+integer create_result_override = -1, creation_reported_size = SAVE_BYTES, wrong_created_id = 0;
 integer read_kind_errors = 0;
 
 function automatic [31:0] swap(input [31:0] word_value);
@@ -182,8 +182,8 @@ task automatic check_open_struct(output integer flags, output integer name);
         prefix = "/Assets/carttools/common/";
         for (j = 0; j < 25; j = j + 1)
             check(structure[j] === prefix[199-j*8 -: 8], "correct absolute Assets prefix");
-        check(flags == 0 || flags == 1 || flags == 2, "never combine create and resize");
-        check(desired_size == (flags == 2 ? SAVE_BYTES : 0), "only resize has a nonzero desired size");
+        check(flags == 0 || flags == 3, "a new recovery file is created and sized in one open");
+        check(desired_size == (flags == 3 ? SAVE_BYTES : 0), "only the create carries a desired size");
         name = -1;
         if (t_id == 21) begin
             meta_name = "RESTORE.meta";
@@ -224,7 +224,7 @@ task automatic check_open_struct(output integer flags, output integer name);
         check(debug_detail[145:139] == 66 && debug_detail[138:132] == 0,
               "complete unique structure trace with no repeat");
         check(debug_detail[103] == 0, "correct responses never set mismatch latch");
-        check(debug_detail[31:0] == (flags == 2 ? SAVE_BYTES : 0), "trace observed actual desired size");
+        check(debug_detail[31:0] == (flags == 3 ? SAVE_BYTES : 0), "trace observed actual desired size");
         check(debug_detail[155:146] == 10'h3FF, "trace retained every path word");
         for (j = 0; j < 40; j = j + 1)
             check(debug_detail[156+j*8 +: 8] === structure[j], "full observed path matches host");
@@ -245,7 +245,7 @@ task automatic model_open;
             else if (t_id != 23) begin
                 check(flags == 0, "input opens never create");
                 t_err = 0;
-            end else if (flags == 1) begin
+            end else if (flags == 3) begin
                 check(name >= occupied_names, "existing recovery file never recreated");
                 if (create_result_override >= 0) t_err = create_result_override;
                 else if (create_race) t_err = 0;
@@ -255,25 +255,17 @@ task automatic model_open;
                     t_err = 1;
                 end
                 size = creation_reported_size;
-            end else if (flags == 2) begin
-                n_resize = n_resize + 1;
-                check(name == created_name && name == last_open_name && n_write == 0,
-                      "only this operation's new pinned backup may be preallocated");
-                check(n_get == 1, "created recovery association queried before resize");
-                if (!resize_error) created_size = SAVE_BYTES;
-                size = created_size;
-                t_err = resize_error;
             end else if (name < occupied_names || name == created_name) begin
                 t_err = 0;
                 size = name == created_name ? created_size : 17;
             end else t_err = 3;
             if (t_id == 23) last_open_name = name;
-            datatable[table_index] = wrong_table_id || (flags == 1 && wrong_created_id) ? 16'd77 : t_id;
+            datatable[table_index] = wrong_table_id || (flags == 3 && wrong_created_id) ? 16'd77 : t_id;
             datatable[table_index+1] = size + size_delta;
             if (t_id == 23 && flags == 0 && name == created_name)
                 datatable[table_index+1] = size + reopen_size_delta;
             repeat (3) @(negedge clk);
-            if (!(mute_command == 4 && flags == 2)) t_done = 1;
+            if (!(mute_command == 4 && flags == 3)) t_done = 1;
         end
     end
 endtask
@@ -428,9 +420,9 @@ task automatic fresh;
         name_length_words = 64; name_padding = 0; name_done_with_last = 0;
         occupied_names = 0; created_name = -1; last_open_name = -1; created_size = 0;
         wrong_table_id = 0; size_delta = 0; reopen_size_delta = 0; open_error = -1;
-        read_error = 0; write_error = 0; resize_error = 0; mute_command = 0;
+        read_error = 0; write_error = 0; mute_command = 0;
         short_words = 0; malformed_receive = 0; create_race = 0;
-        create_result_override = -1; creation_reported_size = 0; wrong_created_id = 0;
+        create_result_override = -1; creation_reported_size = SAVE_BYTES; wrong_created_id = 0;
         read_kind_errors = 0;
         t_done = 1; t_err = 0;
         for (i = 0; i < 16; i = i + 1) datatable[i] = 0;
@@ -533,9 +525,9 @@ initial begin
         fresh();
         occupied_names = 2;
         run(2);
-        check(!failed && backup_index == 2 && n_open == 6 && n_get == 1 && n_resize == 1 && n_write == 1 && n_read == 1,
-              "probe, create, query association, preallocate, write, reopen, reread sequence");
-        check(debug_sequence === {4'hF,32'd0,16'd3,16'd1,16'd0,16'd0},
+        check(!failed && backup_index == 2 && n_open == 5 && n_get == 1 && n_write == 1 && n_read == 1,
+              "probe, create and size, query association, write, reopen, reread sequence");
+        check(debug_sequence === {4'hE,SAVE_BYTES_W,16'd3,16'd1,16'd0,16'd0},
               "all exact completion results and observed creation size retained");
         for (i = 0; i < SAVE_WORDS; i = i + 1)
             check(received[i] === backup_memory[i], "entire recovery file returned for comparison");
@@ -583,9 +575,15 @@ initial begin
         fresh();
         creation_reported_size = 37;
         run(2);
-        check(!failed && n_resize == 1 && n_write == 1 && n_read == 1 &&
-              debug_sequence === {4'hF,32'd37,16'd3,16'd1,16'd0,16'd0},
-              "nonzero observed creation size is recorded, then resized and fully verified");
+        check(failed && err == 9 && n_get == 1 && n_write == 0 && n_read == 0 &&
+              debug_sequence === {4'hE,32'd37,16'd3,16'd1,16'd0,16'd0},
+              "created file reported at the wrong size is recorded and blocks the write");
+        fresh();
+        creation_reported_size = 0;
+        run(2);
+        check(failed && err == 9 && debug_stage == 3 && n_write == 0 && n_read == 0 &&
+              debug_sequence === {4'hE,32'd0,16'd3,16'd1,16'd0,16'd0},
+              "created file left at size zero (the 12CD and C358 hardware result) blocks the write");
     end
 
     fresh();
@@ -626,12 +624,6 @@ initial begin
     check(failed && err == 15 && n_resize == 0 && n_write == 0 &&
           debug_sequence[99:96] == 4'hE && debug_sequence[31:16] == 16'd8,
           "full backup query result0008 cannot authorize resize");
-    fresh();
-    resize_error = 8;
-    run(2);
-    check(failed && err == 15 && n_write == 0 && n_read == 0 &&
-          debug_sequence === {4'hF,32'd0,16'd3,16'd1,16'd0,16'd8},
-          "full resize result0008 cannot authorize a recovery write");
     for (i = 6; i <= 7; i = i + 1) begin
         fresh();
         name_error = i;
@@ -701,10 +693,10 @@ initial begin
     check(failed && err == 13 && n_resize == 0 && n_write == 0 && n_read == 0,
           "racing existing recovery file cannot be overwritten");
     fresh();
-    resize_error = 5;
+    create_result_override = 5;
     run(2);
-    check(failed && err == 5 && n_resize == 1 && n_write == 0 && n_read == 0,
-          "failed preallocation prevents write");
+    check(failed && err == 5 && n_open == 2 && n_get == 0 && n_write == 0 && n_read == 0,
+          "failed creation prevents write");
     fresh();
     write_error = 2;
     run(2);

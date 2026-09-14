@@ -140,29 +140,34 @@ Before authorization can reach the writer, read the existing RAM twice and
 compare every byte. Save the original in a new recovery file, then reopen and
 reread the entire file and compare it to the original buffer. Probe successive
 `PRE0000.sav` style names with four hexadecimal digits and create a new file.
-Only after APF confirms this operation created that exact name may the core
-preallocate its 8,192 bytes. No preexisting backup is resized or overwritten.
+The create carries the full save length so the new file is sized in the same
+command. No preexisting backup is resized or overwritten.
 The core checks the new file's size before writing and checks it again after
 reopening for readback. Any short transfer, APF failure, mismatched length, or
 reread mismatch blocks cartridge save writes. Revalidate the cartridge before
 the final write authorization.
 
-APF separates create and resize. A create-only operation may produce a zero-byte
-file, making an immediate 8 KiB write out of range. The core therefore probes
-with flags `0`, creates with flags `1` and requires result `1` (newly created),
-then resizes that pinned name with flags `2`. Create-only sends desired size
-zero; resize-only sends 8192. After create result 1, independently query the
-slot's assigned filename and require the expected path through its terminator,
-then verify slot ID before permitting resize. Retain the reported creation
-size without assuming the API promises zero. A create result `0` means another
-file already exists there and blocks resize and write. The sequence assumes
-the running Pocket core is the sole writer to the card. APF supplies no inode
-or exclusive file handle to prove identity against concurrent external
+The core probes with flags `0` and requires result `3` (not found), then
+creates with flags `3` (create and resize) and the save length as the desired
+size, and requires result `1` (newly created). The Pocket does not keep a
+create-only file: on 12CD (Zelda) and C358 (Silver) a create with flags `1`
+answered `1`, the data table showed the new file at size zero, and the
+following resize-only open answered `3`, file not found, with no file left on
+the card. The dump engine's file writer, verified on every hardware dump,
+creates and sizes in one command. After create result `1`, independently
+query the slot's assigned filename and require the expected path through its
+terminator, then verify slot ID and require the table size to equal the save
+length before the write. A create result `0` means another file appeared
+there between the probe and the create; it is reported as the race error and
+blocks the write. The probe immediately before the create is what keeps the
+combined command from truncating an existing file. The sequence assumes the
+running Pocket core is the sole writer to the card. APF supplies no inode or
+exclusive file handle to prove identity against concurrent external
 replacement between commands.
 
 Restore must consume the full 16-bit command result. A truncated summary can
 alias an unsupported result onto success or create ownership. Keep full
-probe/create/name-query/resize results visible across subsequent commands;
+probe/create/name-query results visible across subsequent commands;
 unknown values fail closed. The legacy three-bit dumper interface does not
 authorize any restore operation.
 
@@ -252,8 +257,9 @@ The [APF command reference](https://www.analogue.co/developer/docs/host-target-c
 defines each command's result codes separately.
 
 Stages distinguish input open, slot-ID check, length check, input read,
-recovery-name probe, create, assigned-backup-path query/check, resize, write,
-reopen, and recovery readback.
+recovery-name probe, create, assigned-backup-path query/check, write,
+reopen, and recovery readback. The `SIZE NEW BACKUP` stage is no longer
+reached; the create sizes the file.
 The trace captures the responses actually held by the file service before
 `bridge_rd`, not just the requested pathname. Values are normalized to the
 service's internal byte-zero-low word representation:
@@ -265,8 +271,7 @@ service's internal byte-zero-low word representation:
 | `P8`, metadata | `74656D2E`, filename bytes `.met` |
 | `P8`, save or recovery | `7661732E`, filename bytes `.sav` |
 | `FLAGS`, open/probe/reopen | `00000000` |
-| `FLAGS`, create | `00000001` |
-| `FLAGS`, resize new recovery | `00000002` |
+| `FLAGS`, create and size new recovery | `00000003` |
 
 These historical path-word expectations used the same byte-zero-low assumption
 as the producer. The subsequent recovery-path correction uses raw `P0=2F417373`
@@ -303,14 +308,15 @@ additional fields, all numbers hexadecimal:
 A complete structure has `42` unique words. The tested 16-word chunk pattern
 reports `READS 46 UNIQUE 42 RPT 04`, repeats `10 20 30 40`, and no mismatch.
 The observed metadata filename should render `RESTORE.meta~~~`; all three
-trailing bytes are NUL. The post-12CD candidate sends size `00000000` for
-create-only and `00002000` for resize-only. Earlier candidates sent 8192 for
-both. That unused-field correction is not yet a hardware-proven repair.
+trailing bytes are NUL. The create sends the save length (`00002000` or
+`00008000`) with flags `3`. The post-12CD candidates sent size zero for a
+create-only open and the save length for a separate resize-only open; the
+Pocket answered the resize with `3`, file not found, on 12CD and C358.
 
-The post-12CD failure overlay also retains `SEQ Pxxxx Cxxxx Nxxxx Rxxxx`:
-full 16-bit results for probe, create, assigned-name query, and resize.
-`----` means that command has not returned a result, distinct from actual zero
-or an observed unknown `FFFF`. `NEW SIZE` is the table size observed after the
+The failure overlay also retains `SEQ Pxxxx Cxxxx Nxxxx Rxxxx`: full 16-bit
+results for probe, create, assigned-name query, and the former separate
+resize, which now always reads `----`. `----` means that command has not
+returned a result, distinct from actual zero or an observed unknown `FFFF`. `NEW SIZE` is the table size observed after the
 new backup's path and slot identity checks; `FFFFFFFF` is its initial sentinel.
 These fields survive subsequent command traces, but clear for a new operation.
 They report observed responses and table values, not proof of file durability.

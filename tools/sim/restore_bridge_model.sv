@@ -355,17 +355,18 @@ task recovery_open(input [31:0] wanted_flags, input [31:0] wanted_size,
         for (word_index = 0; word_index < 64; word_index = word_index + 1)
             if (received_path_words[word_index] !== recovery_path_words[word_index]) path_matches = 0;
         if (result_code >= 8) model_result = result_code; // injected unknown result
-        else if (wanted_flags == 1 && !recovery_disk_exists) begin
+        else if (wanted_flags == 3 && !recovery_disk_exists) begin
             model_result = 1;
             recovery_disk_exists = 1;
             recovery_slot_bound = 1;
             for (word_index = 0; word_index < 64; word_index = word_index + 1)
                 recovery_path_words[word_index] = received_path_words[word_index];
-            recovery_disk_size = 0;
+            // Fault 3: the host leaves the new file at size zero, as the
+            // Pocket did for a create-only open (12CD, C358).
+            recovery_disk_size = RECOVERY_FAULT == 3 ? 32'd0 : wanted_size;
         end else if (recovery_disk_exists && path_matches) begin
             model_result = 0;
             recovery_slot_bound = 1;
-            if (wanted_flags == 2) recovery_disk_size = wanted_size;
         end else model_result = 3;
         if (model_result != result_code)
             $fatal(1, "independent recovery filesystem disagrees with requested result");
@@ -400,8 +401,7 @@ task recovery_get_name;
 endtask
 
 task recovery_refused(input [3:0] wanted_error, input [3:0] wanted_stage,
-                     input [3:0] wanted_seen, input [15:0] create_result,
-                     input [15:0] resize_result);
+                     input [3:0] wanted_seen, input [15:0] create_result);
     begin
         polls = 0;
         while (completions == before_completion && polls < 20) begin tick(1); polls = polls + 1; end
@@ -410,9 +410,9 @@ task recovery_refused(input [3:0] wanted_error, input [3:0] wanted_stage,
             $fatal(1, "recovery association/full-result refusal failed: error=%h stage=%h",
                    err, debug_status[106:103]);
         if (debug_sequence !== {wanted_seen, (RECOVERY_FAULT == 3 ? 32'd0 : 32'hFFFFFFFF),
-                                16'd3, create_result, 16'd0, resize_result})
+                                16'd3, create_result, 16'd0, 16'd0})
             $fatal(1, "recovery refusal lost full-width command history: %h", debug_sequence);
-        if (recovery_writes || recovery_reads || recovery_opens != (RECOVERY_FAULT == 3 ? 3 : 2))
+        if (recovery_writes || recovery_reads || recovery_opens != 2)
             $fatal(1, "recovery refusal performed forbidden later file I/O");
         tick(16);
         if (command.target_0[31:16] == 16'h636D || r_target_open || r_target_write || r_target_read)
@@ -431,19 +431,18 @@ task recovery_success;
         recovery_disk_size = 0;
         recovery_slot_bound = 0;
         host_write(32'hF8001000, 32'h6F6B0003);
-        recovery_open(32'd1, 32'd0, RECOVERY_FAULT == 2 ? 16'h0009 : 16'd1);
+        recovery_open(32'd3, 32'd8192, RECOVERY_FAULT == 2 ? 16'h0009 : 16'd1);
         if (RECOVERY_FAULT == 2) begin
-            recovery_refused(4'd15, 4'd6, 4'b1100, 16'h0009, 16'd0);
+            recovery_refused(4'd15, 4'd6, 4'b1100, 16'h0009);
             disable recovery_flow;
         end
         recovery_get_name();
         if (RECOVERY_FAULT == 1) begin
-            recovery_refused(4'd14, 4'd14, 4'b1110, 16'd1, 16'd0);
+            recovery_refused(4'd14, 4'd14, 4'b1110, 16'd1);
             disable recovery_flow;
         end
-        recovery_open(32'd2, 32'd8192, RECOVERY_FAULT == 3 ? 16'h0008 : 16'd0);
         if (RECOVERY_FAULT == 3) begin
-            recovery_refused(4'd15, 4'd7, 4'b1111, 16'd1, 16'h0008);
+            recovery_refused(4'd9, 4'd3, 4'b1110, 16'd1);
             disable recovery_flow;
         end
         await_command(32'h636D0184);
@@ -483,9 +482,9 @@ task recovery_success;
         polls = 0;
         while (completions == before_completion && polls < 20) begin tick(1); polls = polls + 1; end
         if (completions != before_completion + 1 || failed || err || restore_io_busy ||
-            input_count != 2048 || recovery_opens != 4 || recovery_writes != 1 || recovery_reads != 1)
+            input_count != 2048 || recovery_opens != 3 || recovery_writes != 1 || recovery_reads != 1)
             $fatal(1, "full recovery command/SPI round trip did not complete");
-        if (debug_sequence !== {4'b1111, 32'd0, 16'd3, 16'd1, 16'd0, 16'd0})
+        if (debug_sequence !== {4'b1110, 32'd8192, 16'd3, 16'd1, 16'd0, 16'd0})
             $fatal(1, "full recovery lost create association and command history");
     end
 endtask

@@ -47,7 +47,9 @@ module restore_file_io #(
     // data; recovery trace observes transmitted Open File responses.
     output wire [108:0] debug_status,
     output wire [475:0] debug_detail,
-    // Seen mask P/C/N/R, creation table size, full probe/create/name/resize results.
+    // Seen mask P/C/N/R, creation table size, full probe/create/name results.
+    // The R slot is retained for the display; the create sizes the file, so
+    // it is never seen.
     output reg [99:0] debug_sequence,
     // Tap the selected top-level bridge response, not merely our own output.
     input wire [31:0] observed_bridge_data,
@@ -89,8 +91,7 @@ localparam [4:0] ST_IDLE = 0, ST_OPEN = 1, ST_OPEN_WAIT = 2,
     ST_ID_WAIT = 3, ST_ID_CHECK = 4, ST_SIZE_WAIT = 5, ST_SIZE_CHECK = 6,
     ST_READ = 7, ST_READ_WAIT = 8, ST_PROBE = 9, ST_PROBE_WAIT = 10,
     ST_CREATE = 11, ST_CREATE_WAIT = 12, ST_WRITE = 13, ST_WRITE_WAIT = 14,
-    ST_FINISH = 15, ST_RESIZE = 16, ST_RESIZE_WAIT = 17,
-    ST_NAME = 18, ST_NAME_WAIT = 19, ST_NAME_CHECK = 20,
+    ST_FINISH = 15, ST_NAME = 18, ST_NAME_WAIT = 19, ST_NAME_CHECK = 20,
     ST_ID_SETTLE = 21, ST_SIZE_SETTLE = 22;
 localparam [3:0] ERR_TIMEOUT = 8, ERR_TABLE = 9, ERR_TRANSFER = 10,
     ERR_NAMES_FULL = 11, ERR_OPERATION = 12, ERR_CREATE_RACE = 13,
@@ -102,7 +103,6 @@ reg [31:0] expected_bytes;
 reg [9:0] table_base;
 reg [1:0] open_flags;
 reg created_owned;
-reg check_before_write;
 reg checking_created;
 reg trace_name;
 reg saw_busy;
@@ -397,7 +397,6 @@ always @(posedge clk) begin
         table_base <= 0;
         open_flags <= 0;
         created_owned <= 0;
-        check_before_write <= 0;
         checking_created <= 0;
         debug_sequence <= {4'd0, 32'hFFFFFFFF, 64'd0};
         saw_busy <= 0;
@@ -443,7 +442,6 @@ always @(posedge clk) begin
                 input_kind <= op;
                 open_flags <= 0;
                 created_owned <= 0;
-                check_before_write <= 0;
                 checking_created <= 0;
                 debug_sequence <= {4'd0, 32'hFFFFFFFF, 64'd0};
                 expected_bytes <= op == 0 ? 32'd64 : {16'd0, save_bytes};
@@ -492,7 +490,6 @@ always @(posedge clk) begin
             ST_OPEN: begin
                 debug_stage <= 9; // reopen the newly written recovery file
                 open_flags <= 0;
-                check_before_write <= 0;
                 target_dataslot_openfile <= 1;
                 begin_wait();
                 state <= ST_OPEN_WAIT;
@@ -537,14 +534,15 @@ always @(posedge clk) begin
             end
             ST_SIZE_CHECK: begin
                 if (checking_created) begin
-                    // The contract does not promise zero size for create-only.
-                    // Retain what firmware reported; exact save-length checks
-                    // still guard both payload write and reread after the resize.
+                    // Retain the size firmware reports for the new file. It
+                    // must already be the exact save length: the create
+                    // carried it, and the payload write needs it in place.
                     debug_sequence[95:64] <= datatable_q;
                     checking_created <= 0;
-                    state <= ST_RESIZE;
+                    if (datatable_q != expected_bytes) fail_command(ERR_TABLE);
+                    else state <= ST_WRITE;
                 end else if (datatable_q != expected_bytes) fail_command(ERR_TABLE);
-                else state <= check_before_write ? ST_WRITE : ST_READ;
+                else state <= ST_READ;
             end
             ST_READ: begin
                 debug_stage <= operation == 2 ? 4'd10 : 4'd4;
@@ -597,8 +595,17 @@ always @(posedge clk) begin
                 end
             end
             ST_CREATE: begin
+                // Create and size the new recovery file in one open, as the
+                // dump engine's writer does on every verified dump. On the
+                // Pocket a create-only open leaves nothing a later
+                // resize-only open can find (12CD on Zelda, C358 on Silver:
+                // create answered 1, table size 0, resize answered 3). The
+                // probe that just answered 3 for this exact name is what
+                // keeps this from truncating an existing file; result 0
+                // here means a file appeared in between and is treated as
+                // the race error.
                 debug_stage <= 6;
-                open_flags <= 1;
+                open_flags <= 3;
                 target_dataslot_openfile <= 1;
                 begin_wait();
                 state <= ST_CREATE_WAIT;
@@ -618,37 +625,6 @@ always @(posedge clk) begin
                     end
                     else if (target_dataslot_result == 0) fail_command(ERR_CREATE_RACE);
                     else fail_command(command_error);
-                end else if (timeout == 0) begin
-                    poisoned <= 1;
-                    fail_command(ERR_TIMEOUT);
-                end
-            end
-            ST_RESIZE: begin
-                debug_stage <= 7;
-                // Only the exact name just proven newly created may be
-                // preallocated. Never combine create+resize: result 0 from
-                // that combined command would already have truncated an
-                // existing file before the controller could reject it.
-                if (!created_owned) fail_command(ERR_CREATE_RACE);
-                else begin
-                    open_flags <= 2;
-                    target_dataslot_openfile <= 1;
-                    begin_wait();
-                    state <= ST_RESIZE_WAIT;
-                end
-            end
-            ST_RESIZE_WAIT: begin
-                timeout <= timeout - 1;
-                if (!target_dataslot_done) saw_busy <= 1;
-                if (saw_busy && target_dataslot_done) begin
-                    debug_sequence[96] <= 1;
-                    debug_sequence[15:0] <= target_dataslot_result;
-                    if (target_dataslot_result != 0) fail_command(command_error);
-                    else begin
-                        check_before_write <= 1;
-                        datatable_addr <= table_base;
-                        state <= ST_ID_WAIT;
-                    end
                 end else if (timeout == 0) begin
                     poisoned <= 1;
                     fail_command(ERR_TIMEOUT);
