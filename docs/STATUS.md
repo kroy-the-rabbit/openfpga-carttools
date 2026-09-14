@@ -1,5 +1,6 @@
-# Engineering history
+# Status
 
-[Preserved document](https://github.com/kroy-the-rabbit/pocket-engineering/blob/main/carttools/main/docs/STATUS.md) (private).
+Current supported behavior and limits are in the [README](../README.md) and
+[save restore guide](SAVE-RESTORE.md).
 
-Current supported behavior and usage are in the [README](../README.md).
+[Preserved engineering status](https://github.com/kroy-the-rabbit/pocket-engineering/blob/main/carttools/notes/snapshots/2026-09-13-7c2c/docs/STATUS.md) (private).

@@ -7,6 +7,12 @@ this: the two are not the same, and the gaps are not small.
 **Status: specification, version 1. Most of it is NOT implemented.** Updated
 2026-09-02.
 
+The restore alpha uses one fixed `RESTORE.sav` plus required `RESTORE.meta`, flat in
+`/Assets/carttools/common/`. Its recovery files are `PRE0000.sav` style names.
+[SAVE-RESTORE.md](SAVE-RESTORE.md) describes input preparation, authorization
+and hardware coverage. Cartridge save writes are enabled after the required
+checks and confirmation. The older restore layout below is not this alpha's API.
+
 The core writes ROMs on all three platforms and saves on two, flat into
 `/Assets/carttools/common/`. `docs/STATUS.md` carries the file by file record.
 What follows is still the design target for the companion app; the table says
@@ -23,8 +29,8 @@ parts that do not exist.
 | basename may contain spaces, `-`, mixed case | uppercased; everything outside `A-Z0-9` becomes `_` | differs |
 | GBA basename appends ` (game code)` | no game code appended | not implemented |
 | `_2`, `_3` on a collision | **silently overwrites** | not implemented, and it has already cost a dump |
-| `verified: "reread"` | double read is being built, see `docs/DUMP-VERIFY-PLAN.md` | not implemented |
-| `verified: "readback"` | nothing reads a file back on either platform | not implemented |
+| `verified: "reread"` | GB/GBC ROM bytes are sampled twice; no verification sidecar is emitted | diagnostic only |
+| `verified: "readback"` | restore recovery files are read back; dumped ROM/save files are not | no verification sidecar |
 
 The collision row is the one that has done damage. Link's Awakening and
 Link's Awakening DX both title themselves `ZELDA`, so the second dump replaced
@@ -220,7 +226,13 @@ about where the halt and carry bits live, and a bad conversion corrupts an
 in-game clock. A conversion may be offered; it must be explicit, named after
 its target, and reversible.
 
-## Restore input
+## Restore input (older design target)
+
+For the experimental MBC1 and MBC3 implementation, use
+[SAVE-RESTORE.md](SAVE-RESTORE.md) instead. In particular, metadata
+is required for cartridge writes and an identity mismatch is refused, with no
+override. The raw save remains usable independently in emulators and recovery
+tools; this does not relax the core's authorization checks.
 
 The app writes `Restore/<basename>.sav` and the core reads it. The core
 validates before writing anything to a cartridge:

@@ -87,6 +87,7 @@ input   wire            target_dataslot_flush,      // 0x0188, commit buffered w
 output  reg             target_dataslot_ack,        // asserted upon command start until completion
 output  reg             target_dataslot_done,       // asserted upon command finish until next command is issued    
 output  reg     [2:0]   target_dataslot_err,        // contains result of command execution. zero is OK
+output  reg     [15:0]  target_dataslot_result,     // complete APF result, without legacy truncation
 
 input   wire    [15:0]  target_dataslot_id,         // parameters for each of the read/reload/write commands
 input   wire    [31:0]  target_dataslot_slotoffset,
@@ -215,6 +216,7 @@ initial begin
     target_dataslot_ack <= 0;
     target_dataslot_done <= 0;
     target_dataslot_err <= 0;
+    target_dataslot_result <= 0;
 end
     
 always @(posedge clk) begin
@@ -563,6 +565,7 @@ always @(posedge clk) begin
         
         target_dataslot_done <= 0;
         target_dataslot_err <= 0;
+        target_dataslot_result <= 0;
         tstate <= TARG_ST_WAITRESULT_DSO;
     end
     TARG_ST_WAITRESULT_DSO: begin
@@ -573,6 +576,7 @@ always @(posedge clk) begin
             // done
             // save result code
             target_dataslot_err <= target_0[2:0];
+            target_dataslot_result <= target_0[15:0];
             // assert done
             target_dataslot_done <= 1;
             tstate <= TARG_ST_IDLE;

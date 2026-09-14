@@ -293,3 +293,22 @@ Two properties are deliberate:
   never fires and the line holds X in simulation while hardware settles it.
   That simulation and synthesis mismatch was a real bug here, caught by
   `tb_ui_screen.sv`'s first check.
+
+## GB/GBC paired-read diagnostic
+
+The Silver diagnostic candidate adds three rows after a completed GB/GBC ROM
+dump. Each ROM byte is sampled twice, and the first sample supplies the file,
+image checksum, and CRC32. No retry or replacement byte is selected.
+
+| Row | Example | Meaning |
+|---|---|---|
+| 15 | `READ DIFF 000003 (HEX)` | Number of byte pairs that differed |
+| 16 | `EVEN 000001 ODD 000002` | Mismatches grouped by ROM address parity |
+| 17 | `FIRST 001:008B CB/CA` | First differing bank, offset within the 16 KB bank, and first/second byte |
+
+All fields use hexadecimal. A zero count shows `PAIRED READS AGREE` and leaves
+the first-mismatch row blank. Agreement alone does not prove a correct ROM;
+the existing checksum and CRC rows remain visible. The diagnostic rows appear
+only after the ROM reader and file write complete. They are hidden for failed
+or partial dumps, saves, GBA, and while scanning. Restore's ROM identity reads
+retain their existing single-read behavior.

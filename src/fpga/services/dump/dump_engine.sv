@@ -119,6 +119,8 @@ module dump_engine #(
     input  wire        cart_mode,
 
     output reg         busy,
+    // The GB ROM reader is running: bank writes, reads, pair rereads, stalls.
+    output wire        gb_rom_reading,
     output reg         done,              // one cycle
     output reg         failed,
     output reg  [2:0]  err,
@@ -208,6 +210,16 @@ module dump_engine #(
     output wire        sum_ok,
     output wire [15:0] sum_computed,
     output wire [15:0] sum_stored,
+
+    // Adjacent GB ROM read diagnostics, in clk_sys. Valid only after the
+    // entire ROM reader finishes; the UI additionally requires file success.
+    output reg         pair_checked,
+    output wire [23:0] pair_mismatches,
+    output wire [23:0] pair_even,
+    output wire [23:0] pair_odd,
+    output wire [22:0] pair_first_addr,
+    output wire [7:0]  pair_first_a,
+    output wire [7:0]  pair_first_b,
 
     // Whether this cartridge's save can be read at all, live off the header
     // rather than latched, so the button can be gated on it before a press.
@@ -688,6 +700,7 @@ wire       rd_busy, rd_done;
 wire [7:0] gb_data, gba_data, gsv_data, gee_data;
 wire       gb_valid, gba_valid, gsv_valid, gee_valid;
 wire       gb_busy, gb_done, gba_rd_busy, gba_rd_done;
+assign gb_rom_reading = gb_busy;
 wire       gsv_busy, gsv_done;
 wire [31:0] gsv_bytes;
 wire        gsv_responded, gsv_blank_ff, gsv_blank_00;
@@ -742,7 +755,7 @@ wire rd_start_gba_ee = rd_start &  gba_l &  save_l &  eeprom_l;
 // Held in reset by an abort rather than given an abort input of its own: it
 // is stalled waiting for a bus_done that is not coming, and a reset is the
 // only thing that reaches that state. Both readers are the same in this.
-cart_dump_gb reader (
+cart_dump_gb #(.PAIR_READS(1'b1)) reader (
     .clk           ( clk_sys ),
     .reset         ( reset_sys | abort_l ),
     .start         ( rd_start_gb ),
@@ -757,6 +770,12 @@ cart_dump_gb reader (
     .bus_wdata     ( grom_wdata ),
     .bus_rdata     ( bus_rdata ),
     .bus_done      ( bus_done ),
+    .pair_mismatches( pair_mismatches ),
+    .pair_even      ( pair_even ),
+    .pair_odd       ( pair_odd ),
+    .pair_first_addr( pair_first_addr ),
+    .pair_first_a   ( pair_first_a ),
+    .pair_first_b   ( pair_first_b ),
     .out_data      ( gb_data ),
     .out_valid     ( gb_valid ),
     .out_ready     ( src_ready )
@@ -987,6 +1006,13 @@ dump_crc32 crccalc (
 // against, and sum_computed against sum_stored would be two numbers about
 // nothing. Reported as unchecked, which is the truth, rather than as a pass.
 assign sum_checked = !sel_l && !gba_l && !save_l;
+
+always @(posedge clk_sys) begin
+    if (reset_sys || abort_l || (ss == SS_IDLE && start))
+        pair_checked <= 1'b0;
+    else if (gb_done && !sel_l && !gba_l && !save_l)
+        pair_checked <= 1'b1;
+end
 
 // Unlike sum_checked this is true on both platforms: a CRC32 needs nothing
 // from the cartridge to be meaningful. It is false only for the self test,

@@ -24,11 +24,16 @@ needed and no host Python is involved.
 
 | | |
 |---|---|
-| `check_*.py` | structural checks over the source tree, no simulation |
+| `check_*.py` | structural checks and generated integration/negative-control simulations |
 | `tb_*.sv` | Icarus testbenches, compiled with `iverilog -g2012` and run under `vvp` |
 
 `run_all.py` discovers both by filename. There is no list to keep in sync: drop
 a file in, it runs.
+
+Restore data-table tests model the shipped RAM's synchronous read and
+registered output. `check_restore_datatable.py` verifies the vendor wrapper
+configuration and removes each controller wait in turn to prove early ID and
+size samples fail. A one-cycle RAM replacement does not test this interface.
 
 ## The SOURCES convention
 
@@ -122,6 +127,15 @@ is driven into each of the three collisions by hand, against a model built with
 that never fires would make every other testbench weaker than it looks.
 
 ### What each testbench covers
+
+Restore SD diagnostics are covered by `tb_restore_file_io` and
+`tb_ui_restore_screen`. `check_restore_bridge` additionally compiles the real
+file service and APF command-register RTL, with the command and response muxes
+extracted from `core_top`. It checks the complete open structure in both
+endian modes and rejects deliberately wrong pointer/response mux variants.
+Its host model injects the firmware error to test refusal and retained trace
+output; it does not reproduce the B458 hardware failure or emulate firmware's
+path parser.
 
 | | |
 |---|---|

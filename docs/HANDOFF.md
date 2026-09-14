@@ -1,5 +1,3 @@
-# Engineering history
+# Engineering handoff
 
-[Preserved document](https://github.com/kroy-the-rabbit/pocket-engineering/blob/main/carttools/main/docs/HANDOFF.md) (private).
-
-Current supported behavior and usage are in the [README](../README.md).
+[Current engineering handoff](https://github.com/kroy-the-rabbit/pocket-engineering/blob/main/carttools/notes/HANDOFF.md) (private).

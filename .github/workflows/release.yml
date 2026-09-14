@@ -75,8 +75,22 @@ jobs:
           version="${tag#v}"
           zip="kroy.CartTools_${version}.zip"
           mkdir -p dist && cd dist
-          gh release download "$tag" -p "$zip" -p SHA256SUMS -p report.txt
+          gh release download "$tag" -p "$zip" -p SHA256SUMS -p report.txt -p BUILD.json
           sha256sum -c SHA256SUMS
-          unzip -p "$zip" Cores/kroy.CartTools/core.json \
-            | python3 -c "import json,sys; v=json.load(sys.stdin)['core']['metadata']['version']; print('stamped', v); sys.exit(v != '$version')"
-          echo "$tag: package present, checksums verified, version stamped."
+          python3 - "$zip" "$version" "$GITHUB_SHA" <<'PY'
+          import hashlib, json, subprocess, sys, zipfile
+          package, version, release_commit = sys.argv[1:]
+          with open('BUILD.json') as stream:
+              provenance = json.load(stream)
+          assert provenance['version'] == version, 'wrong provenance version'
+          assert provenance['release_commit'] == release_commit, 'wrong release commit'
+          with zipfile.ZipFile(package) as archive:
+              metadata = json.loads(archive.read('Cores/kroy.CartTools/core.json'))['core']['metadata']
+              assert metadata['version'] == version, 'wrong package version'
+              day = version.rsplit('.', 1)[1]
+              assert metadata['date_release'] == f'{day[:4]}-{day[4:6]}-{day[6:]}', 'wrong package date'
+              bitstream = archive.read('Cores/kroy.CartTools/bitstream.rbf_r')
+              assert hashlib.sha256(bitstream).hexdigest() == provenance['bitstream_sha256'], 'wrong bitstream'
+          subprocess.run(['git', 'merge-base', '--is-ancestor', provenance['build_commit'], release_commit], check=True)
+          print('Package version, date, bitstream and build ancestry verified.')
+          PY

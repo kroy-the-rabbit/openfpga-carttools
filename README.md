@@ -30,12 +30,13 @@ what was written here.
 | Save RAM banking, to 128 KB | **works** at 8 KB one bank and 32 KB four banks; 64 KB and 128 KB built, untested |
 | GBA save backup | **works**, eleven cartridges: 32 KiB SRAM, 64 KiB Flash, and EEPROM at 512 bytes and 8 KiB, each loaded in an emulator with its state intact. None of it writes to the cartridge; the EEPROM reader cannot even express a write. 128 KiB Flash refused, it needs a bank-select write |
 | A write that is cut short mid-pulse | **safe**, the cartridge captures the byte that was asked for rather than a floating bus |
-| Save restore | not started |
+| Save restore | **alpha; verified on Pokemon Silver**, MBC3 32 KiB. MBC1 8 KiB and other MBC3 cartridges are implemented but untested. See [save restore](docs/SAVE-RESTORE.md) |
 | MBC3 RTC | not started |
-| MBC2, MBC3, MBC1 above 512 KB | simulation only, no cartridge to test |
+| MBC3 ROM and save dumping | **works**, Pokemon Silver, 2 MB and 32 KiB, after the idle-bus fix in `ff5dd03` |
+| MBC2, MBC1 above 512 KB | simulation only, no cartridge to test |
 | MBC2's 512 nibbles of save RAM | refused, and the screen says so |
 | GBA cartridges above 16 MB | untested |
-| Reading a file back off the card to verify it | not built |
+| Automatic readback of ROM/save dump files | not built; restore recovery files are read back and verified |
 | Sidecar metadata | specified in [docs/FILE-FORMATS.md](docs/FILE-FORMATS.md), not written |
 | Two cartridges with the same title | the second dump silently overwrites the first |
 | CGB filenames | four bytes of manufacturer code land in the name |
@@ -103,9 +104,8 @@ Twelve cartridges have been re-dumped and every one came back byte for byte
 identical, so the dump path reproduces. But three cartridges have at some point
 produced a corrupt image, most likely from dirty contacts, and one was caught
 only because the core compares the image against the cartridge's own checksum:
-the header checksum on the row above it passed. Nothing reads a file back off
-the card, so a fault between the core and the SD write is invisible to
-everything above.
+the header checksum on the row above it passed. Dumped ROM/save files are not
+automatically read back from the card; restore recovery files are.
 
 Every dumped image passes the checks the cartridge itself carries: the Nintendo
 logo, the header checksum, and for Game Boy the global checksum.
@@ -122,9 +122,10 @@ left.
 
 ## What this core writes to a cartridge
 
-**It never writes save data to a cartridge.** It dumps; it does not restore.
-There is no restore path in it, and the byte that would carry save data back has
-nowhere to go.
+**Save restore writes cartridge save RAM.** It requires identity and input
+checks, a verified recovery file and a deliberate three-second hold. This
+alpha has passed hardware restore on Pokemon Silver; other implemented
+geometries remain untested. See [save restore](docs/SAVE-RESTORE.md).
 
 It does write to mapper registers, in ROM space, because the hardware offers no
 other way to read:
@@ -135,10 +136,9 @@ other way to read:
   cartridge answers in the RAM window only while the gate is open. It is closed
   again on every exit, including an abort.
 
-Nothing this core does puts a byte into `0xA000` to `0xBFFF` or into GBA ROM
-space. `gb_cart_bus` derives `/CS` from the address rather than taking it from
-the caller, and `tb_gb_save_write_protect` checks at the connector pins, every
-clock edge of a full read, that `/WR` never falls while `/CS` is low.
+Ordinary dumping does not write save data. `tb_gb_save_write_protect` checks
+the connector pins throughout a full save read. The separately authorized
+restore writer accesses GB/GBC save RAM; GBA save restore is not implemented.
 
 ## Versions
 
@@ -177,6 +177,8 @@ games.
 Put a cartridge in, launch the core, and choose what to do with it. Dumps land
 on the card under `/Assets/carttools/common/`. SELECT shows the raw header bytes
 for anything that identifies itself.
+
+For save writes, follow the [save restore guide](docs/SAVE-RESTORE.md).
 
 ## Checking what came off the cartridge
 
@@ -321,7 +323,6 @@ supplied under Analogue's own software licence agreement and the Pocket EULA
 linked from their headers, which provide that where the MIT or GNU licences must
 apply, those prevail.
 
-Binary releases here are built from the exact tagged commit of this repository
-on a controlled builder, and the tag is the corresponding source for them. The
-release carries the zip and the timing report; its SHA-256s are recorded in
-the release notes.
+Binary releases are built on a controlled builder. `BUILD.json` records the
+original build commit and bitstream SHA-256; packaging updates preserve that
+provenance. Releases include the package, timing report and checksums.
