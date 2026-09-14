@@ -92,9 +92,11 @@ slot the page reported `RESTORE VERIFIED`, `TWO READBACK CHECKS PASSED`,
 booted to CONTINUE with PLAYER Mattia, BADGES 16, POKéDEX 251, TIME 56:44,
 the save that was prepared from the downloaded file; the cart held a
 different save before. The recovery file `PRE0003.sav` equals the
-pre-restore save. A post-restore dump for the byte-for-byte match against
-`RESTORE.sav` is the remaining evidence. Verified on Silver only; MBC1 and
-other MBC3 cartridges are untested for restore.
+pre-restore save. A dump taken after the game had booted differs from
+`RESTORE.sav` only in the game's own boot scratch writes; the checksummed
+save region (`0x2009..0x2D68`) is identical and the engine's two whole-file
+readbacks passed before the game ran. **Save restore is verified on Pokemon
+Silver.** MBC1 and other MBC3 cartridges are untested for restore.
 
 FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
 FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
