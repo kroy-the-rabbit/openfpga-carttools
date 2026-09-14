@@ -51,8 +51,14 @@ assigned name is right, the table shows size 0, and the resize-only open
 (flags 2, 32,768) answers 3, file not found; no `PRE*.sav` remains on the
 card. This is the 12CD failure from 2026-09-08 reproduced on the MBC3 path.
 The dump engine's file writer, verified on every hardware dump, creates and
-sizes a new file in one open-file command; the restore service splits them by
-design. Change under decision.
+sizes a new file in one open-file command; the restore service split them by
+design. Commit `2dcace3`, stamp **2DCA**, creates the recovery file with
+flags 3 and the save length in one open, requires result 1, and requires
+the table size to equal the save length before the write; the separate
+resize is gone. 51/51 checks on both runners; bitstreams byte-identical (MD5
+`e16655e2d4f4546c7fdc548b73be8b66`), setup +0.754 ns, hold +0.085 ns,
+installed and byte-verified on 2026-09-13 with the Silver inputs unchanged.
+Awaiting the hardware preflight.
 
 FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
 FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
