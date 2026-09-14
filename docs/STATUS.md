@@ -44,7 +44,15 @@ checks every ROM read carries it and no RAM access does. 51/51 checks, run
 on a build runner; built on two runners byte-identical (MD5
 `853acd497426ec9deceaf2db8a616f19`), setup +0.637 ns, hold +0.120 ns,
 installed and byte-verified on 2026-09-13 with the Silver inputs unchanged.
-Awaiting the hardware preflight.
+Hardware result on C358, 2026-09-13: **the ROM identity check passes**; the
+preflight reaches the SD sequence and stops at `SIZE NEW BACKUP`, SD error
+3: probe of `PRE0000.sav` not found, create (flags 1) answered 1, the
+assigned name is right, the table shows size 0, and the resize-only open
+(flags 2, 32,768) answers 3, file not found; no `PRE*.sav` remains on the
+card. This is the 12CD failure from 2026-09-08 reproduced on the MBC3 path.
+The dump engine's file writer, verified on every hardware dump, creates and
+sizes a new file in one open-file command; the restore service splits them by
+design. Change under decision.
 
 FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
 FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
