@@ -85,8 +85,16 @@ in between; the checksummed save was intact). On that basis commit
 `7c2c56d`, stamp **7C2C**, sets `RESTORE_WRITE_ENABLED = 1`. 51/51 checks
 on both runners; bitstreams byte-identical (MD5
 `0be346ad3994e329e4e272e8bc28d606`), setup +0.712 ns, hold +0.123 ns,
-installed and byte-verified on 2026-09-13. The cartridge write itself has
-not run yet.
+installed and byte-verified on 2026-09-13. **Hardware result on 7C2C,
+2026-09-13: the first cartridge save write succeeded.** With Silver in the
+slot the page reported `RESTORE VERIFIED`, `TWO READBACK CHECKS PASSED`,
+`CHECKS FINISHED`, save CRC `18801E27`, recovery ID `0003`, and Silver then
+booted to CONTINUE with PLAYER Mattia, BADGES 16, POKéDEX 251, TIME 56:44,
+the save that was prepared from the downloaded file; the cart held a
+different save before. The recovery file `PRE0003.sav` equals the
+pre-restore save. A post-restore dump for the byte-for-byte match against
+`RESTORE.sav` is the remaining evidence. Verified on Silver only; MBC1 and
+other MBC3 cartridges are untested for restore.
 
 FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
 FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
