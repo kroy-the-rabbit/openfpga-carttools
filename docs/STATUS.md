@@ -38,8 +38,13 @@ while the ordinary dump on the same build reads Silver byte-identical (CRC32
 precharge release followed only the dump engine's reader; the restore
 engine's identity pass reads the whole ROM through its own reader with the
 precharge on, which is the Silver failure mode FF5D fixed for dumps.
-`restore_engine` now exports `rom_reading` and the top releases the
-precharge for either reader. Awaiting the next build.
+Commit `c3583be`, stamp **C358**: `restore_engine` exports `rom_reading`
+and the top releases the precharge for either reader; the bench model
+checks every ROM read carries it and no RAM access does. 51/51 checks, run
+on a build runner; built on two runners byte-identical (MD5
+`853acd497426ec9deceaf2db8a616f19`), setup +0.637 ns, hold +0.120 ns,
+installed and byte-verified on 2026-09-13 with the Silver inputs unchanged.
+Awaiting the hardware preflight.
 
 FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
 FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
