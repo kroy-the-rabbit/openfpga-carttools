@@ -80,8 +80,13 @@ preflight on any cartridge. A second pass four minutes later passed the same
 way with recovery ID `0002`, again byte-identical to the dump engine's save
 read. Between the passes 193 bytes of SRAM bank 0 (`0x1F38..0x1FFB`, a
 scratch region outside the checksummed save) changed on the cart; both
-recovery files match the SRAM at their own moment. Cartridge writes remain
-compiled out.
+recovery files match the SRAM at their own moment (the game had been booted
+in between; the checksummed save was intact). On that basis commit
+`7c2c56d`, stamp **7C2C**, sets `RESTORE_WRITE_ENABLED = 1`. 51/51 checks
+on both runners; bitstreams byte-identical (MD5
+`0be346ad3994e329e4e272e8bc28d606`), setup +0.712 ns, hold +0.123 ns,
+installed and byte-verified on 2026-09-13. The cartridge write itself has
+not run yet.
 
 FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
 FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
