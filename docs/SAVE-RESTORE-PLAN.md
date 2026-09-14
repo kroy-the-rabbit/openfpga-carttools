@@ -70,7 +70,8 @@ released for 20 ms before ordinary controls accept a new press. Interrupted
 entry and B+X chords cannot fall through into dumping. Reset, cartridge state
 change, validation failure, and completion revoke authorization. Each attempt
 stages its own complete input; late SD transfers cannot replace the buffer
-used by the writer. Save writes remain compiled out for initial hardware checks.
+used by the writer. Save writes were compiled out for the initial hardware
+checks and enabled on 2026-09-13 after two clean preflight passes on Silver.
 
 ## Identity checks and their limits
 
@@ -179,8 +180,9 @@ firmware and SD caching guarantees. The APF flush command is not used because
 it hangs on the tested firmware. The first hardware recovery test must include
 power-cycling and copying that backup off-card before any save write is enabled.
 
-The first candidate must keep cartridge save writes clamped off while the APF
-file size and readback behavior is verified on hardware. An APF command that
+The first candidates kept cartridge save writes clamped off while the APF
+file size and readback behavior was verified on hardware; that gate was
+passed twice on Silver on 2026-09-13 (772B). An APF command that
 times out cannot be reused while a late completion might still arrive.
 
 MBC1 restore must explicitly select RAM bank zero, enable RAM, write only

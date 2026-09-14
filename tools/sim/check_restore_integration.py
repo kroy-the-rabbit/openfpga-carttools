@@ -533,8 +533,11 @@ endmodule
 
 def main():
     source = uncomment(TOP.read_text())
-    if not re.search(r"RESTORE_WRITE_ENABLED\s*=\s*1'b0\s*;", source):
-        raise AssertionError("first hardware candidate must clamp save writes off")
+    # Writes were clamped off (1'b0) until two clean hardware preflight passes
+    # on Pokemon Silver, 2026-09-13. The constant must stay a literal so a
+    # build's write state is readable from the source.
+    if not re.search(r"RESTORE_WRITE_ENABLED\s*=\s*1'b1\s*;", source):
+        raise AssertionError("save write enable must be the literal 1'b1 after qualification")
     engine = uncomment((ROOT / "src/fpga/services/restore/restore_engine.sv").read_text())
     if not re.search(r"permit_program\s*=\s*WRITE_ENABLED\s*&&", engine):
         raise AssertionError("writer authorization bypasses build write clamp")

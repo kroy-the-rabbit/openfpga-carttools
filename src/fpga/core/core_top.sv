@@ -452,9 +452,12 @@ wire            datatable_wren = 1'b0;
 wire    [31:0]  datatable_data = 32'h0;
 wire    [31:0]  datatable_q;
 
-// First restore candidate verifies staging and recovery on hardware with RAM
-// writes clamped off. Enabling writes requires the documented hardware gate.
-localparam bit RESTORE_WRITE_ENABLED = 1'b0;
+// Cartridge save writes. Clamped off through the hardware qualification of
+// staging, identity and recovery; enabled on 2026-09-13 after two clean
+// preflight passes on Pokemon Silver (772B, recovery files byte-identical to
+// the cart's SRAM). The engine still gates every RAM write behind the full
+// preflight, the recovery file and the deliberate A hold.
+localparam bit RESTORE_WRITE_ENABLED = 1'b1;
 wire restore_busy, restore_active, restore_io_busy, restore_poisoned;
 wire restore_poisoned_s;
 wire [3:0] restore_guard_state;
