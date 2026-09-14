@@ -120,11 +120,13 @@ words. CRC32 is the standard reflected CRC used by `zlib.crc32` and the core's
 
 ## Mandatory recovery and write containment
 
-Open File command paths and file payloads have different packing contracts.
-Recovery path bytes occupy each word high byte first, matching the independently
-hardware-tested PC Engine Open File implementation. Flags and size remain native
-numeric words. The 8 KiB recovery payload remains low byte first, matching the
-verified dumper. Get Filename input-path comparisons use normalized character
+Every byte array that crosses the bridge occupies each word high byte first,
+in both directions: recovery path bytes (matching the independently
+hardware-tested PC Engine Open File implementation), incoming file words, and
+the outbound recovery payload. The payload was sent low byte first through
+2DCA and the file on the card came back with every word reversed (2DCA
+preflight, 2026-09-13); the service now swaps it on the way out. Flags and
+size remain native numeric words. Get Filename input-path comparisons use normalized character
 order and are not changed by the outgoing command-string correction. Tests must
 decode path words independently of the producer and check nonzero scalar fields
 separately from both path bytes and payload bytes.

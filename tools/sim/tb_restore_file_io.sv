@@ -350,7 +350,7 @@ task automatic model_write;
             for (w = 0; w < SAVE_WORDS; w = w + 1) begin
                 host_word(t_address + (w+1)*4, stream_word, 1);
                 written_file[w] = stream_word;
-                check(written_file[w] === backup_memory[w], "outbound RAM word order");
+                check(written_file[w] === swap(backup_memory[w]), "outbound RAM word order, byte zero high");
             end
             repeat (3) @(negedge clk);
             t_err = write_error;
@@ -375,7 +375,9 @@ task automatic model_read;
                 write_index = w;
                 if (malformed_receive == 1 && w == 7) write_index = 6;
                 data_word = t_id == 23 ? written_file[w] : input_word(t_id, w);
-                stream_word = swap(data_word);
+                // A reread returns the recovery words exactly as they went out;
+                // fixed inputs arrive byte zero high from their byte-zero-low content.
+                stream_word = t_id == 23 ? data_word : swap(data_word);
                 bridge_addr = 32'hB0000000 + write_index*4;
                 if (malformed_receive == 2 && w == 7) bridge_addr = bridge_addr + 1;
                 if (malformed_receive == 3 && w == 7) bridge_addr = 32'hB0008000;

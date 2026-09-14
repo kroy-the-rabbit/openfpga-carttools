@@ -457,9 +457,10 @@ task recovery_success;
         host_read(transfer_pointer, response);
         for (word_index = 0; word_index < 2048; word_index = word_index + 1) begin
             host_read(transfer_pointer + 4*(word_index+1), response);
-            // Outbound file bytes are intentionally not path-string bytes.
-            // Byte zero remains low-first for the 0184 save payload.
-            if (response !== backup_word(word_index))
+            // The recovery payload goes out byte zero high, like the path
+            // string and like every word APF delivers; the host writes the
+            // same words back on reread.
+            if (response !== swap(backup_word(word_index)))
                 $fatal(1, "recovery payload word %0d expected %08x got %08x",
                        word_index, backup_word(word_index), response);
             recovery_disk[word_index] = response;
@@ -477,7 +478,7 @@ task recovery_success;
         input_count = 0;
         host_write(32'hF8001000, 32'h62750000);
         for (word_index = 0; word_index < 2048; word_index = word_index + 1)
-            host_write(transfer_pointer + 4*word_index, swap(recovery_disk[word_index]));
+            host_write(transfer_pointer + 4*word_index, recovery_disk[word_index]);
         host_write(32'hF8001000, 32'h6F6B0000);
         polls = 0;
         while (completions == before_completion && polls < 20) begin tick(1); polls = polls + 1; end

@@ -6,12 +6,13 @@
 // this service until hard reset, because APF commands cannot be cancelled and
 // a late completion must never be consumed by a subsequent transaction.
 //
-// Internal save words and outbound file payloads have byte zero in bits 7:0,
-// matching the measured dump output. Open File path strings instead put byte
-// zero in bits 31:24, as the hardware-tested PC Engine command path does.
-// Flags and size are native numeric words, not byte-swapped strings. Incoming
-// APF byte arrays also arrive high-byte-first after undoing bridge endianness.
-// Do not infer command-structure packing from file-payload packing.
+// Internal save words have byte zero in bits 7:0. Everything that crosses
+// the bridge as a byte array has byte zero in bits 31:24 in both directions:
+// Open File path strings (as the hardware-tested PC Engine command path
+// does), incoming APF byte arrays after undoing bridge endianness, and the
+// outbound recovery payload, which is swapped on the way out (measured on
+// the 2DCA preflight: sent byte zero low, the file came back word-reversed).
+// Flags and size are native numeric words, not byte-swapped strings.
 // Reads use the established free-running address / bridge_rd-held response
 // shape. See dump_engine's bridge window and docs/APF-NOTES.md.
 // Fixed read-only input slots are verified through Get Filename, slot ID,
@@ -238,7 +239,11 @@ always @(posedge clk) begin
         select_struct_1 <= struct_hit;
         select_struct_2 <= select_struct_1;
         if (bridge_rd) begin
-            read_hold <= select_struct_2 ? struct_q : backup_rd_q;
+            // The recovery payload goes out byte zero high, like the path
+            // struct and like every word APF delivers to this core. 2DCA
+            // sent it byte zero low and the file on the card came back with
+            // every word reversed (2DCA preflight, 2026-09-13).
+            read_hold <= select_struct_2 ? struct_q : swap_bytes(backup_rd_q);
             hit_hold <= struct_hit || backup_hit;
             reply_word_index <= bridge_addr[8:2];
         end
