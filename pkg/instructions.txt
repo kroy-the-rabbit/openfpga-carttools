@@ -5,4 +5,12 @@ Note: macOS Finder replaces folders instead of merging them, so do it all
 manually and be careful.
 
 CartTools reads the cartridge in the Pocket's slot. It does not load ROMs from
-the SD card; it writes them to it, under /Assets/carttools/.
+the SD card; it writes them to it, under /Assets/carttools/common/.
+
+Save restore is alpha and writes cartridge save RAM. Hardware restore is
+verified on Pokemon Silver only. It requires prepared RESTORE.sav and
+RESTORE.meta inputs, preflight checks, a verified recovery backup and a
+three-second A hold. Keep the PRE*.sav recovery files.
+
+Read the restore guide before preparing an input:
+https://github.com/kroy-the-rabbit/openfpga-carttools/blob/main/docs/SAVE-RESTORE.md
