@@ -65,7 +65,12 @@ cart's save with every 32-bit word byte-reversed (the dump engine's save of
 the same cart passes the Gen 2 checksum; the recovery file does not). The
 capture is correct, since a reversed capture would have matched its own
 reread. The outbound payload must go out byte zero high, as the path struct
-and every incoming word already do. Fix in progress.
+and every incoming word already do. Commit `772b0a6`, stamp **772B**, sends
+it that way; the bench hosts return reread words exactly as they went out.
+51/51 checks on both runners; bitstreams byte-identical (MD5
+`0aaab85f42da68c1298ff21f61ae0c3f`), setup +0.826 ns, hold +0.121 ns,
+installed and byte-verified on 2026-09-13 with the Silver inputs unchanged.
+Awaiting the hardware preflight.
 
 FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
 FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
