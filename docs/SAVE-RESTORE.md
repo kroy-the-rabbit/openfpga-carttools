@@ -3,7 +3,7 @@
 Save restore is alpha. Cartridge writes and both readback checks have been
 verified on **Pokemon Silver**, using 32 KiB of MBC3 save RAM. The game then
 booted a publicly obtained save with player name **Mattia**, 16 badges,
-Pokédex 251 and time 56:44.
+Pokédex 251 and time 56:44, a public save sourced from [here](https://gbatemp.net/download/pokemon-silver-version-save-file.38572/).
 
 MBC1 8 KiB and other supported MBC3 32 KiB cartridges are implemented but
 untested on hardware. MBC3 RTC state and GBA saves are not restored.
