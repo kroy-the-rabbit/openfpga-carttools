@@ -58,7 +58,14 @@ the table size to equal the save length before the write; the separate
 resize is gone. 51/51 checks on both runners; bitstreams byte-identical (MD5
 `e16655e2d4f4546c7fdc548b73be8b66`), setup +0.754 ns, hold +0.085 ns,
 installed and byte-verified on 2026-09-13 with the Silver inputs unchanged.
-Awaiting the hardware preflight.
+Hardware result on 2DCA, 2026-09-13: **the recovery file is created, sized,
+written, reopened and reread**; `PRE0000.sav` (32,768 bytes) exists on the
+card. The preflight stops at `SD RECOVERY BYTES DIFFER`: the file is the
+cart's save with every 32-bit word byte-reversed (the dump engine's save of
+the same cart passes the Gen 2 checksum; the recovery file does not). The
+capture is correct, since a reversed capture would have matched its own
+reread. The outbound payload must go out byte zero high, as the path struct
+and every incoming word already do. Fix in progress.
 
 FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
 FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
