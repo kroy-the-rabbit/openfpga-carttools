@@ -177,7 +177,12 @@ always @(posedge clk) begin
                 refuse     <= 1'b0;
                 if (req && !refuse) begin
                     latched_addr  <= addr;
-                    latched_wdata <= wdata;
+                    // A read only releases the precharged data bank. Keep
+                    // FF on the output register while its enable falls:
+                    // changing it to the reader's unused wdata (normally 00)
+                    // on that edge can pulse the floating GBA address inputs
+                    // low if data arrives before output-disable does.
+                    latched_wdata <= wr ? wdata : 8'hFF;
                     latched_wr    <= wr;
                     addr_drive    <= 1'b1;
                     // Write data goes out with the address, so it is stable

@@ -16,6 +16,12 @@ what was written here.
 
 ## What works
 
+**GBA regression in `v0.9999.20260914`:** GBA cartridges have been reported
+to fail every scan with `UNSTABLE: GB SAFETY GATE`, before GBA identification
+starts. This branch tests a precharge-release timing correction; it is not
+yet hardware-verified. The GBA results below describe the previously verified
+`v0.9999.250d6a0` baseline, not qualification of this candidate.
+
 | | |
 |---|---|
 | GB / GBC cartridge identification | **works** |
