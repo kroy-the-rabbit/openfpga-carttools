@@ -70,7 +70,13 @@ it that way; the bench hosts return reread words exactly as they went out.
 51/51 checks on both runners; bitstreams byte-identical (MD5
 `0aaab85f42da68c1298ff21f61ae0c3f`), setup +0.826 ns, hold +0.121 ns,
 installed and byte-verified on 2026-09-13 with the Silver inputs unchanged.
-Awaiting the hardware preflight.
+**Hardware result on 772B, 2026-09-13: the restore preflight passes on
+Silver.** `PREFLIGHT CHECKS PASSED`, `RECOVERY FILE VERIFIED`, ROM CRC
+`8AD48636`, save CRC `18801E27`, recovery ID `0001`; the A hold then ran the
+final checks to `CHECK COMPLETE`, `WRITES DISABLED`, `CHECKS FINISHED`.
+`PRE0001.sav` on the card is byte-identical to the cart's save as the dump
+engine reads it and passes the Gen 2 checksum. First complete pass of the
+preflight on any cartridge. Cartridge writes remain compiled out.
 
 FF5D hardware result, 2026-09-12: **Pokemon Silver dumps correctly.** The
 FF5D ROM dump is byte-identical to the clean reference (CRC32 `8AD48636`,
