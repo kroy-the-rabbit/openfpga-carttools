@@ -30,62 +30,103 @@ the arguments. No DAT is shipped here; see README.md.
 
 import argparse
 import glob
-import html
+import hashlib
 import os
 import re
 import sys
+import xml.etree.ElementTree as ET
 import zipfile
 import zlib
+from dataclasses import dataclass
 
 LIBRARY = os.path.expanduser(
     os.environ.get("CARTTOOLS_LIBRARY", "~/Desktop/pocket-library/cart-dumps"))
 DATS = os.path.expanduser(
     os.environ.get("CARTTOOLS_DATS", "~/Desktop/pocket-library/dats"))
 
-ROM_EXT = (".gb", ".gbc", ".gba")
-
-# No-Intro DATs are XML: <rom name="..." size="..." crc="..." .../>. Attribute
-# order is stable across the three DATs this reads, and a DAT that orders them
-# differently will produce no entries rather than wrong ones, which is why the
-# entry count is printed.
-ROM_RE = re.compile(
-    r'name="([^"]+)"\s+size="(\d+)"\s+crc="([0-9A-Fa-f]{8})"')
+ROM_EXT = (".gb", ".gbc", ".gba", ".gg")
+MAX_DAT = 64 * 1024 * 1024
 
 
-def crc32(path):
-    h = 0
+@dataclass(frozen=True)
+class Record:
+    name: str
+    size: int
+    crc: str
+
+
+def hashes(path):
+    """Hash every byte once; a header and the filename are not identities."""
+    crc, size = 0, 0
+    sha = hashlib.sha1()
     with open(path, "rb") as f:
         while True:
             b = f.read(1 << 20)
             if not b:
                 break
-            h = zlib.crc32(b, h)
-    return h & 0xFFFFFFFF
+            crc = zlib.crc32(b, crc)
+            sha.update(b)
+            size += len(b)
+    return sha.hexdigest(), "%08X" % (crc & 0xFFFFFFFF), size
+
+
+def dat_records(data):
+    """Accept Standard and Parent-Clone XML regardless of attribute order."""
+    root = ET.fromstring(data)
+    if root.tag != "datafile":
+        return
+    for rom in root.iter("rom"):
+        sha = rom.get("sha1", "").lower()
+        crc = rom.get("crc", "").upper()
+        size = rom.get("size", "")
+        name = rom.get("name", "")
+        if (name and re.fullmatch(r"[0-9a-f]{40}", sha)
+                and re.fullmatch(r"[0-9A-F]{8}", crc)
+                and size.isascii() and size.isdigit() and int(size) > 0):
+            yield sha, Record(name, int(size), crc)
 
 
 def load_dats(directory):
-    """CRC32 -> (name, size), from every DAT in the directory, zipped or not."""
+    """SHA-1 -> records, from bounded XML DATs, zipped or not.
+
+    CRC-only records cannot authorize a match. Duplicate hashes are retained
+    so loading another DAT cannot replace an otherwise matching record.
+    """
     entries = {}
     files = sorted(glob.glob(os.path.join(directory, "*")))
     if not files:
         return entries, []
     read = []
     for path in files:
-        texts = []
-        if zipfile.is_zipfile(path):
-            with zipfile.ZipFile(path) as zf:
-                for name in zf.namelist():
-                    texts.append(zf.read(name).decode("utf-8", "replace"))
-        elif path.lower().endswith((".dat", ".xml")):
-            with open(path, "rb") as f:
-                texts.append(f.read().decode("utf-8", "replace"))
-        else:
+        if not os.path.isfile(path):
             continue
-        read.append(os.path.basename(path))
-        for text in texts:
-            for m in ROM_RE.finditer(text):
-                entries[m.group(3).upper()] = (
-                    html.unescape(m.group(1)), int(m.group(2)))
+        try:
+            payloads = []
+            if zipfile.is_zipfile(path):
+                with zipfile.ZipFile(path) as zf:
+                    members = [i for i in zf.infolist() if not i.is_dir()
+                               and i.filename.lower().endswith((".dat", ".xml"))]
+                    if sum(i.file_size for i in members) > MAX_DAT:
+                        raise ValueError("DAT archive exceeds size limit")
+                    for member in members:
+                        with zf.open(member) as f:
+                            payloads.append(f.read(MAX_DAT + 1))
+            elif path.lower().endswith((".dat", ".xml")):
+                with open(path, "rb") as f:
+                    payloads.append(f.read(MAX_DAT + 1))
+            else:
+                continue
+            parsed = []
+            for data in payloads:
+                if len(data) > MAX_DAT:
+                    raise ValueError("DAT exceeds size limit")
+                parsed.extend(dat_records(data))
+            for sha, record in parsed:
+                entries.setdefault(sha, []).append(record)
+            read.append(os.path.basename(path))
+        except (OSError, ValueError, ET.ParseError, zipfile.BadZipFile,
+                RuntimeError, NotImplementedError) as exc:
+            print("  WARN  %s: %s" % (os.path.basename(path), exc), file=sys.stderr)
     return entries, read
 
 
@@ -108,19 +149,24 @@ def report(files, entries):
     for path in files:
         ext = os.path.splitext(path)[1].lower().lstrip(".")
         by_ext[ext] = by_ext.get(ext, 0) + 1
-        c = crc32(path)
-        size = os.path.getsize(path)
-        hit = entries.get("%08X" % c)
         base = os.path.basename(path)
-        if hit is None:
+        try:
+            sha, crc, size = hashes(path)
+        except OSError as exc:
             missed += 1
-            print("  MISS  %-24s %08X  no record with this CRC32" % (base, c))
-        elif hit[1] != size:
+            print("  READ  %-24s %s" % (base, exc))
+            continue
+        hits = entries.get(sha, [])
+        hit = next((r for r in hits if r.size == size and r.crc == crc), None)
+        if not hits:
             missed += 1
-            print("  SIZE  %-24s %08X  %s: record says %d, file is %d"
-                  % (base, c, hit[0], hit[1], size))
+            print("  MISS  %-24s %s  no record with SHA-1 %s" % (base, crc, sha))
+        elif hit is None:
+            missed += 1
+            print("  HASH  %-24s %s  SHA-1 found; CRC32 or size disagrees"
+                  % (base, crc))
         else:
-            print("  ok    %-24s %08X  %s" % (base, c, hit[0]))
+            print("  ok    %-24s %s  %s" % (base, crc, hit.name))
 
     print()
     for ext in sorted(by_ext):
@@ -129,28 +175,29 @@ def report(files, entries):
     return missed
 
 
-def selftest(entries):
+def selftest(entries=None):
     """A match must be able to fail, or it is not evidence.
 
-    Runs the real report() over a real file three times, changing only what
-    the record says about it. Each of the three outcomes has to happen.
+    Runs the real report() over a real file, changing only what the record
+    says about it. Each acceptance and rejection has to happen.
     """
     import tempfile
 
     ok = True
     with tempfile.TemporaryDirectory() as d:
-        path = os.path.join(d, "SELFTEST.gb")
+        path = os.path.join(d, "SELFTEST.gg")
         with open(path, "wb") as f:
             f.write(bytes(range(256)) * 4)
-        c = "%08X" % crc32(path)
-        n = os.path.getsize(path)
+        sha, crc, n = hashes(path)
 
         cases = [
             ("no record at all is a miss", {}, 1),
             ("the right hash with the wrong size is a miss",
-             {c: ("SELFTEST", n + 1)}, 1),
+             {sha: [Record("SELFTEST", n + 1, crc)]}, 1),
+            ("the right SHA-1 with the wrong CRC32 is a miss",
+             {sha: [Record("SELFTEST", n, "%08X" % (int(crc, 16) ^ 1))]}, 1),
             ("the right hash with the right size passes",
-             {c: ("SELFTEST", n)}, 0),
+             {sha: [Record("SELFTEST", n, crc)]}, 0),
         ]
         for label, table, want in cases:
             import io
@@ -163,14 +210,6 @@ def selftest(entries):
             else:
                 ok = False
                 print("  FAIL  %s: %d misses, wanted %d" % (label, got, want))
-
-    if entries:
-        crc, (name, _) = next(iter(entries.items()))
-        bad = "%08X" % ((int(crc, 16) ^ 1) & 0xFFFFFFFF)
-        print("  ok    a real CRC32 resolves    %s -> %s" % (crc, name))
-        if bad in entries:
-            print("  note  %s is also in the DAT, so that pair is one bit "
-                  "apart. Not a fault here." % bad)
 
     return 0 if ok else 1
 
@@ -187,6 +226,9 @@ def main():
                     help="prove the check can fail")
     args = ap.parse_args()
 
+    if args.selftest:
+        return selftest()
+
     entries, read = load_dats(args.dats)
     if not entries:
         print("no DAT entries found in %s" % args.dats)
@@ -195,9 +237,6 @@ def main():
         return 2
     print("%d records from %s" % (len(entries), ", ".join(read)))
     print()
-
-    if args.selftest:
-        return selftest(entries)
 
     files = collect(args.paths)
     if not files:
@@ -211,7 +250,7 @@ def main():
               "cartridge may legitimately hold something no DAT lists."
               % (missed, len(files)))
         return 1
-    print("all %d match a published record, on CRC32 and on size" % len(files))
+    print("all %d match a published record, on SHA-1, CRC32 and size" % len(files))
     return 0
 
 

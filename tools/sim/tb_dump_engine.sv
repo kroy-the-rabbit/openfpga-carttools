@@ -1,4 +1,4 @@
-// SOURCES: src/fpga/services/dump/dump_engine.sv src/fpga/services/dump/dump_buffer.sv src/fpga/services/dump/dump_path_gen.sv src/fpga/services/dump/dump_chunk_src.sv src/fpga/services/dump/dump_checksum.sv src/fpga/services/dump/apf_file_writer.sv src/fpga/services/dump/cart_dump_gb.sv src/fpga/services/dump/cart_dump_gba.sv src/fpga/services/dump/cart_save_gb.sv src/fpga/services/dump/cart_save_gba.sv src/fpga/services/dump/cart_save_gba_eeprom.sv src/fpga/services/dump/gba_eeprom_io.sv src/fpga/services/dump/dump_crc32.sv src/fpga/apf/common.v
+// SOURCES: src/fpga/services/dump/dump_engine.sv src/fpga/services/dump/dump_buffer.sv src/fpga/services/dump/dump_path_gen.sv src/fpga/services/dump/dump_chunk_src.sv src/fpga/services/dump/dump_checksum.sv src/fpga/services/dump/apf_file_writer.sv src/fpga/services/dump/cart_dump_gb.sv src/fpga/services/dump/cart_dump_gba.sv src/fpga/services/dump/cart_dump_gg.sv src/fpga/services/dump/cart_save_gb.sv src/fpga/services/dump/cart_save_gba.sv src/fpga/services/dump/cart_save_gba_eeprom.sv src/fpga/services/dump/gba_eeprom_io.sv src/fpga/services/dump/dump_crc32.sv src/fpga/apf/common.v
 //
 // tb_dump_engine.sv - a whole file, end to end, through both clock domains
 //
@@ -56,7 +56,7 @@ wire [15:0] dbg_reads, dbg_struct_reads;
 wire [31:0] dbg_last_addr;
 reg [119:0] title = "TESTCART       ";
 reg [7:0]   cart_type = 8'h19;
-reg [1:0]   cart_kind = 2'd0;   // 0 gb, 1 gbc, 2 gba, 3 save
+reg [2:0]   cart_kind = 3'd0;   // 0 gb, 1 gbc, 2 gba, 3 save, 4 GG
 reg [7:0]   rom_size_code = 8'd0;
 
 wire        busy, done, failed;
@@ -123,6 +123,7 @@ dump_engine #(
 ) dut (
     .clk_sys (clk_sys), .reset_sys (reset_sys),
     .start (start), .selftest (selftest), .save_mode (save_mode),
+    .cancel (1'b0),
     .ram_size_code (ram_size_code),
     .byte_order (byte_order),
     .path_style (path_style),
@@ -134,7 +135,9 @@ dump_engine #(
     .dbg_last_addr (dbg_last_addr),
     .title (title), .cart_kind (cart_kind),
     .cart_type (cart_type), .rom_size_code (rom_size_code),
-    .platform_gba (plat_gba), .gba_size_bytes (gba_size),
+    .rom_source ({1'b0, plat_gba}), .gba_size_bytes (gba_size),
+    .gg_size_bytes (32'd0), .gg_connected(1'b0),
+    .gg_rdata (8'd0), .gg_done (1'b0), .gg_busy (1'b0),
     // EEPROM is not exercised here: tb_cart_save_gba_eeprom covers the reader
     // and tb_gba_eeprom_probe the width. What matters at this level is that
     // the engine still picks the SRAM reader when the save is not EEPROM.
@@ -169,7 +172,8 @@ dump_engine #(
     .target_dataslot_length     (t_length),
     .target_buffer_param_struct (t_param_struct),
     .target_dataslot_done       (t_done),
-    .target_dataslot_err        (t_err)
+    .target_dataslot_err        (t_err),
+    .target_dataslot_result     ({13'd0, t_err})
 );
 
 integer errors = 0;

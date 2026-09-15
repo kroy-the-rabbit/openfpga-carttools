@@ -15,10 +15,12 @@
 #   python3 tools/sim/run_all.py            everything
 #   python3 tools/sim/run_all.py -k cart    only testbenches matching "cart"
 #   python3 tools/sim/run_all.py -v         show output from passing runs too
+#   python3 tools/sim/run_all.py -j 4       four independent testbenches at once
 #
 # Stdlib only, and meant to be run inside the sim container (see the Makefile).
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import os
 import re
 import subprocess
@@ -35,6 +37,13 @@ REPO = os.path.abspath(os.path.join(HERE, os.pardir, os.pardir))
 #
 # Paths are relative to the repo root. One line, space separated.
 SOURCES_RE = re.compile(r"^\s*//\s*SOURCES:\s*(.+?)\s*$", re.MULTILINE)
+
+# Long full-image benches may declare one explicit wall-clock budget. The
+# default stays 300s; malformed, duplicate, or unbounded declarations fail
+# before compilation instead of silently changing the suite's time limit.
+TIMEOUT_RE = re.compile(r"^[ \t]*//[ \t]*TIMEOUT:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+DEFAULT_TIMEOUT = 300
+MAX_TIMEOUT = 1800
 
 # And it declares success by printing this as the last thing it does, after the
 # final check and before $finish:
@@ -94,12 +103,32 @@ def scan_markers(text):
     return ""
 
 
+def read_timeout(tb_path):
+    with open(tb_path, "r", encoding="utf-8", errors="replace") as fh:
+        declarations = TIMEOUT_RE.findall(fh.read())
+    if not declarations:
+        return DEFAULT_TIMEOUT
+    if len(declarations) != 1:
+        raise ValueError("expected at most one '// TIMEOUT:' header")
+    value = declarations[0]
+    if not re.fullmatch(r"[0-9]+", value):
+        raise ValueError("TIMEOUT must be an integer from 1 to {} seconds".format(MAX_TIMEOUT))
+    timeout = int(value)
+    if not 1 <= timeout <= MAX_TIMEOUT:
+        raise ValueError("TIMEOUT must be between 1 and {} seconds".format(MAX_TIMEOUT))
+    return timeout
+
+
 def run_testbench(tb_path):
     name = os.path.splitext(os.path.basename(tb_path))[0]
     try:
         sources = read_sources(tb_path)
     except ValueError as exc:
         return Result(name, False, str(exc), "bad SOURCES header")
+    try:
+        timeout = read_timeout(tb_path)
+    except ValueError as exc:
+        return Result(name, False, str(exc), "bad TIMEOUT header")
 
     with tempfile.TemporaryDirectory() as tmp:
         vvp_out = os.path.join(tmp, name + ".vvp")
@@ -122,7 +151,7 @@ def run_testbench(tb_path):
             return Result(name, False, log, "compile " + marker)
 
         proc = subprocess.run(["vvp", vvp_out], cwd=REPO, capture_output=True,
-                              text=True, timeout=300)
+                              text=True, timeout=timeout)
         log = proc.stdout + proc.stderr
 
     if proc.returncode != 0:
@@ -136,13 +165,14 @@ def run_testbench(tb_path):
     return Result(name, True, log)
 
 
-def run_structural_checks():
+def run_structural_checks(keyword=None):
     # Structural checks are ordinary scripts that exit non-zero and explain
     # themselves. They live alongside the testbenches because a layering
     # violation is the same class of bug as a timing one: it reaches the pins.
     results = []
     checks = sorted(f for f in os.listdir(HERE)
-                    if f.startswith("check_") and f.endswith(".py"))
+                    if f.startswith("check_") and f.endswith(".py")
+                    and (not keyword or keyword in f))
     for check in checks:
         proc = subprocess.run([sys.executable, os.path.join(HERE, check)],
                               cwd=REPO, capture_output=True, text=True)
@@ -152,6 +182,46 @@ def run_structural_checks():
                               "" if proc.returncode == 0
                               else "exit {}".format(proc.returncode)))
     return results
+
+
+def checked_testbench(tb_path):
+    """Keep one failed invocation from discarding the rest of the suite."""
+    try:
+        return run_testbench(tb_path)
+    except subprocess.TimeoutExpired as exc:
+        def decoded(output):
+            if isinstance(output, bytes):
+                return output.decode("utf-8", errors="replace")
+            return output or ""
+
+        return Result(os.path.splitext(os.path.basename(tb_path))[0], False,
+                      decoded(exc.stdout) + decoded(exc.stderr),
+                      "timeout after {}s".format(exc.timeout))
+    except Exception as exc:
+        return Result(os.path.splitext(os.path.basename(tb_path))[0], False,
+                      str(exc), "runner {}".format(type(exc).__name__))
+
+
+def run_testbenches(testbenches, jobs=1):
+    if not 1 <= jobs <= 8:
+        raise ValueError("jobs must be between 1 and 8")
+    if jobs == 1:
+        return [checked_testbench(tb) for tb in testbenches]
+    # Every bench already owns a separate temporary compile directory. map
+    # schedules independently but returns discovery order, keeping the final
+    # report and failure list identical to the serial runner's ordering.
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        return list(pool.map(checked_testbench, testbenches))
+
+
+def job_count(value):
+    try:
+        jobs = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("jobs must be an integer from 1 to 8")
+    if not 1 <= jobs <= 8:
+        raise argparse.ArgumentTypeError("jobs must be between 1 and 8")
+    return jobs
 
 
 def report(result, verbose):
@@ -171,13 +241,14 @@ def main():
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="print output from passing runs too; failures always "
                          "print in full")
+    ap.add_argument("-j", "--jobs", type=job_count, default=1, metavar="1..8",
+                    help="independent testbenches to run concurrently (default: 1); "
+                         "structural checks remain serial")
     args = ap.parse_args()
 
-    results = [r for r in run_structural_checks()
-               if not args.k or args.k in r.name]
+    results = run_structural_checks(args.k)
     testbenches = discover(args.k)
-    for tb in testbenches:
-        results.append(run_testbench(tb))
+    results.extend(run_testbenches(testbenches, args.jobs))
 
     if not results:
         print("no testbenches or checks matched {!r}".format(args.k))

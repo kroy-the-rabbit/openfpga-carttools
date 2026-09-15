@@ -109,7 +109,7 @@ def control_harness(source):
     names = (
         "restore_overlay", "restore_entry_key", "restore_block", "restore_cancel",
         "restore_stop_request", "restore_transaction_busy", "restore_available", "cart_engine_busy",
-        "dump_ready", "save_ready", "scan_start", "restore_owns_cart",
+        "dump_ready", "save_ready", "scan_start", "restore_owns_cart", "cart_run_allowed",
         "gb_req_mux", "gb_wr_mux", "gb_addr_mux", "gb_wdata_mux",
     )
     widths = {"gb_addr_mux": "[15:0] ", "gb_wdata_mux": "[7:0] "}
@@ -157,6 +157,10 @@ always @(posedge clk_sys) begin
 end
 reg restore_busy = 0, restore_poisoned_s = 0;
 reg restore_reset_n_s = 1, restore_menu_s = 0;
+// Both top synchronizers sample the same Reset Enter/Exit signal. Admission
+// itself is exercised by check_gg_integration; this fixture is an admitted
+// native session and uses the actual extracted cart_run_allowed expression.
+wire core_reset_n_s = restore_reset_n_s;
 reg restore_preflight_done = 0, restore_preflight_ok = 0;
 reg restore_done = 0, restore_failed = 0;
 reg restore_reprobe_request = 0;
@@ -181,6 +185,7 @@ reg [7:0] gbid_cart_type = 3, gbid_ram_size = 2, gbid_cgb_flag = 0, gbid_rom_siz
 reg restore_geometry_ok = 1;
 reg restore_rom_reading = 0;
 reg probe_busy = 0, probe_sizing = 0, sz_start = 0, probe_done = 0;
+reg ggid_busy = 0, gg_start = 0;
 reg dump_busy = 0, action_rom_available = 1, action_save_available = 1;
 reg action_validation_complete = 0;
 reg action_validated_rom_available = 1, action_validated_save_available = 1;

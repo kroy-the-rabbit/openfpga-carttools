@@ -32,18 +32,21 @@ reg         byte_order = 1'b1;
 reg  [2:0]  path_style = 3'd0;
 reg         field_order = 1'b0;
 reg         create_only = 1'b0;
+reg         probe_only = 1'b0;
+reg [15:0]  file_index = 16'd0;
 wire        busy, done;
 
 reg  [6:0]  rd_addr = 7'd0;
 wire [31:0] rd_q;
 
-reg [1:0] cart_kind = 2'd0;
+reg [2:0] cart_kind = 3'd0;
 
 dump_path_gen dut (
     .clk (clk), .reset (reset), .start (start), .selftest (selftest),
     .path_style (path_style),
     .field_order (field_order),
     .create_only (create_only),
+    .probe_only (probe_only), .file_index (file_index),
     .title (title), .cart_kind (cart_kind),
     .total_bytes (total_bytes), .byte_order (byte_order),
     .busy (busy), .done (done),
@@ -250,6 +253,31 @@ initial begin
     path_style = 3'd0;
     run({"TESTCART", 56'h20202020202020}, 1'b0, 32'h8000, 1'b1);
     expect_path("/Assets/carttools/common/TESTCART.gb", 36, "style 0 again");
+
+    // GG headers have no title; names come only from the allocated index.
+    cart_kind = 3'd4;
+    file_index = 16'h0000;
+    probe_only = 1'b1;
+    run("NOT_A_GG_TITLE ", 1'b0, 32'h40000, 1'b1);
+    expect_path("/Assets/carttools/common/GG0000.gg", 34, "GG probe index zero");
+    read_word(7'd64);
+    if (rd_q !== 32'd0) $fatal(1, "GG existence probe creates or resizes");
+    read_word(7'd65);
+    if (rd_q !== 32'd0) $fatal(1, "GG existence probe carries a resize length");
+    file_index = 16'hA19F;
+    probe_only = 1'b0;
+    run(120'd0, 1'b0, 32'h80000, 1'b0);
+    expect_path("/Assets/carttools/common/GGA19F.gg", 34, "GG indexed create");
+    read_word(7'd64);
+    if (rd_q !== 32'h03000000) $fatal(1, "GG create flags byte order");
+    read_word(7'd65);
+    if (rd_q !== 32'h00000800) $fatal(1, "GG length byte order");
+    file_index = 16'hFFFF;
+    run(120'd0, 1'b0, 32'h40000, 1'b1);
+    expect_path("/Assets/carttools/common/GGFFFF.gg", 34, "GG maximum index");
+    cart_kind = 3'd0;
+    run("BACK_TO_GB     ", 1'b0, 32'h8000, 1'b1);
+    expect_path("/Assets/carttools/common/BACK_TO_GB.gb", 38, "native naming after GG");
 
     if (errors != 0) begin
         $display("tb_dump_path_gen: %0d checks failed", errors);

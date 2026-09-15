@@ -14,13 +14,24 @@ the cartridge bus came from; the emulator around it is what got deleted.
 [docs/PROVENANCE.md](docs/PROVENANCE.md) records exactly what was inherited and
 what was written here.
 
+## Game Gear development
+
+This branch adds Sega ROM dumping through the official Analogue Game Gear
+adapter, with explicit 256/512 KiB profiles, a CRC reread of the selected range
+and new `.gg` filenames for every attempt. The official adapter's APF ID `0x01`
+was measured in the C982 diagnostic capture and its routing is enabled. GG ROM
+dumping hardware qualification is still pending. See [Game Gear](docs/GAME-GEAR.md)
+for controls and limits. The native baseline below is separate from qualification
+of these new routing and GG changes.
+
 ## What works
 
-**GBA regression in `v0.9999.20260914`:** GBA cartridges have been reported
-to fail every scan with `UNSTABLE: GB SAFETY GATE`, before GBA identification
-starts. This branch tests a precharge-release timing correction; it is not
-yet hardware-verified. The GBA results below describe the previously verified
-`v0.9999.250d6a0` baseline, not qualification of this candidate.
+**GBA regression baseline:** this branch starts from `57513fc`, the source
+of replacement artifact `0.9999.20260914.1`. On that build, Metroid Zero Mission
+produced an 8 MiB reference-matching dump; Pokemon Silver ROM/save dumping and
+the restore readbacks also passed. The broader cartridge counts below describe
+the earlier verified corpus, not a repeated qualification of every cart on 5751
+or this GG development branch.
 
 | | |
 |---|---|
@@ -44,7 +55,7 @@ yet hardware-verified. The GBA results below describe the previously verified
 | GBA cartridges above 16 MB | untested |
 | Automatic readback of ROM/save dump files | not built; restore recovery files are read back and verified |
 | Sidecar metadata | specified in [docs/FILE-FORMATS.md](docs/FILE-FORMATS.md), not written |
-| Two cartridges with the same title | the second dump silently overwrites the first |
+| Two native cartridges with the same title | the second dump silently overwrites the first; the GG path allocates a new name |
 | CGB filenames | four bytes of manufacturer code land in the name |
 
 ## Why cartridge control stays in RTL
@@ -189,7 +200,7 @@ For save writes, follow the [save restore guide](docs/SAVE-RESTORE.md).
 ## Checking what came off the cartridge
 
 ```sh
-scripts/verify_dump.py FILE...          logos, checksums, sizes, CRC32
+scripts/verify_dump.py FILE...          logos, checksums, sizes, hashes
 scripts/verify_dump.py --compare A B    two reads of the same cartridge
 scripts/match_dats.py                   match every dump to a published record
 tools/podman/play-dump.sh ROM [SAV]     play it in mGBA, in a container
@@ -208,13 +219,28 @@ this core shows for a GBA image is computed from the bytes it just read, so it
 proves a second read matches the first, not that either matches the cartridge.
 Matching a published record, or dumping twice and comparing, is the evidence
 there is, and `match_dats.py` is the first of those: it checks every dump
-against a No-Intro DAT by CRC32 and size. The DAT is external to this core and
+against a No-Intro DAT by SHA-1, CRC32 and size. The DAT is external to this core and
 to this repo, so it cannot agree with a dump for the same reason the dump is
 wrong. **Save RAM
 carries no checksum of any kind**, so the only thing that can prove a `.sav` is
 loading it beside its ROM and seeing the game's own state come back. That is
 what `play-dump.sh` is for, and it is what moved save backup from built to
 verified.
+
+For `.gg` dumps, `verify_dump.py` reads the Sega headers at `0x1FF0`, `0x3FF0`
+and `0x7FF0`. Product, revision, region and checksum extent are hints: they
+provide no title or reliable ROM capacity, and a checksum mismatch is only a
+diagnostic. Repeated banks likewise do not prove the mapper failed or reveal
+the physical size. Keep the complete dump and compare two reads, then use a
+Game Gear DAT or an explicit reference:
+
+```sh
+scripts/verify_dump.py GG0000.gg --expect-size 524288 --expect-sha1 dabb452e416b4fa9cb83d8ddd307c2a32c3a1a7f --expect-crc32 95a18ec7
+```
+
+That reference is [Sonic the Hedgehog 2 (World)](https://github.com/mamedev/mame/blob/954def46685cd0276671138fbd032036b1a771fb/hash/gamegear.xml#L8086).
+`match_dats.py` accepts zipped or extracted XML DATs; CRC-only records cannot
+verify a dump. Run these Python commands with an activated project venv.
 
 `verify_dump.py` covers what a checksum can, computed independently of the core,
 plus the one structural failure the device cannot see: **every bank identical**,

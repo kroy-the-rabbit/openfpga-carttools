@@ -102,6 +102,9 @@ cart_pins pins (
     .gb_ctl_out (gb_ctl_out),
     .gb_p30_out (gb_p30_out), .gb_p30_oe (gb_p30_oe),
     .gb_ad_in (gb_ad_in), .gb_hi_in (gb_hi_in),
+    .gg_ad_out (16'd0), .gg_ad_oe (1'b0),
+    .gg_hi_out (8'd0), .gg_hi_oe (1'b0), .gg_ctl_out (4'hF),
+    .gg_p30_out (1'b1), .gg_p30_oe (1'b0), .gg_hi_in (),
     .cart_tran_bank2 (cart_tran_bank2), .cart_tran_bank2_dir (bank2_dir),
     .cart_tran_bank3 (cart_tran_bank3), .cart_tran_bank3_dir (bank3_dir),
     .cart_tran_bank1 (cart_tran_bank1), .cart_tran_bank1_dir (bank1_dir),
@@ -157,11 +160,14 @@ cart_identify_gba identify (
 
 cart_probe #(.WAKE_CYCLES(4)) probe (
     .clk (clk), .reset (reset),
-    .start (start), .cart_powered (powered),
+    .start (start), .cancel (1'b0), .cart_powered (powered),
+    .slot_protocol (2'd0),
     .busy (probe_busy), .done (probe_done),
     .mode (mode), .mode_ready (mode_ready),
     .gb_start (gb_start), .gb_done (gbid_done), .gb_result (gbid_result),
     .gba_start (gba_start), .gba_done (id_done), .gba_result (id_result),
+    .gg_start (), .gg_done (1'b0), .gg_result (3'd1),
+    .answered_protocol (),
     .platform (platform)
 );
 

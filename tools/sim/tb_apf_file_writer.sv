@@ -67,6 +67,7 @@ apf_file_writer #(
     .clk (clk), .reset (reset),
     .start (start), .total_bytes (total_bytes), .abort (abort),
     .skip_open (skip_open),
+    .probe_only (1'b0), .require_created (1'b0),
     .busy (busy), .done (done), .failed (failed),
     .err (err), .fail_chunk (fail_chunk), .stall_at (stall_at),
     .chunk_req (chunk_req), .chunk_index (chunk_index),
@@ -80,7 +81,8 @@ apf_file_writer #(
     .target_dataslot_length     (t_length),
     .target_buffer_param_struct (t_param_struct),
     .target_dataslot_done       (t_done),
-    .target_dataslot_err        (t_err)
+    .target_dataslot_err        (t_err),
+    .target_dataslot_result     ({13'd0, t_err})
 );
 
 integer errors = 0;

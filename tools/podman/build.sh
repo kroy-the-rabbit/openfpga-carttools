@@ -13,7 +13,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/version.sh"
-STAMP=$(pocket_version "${RELEASE_NAME:-}")
+PACKAGE_VERSION=$(pocket_version "${RELEASE_NAME:-}")
 REPO="$(cd "$HERE/../.." && pwd)"
 BDIR="$REPO/build/cart"
 WORK="$BDIR/work"
@@ -139,7 +139,7 @@ rsync -a "$REPO/pkg/" "$BDIR/sd/"
 cp "$BDIR/$RBF_NAME" "$BDIR/sd/Cores/$CORE_NAME/$RBF_NAME"
 
 # Stamp the package date. The source commit is recorded in the build report.
-"$PY" - "$BDIR/sd/Cores/$CORE_NAME/core.json" "$STAMP" "$(pocket_version_date "$STAMP")" <<'PY'
+"$PY" - "$BDIR/sd/Cores/$CORE_NAME/core.json" "$PACKAGE_VERSION" "$(pocket_version_date "$PACKAGE_VERSION")" <<'PY'
 import json, sys
 path, version, date = sys.argv[1:]
 assert len(version) <= 31, f"version too long for APF: {version}"
@@ -151,7 +151,7 @@ open(path, "a").write("\n")
 print(f"stamped core.json: version={version} date_release={date}")
 PY
 
-ZIP="$BDIR/${CORE_NAME}_${STAMP}.zip"
+ZIP="$BDIR/${CORE_NAME}_${PACKAGE_VERSION}.zip"
 rm -f "$ZIP"
 (cd "$BDIR/sd" && zip -qr "$ZIP" .)
 

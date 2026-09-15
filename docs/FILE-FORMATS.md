@@ -1,5 +1,10 @@
 # File formats
 
+The GG development path adds `.gg` files with allocated `GG0000`-style names,
+preserving existing captures. GG header product codes are metadata, not game
+titles. See [Game Gear development](GAME-GEAR.md); physical qualification is
+pending and no sidecar is emitted.
+
 What CartTools is intended to write to the SD card, and what it actually
 writes today. Read the status table below before building anything against
 this: the two are not the same, and the gaps are not small.
@@ -13,7 +18,7 @@ The restore alpha uses one fixed `RESTORE.sav` plus required `RESTORE.meta`, fla
 and hardware coverage. Cartridge save writes are enabled after the required
 checks and confirmation. The older restore layout below is not this alpha's API.
 
-The core writes ROMs on all three platforms and saves on two, flat into
+The qualified native core writes ROMs on three platforms and saves on two, flat into
 `/Assets/carttools/common/`. `docs/STATUS.md` carries the file by file record.
 What follows is still the design target for the companion app; the table says
 how much of it the core actually does, so nobody builds a consumer against the

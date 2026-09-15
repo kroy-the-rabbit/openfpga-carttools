@@ -84,6 +84,9 @@ module dump_path_gen #(
     // not exist yet may be what APF objects to; the documentation does not
     // say, and every other reading of it has been wrong once.
     input  wire         create_only,
+    // GG allocation first opens an existing name without creating/resizing.
+    input  wire         probe_only,
+    input  wire [15:0]  file_index,
     input  wire [119:0] title,             // GB header 0x0134, 15 bytes
     // Which system the image is for, which decides the extension. A dump is
     // useless to the tools that read it if it is not named after its system:
@@ -94,7 +97,7 @@ module dump_path_gen #(
     //   1  Game Boy Color    .gbc    0x0143 is 0x80 or 0xC0
     //   2  Game Boy Advance  .gba
     // The self test overrides all three with .bin; it is not a cartridge.
-    input  wire [1:0]   cart_kind,
+    input  wire [2:0]   cart_kind,
     input  wire [31:0]  total_bytes,
     input  wire         byte_order,        // 0 first byte in [31:24], 1 in [7:0]
 
@@ -136,14 +139,16 @@ localparam [31:0] EXT_GBC = ".gbc";
 localparam [31:0] EXT_GBA = ".gba";
 localparam [31:0] EXT_BIN = ".bin";
 localparam [31:0] EXT_SAV = ".sav";
+localparam [31:0] EXT_GG  = ".gg ";
 
-localparam [1:0] KIND_GB  = 2'd0;
-localparam [1:0] KIND_GBC = 2'd1;
-localparam [1:0] KIND_GBA = 2'd2;
+localparam [2:0] KIND_GB  = 3'd0;
+localparam [2:0] KIND_GBC = 3'd1;
+localparam [2:0] KIND_GBA = 3'd2;
 // A save, from either platform. The extension names what the file holds, not
 // which machine it came out of: TETRIS.gb and TETRIS.sav side by side say
 // more than two files distinguished by a suffix nobody reads.
-localparam [1:0] KIND_SAV = 2'd3;
+localparam [2:0] KIND_SAV = 3'd3;
+localparam [2:0] KIND_GG  = 3'd4;
 
 // Create if absent, and resize to the size below.
 localparam [31:0] OPEN_FLAGS      = 32'h0000_0003;   // create and resize
@@ -244,6 +249,11 @@ function [7:0] sanitize(input [7:0] c);
     end
 endfunction
 
+function [7:0] hex_digit(input [3:0] digit);
+    hex_digit = digit < 4'd10 ? 8'h30 + {4'd0, digit}
+                             : 8'h41 + {4'd0, digit} - 8'd10;
+endfunction
+
 // What counts as padding on a GB title. 0x00 and 0x20 are the two the
 // cartridges use; 0xFF is what an unreadable cartridge returns, and trimming
 // it means a failed read does not produce a filename of fifteen underscores.
@@ -264,6 +274,7 @@ reg [31:0]  size_l;
 reg         byte_order_l;
 reg         field_order_l;
 reg         create_l;
+reg         probe_l;
 reg [119:0] title_l;
 
 reg [3:0]   scan_i;
@@ -315,6 +326,7 @@ always @(posedge clk) begin
         byte_order_l  <= 1'b0;
         field_order_l <= 1'b0;
         create_l      <= 1'b0;
+        probe_l       <= 1'b0;
         size_l       <= 32'd0;
         pre_reg      <= PRE_0;
         pre_len      <= 5'd25;
@@ -337,6 +349,7 @@ always @(posedge clk) begin
                     byte_order_l  <= byte_order;
                     field_order_l <= field_order;
                     create_l      <= create_only;
+                    probe_l       <= probe_only;
                     size_l       <= total_bytes;
                     title_l      <= title;
                     case (path_style)
@@ -358,6 +371,18 @@ always @(posedge clk) begin
                         name_len <= 5'd8;
                         ext_reg  <= EXT_BIN;
                         ext_len  <= 3'd4;
+                        state    <= ST_EMIT;
+                    end else if (cart_kind == KIND_GG) begin
+                        // GG has no standard title. The caller probes this
+                        // indexed name before creating it, preserving every
+                        // capture, including failed and repeated dumps.
+                        name_reg <= {"GG", hex_digit(file_index[15:12]),
+                                     hex_digit(file_index[11:8]),
+                                     hex_digit(file_index[7:4]),
+                                     hex_digit(file_index[3:0]), 80'd0};
+                        name_len <= 5'd6;
+                        ext_reg  <= EXT_GG;
+                        ext_len  <= 3'd3;
                         state    <= ST_EMIT;
                     end else begin
                         name_reg <= 128'd0;
@@ -412,14 +437,15 @@ always @(posedge clk) begin
             ST_FLAG: begin
                 ww_en   <= 1'b1;
                 ww_addr <= W_FLAGS[6:0];
-                ww_data <= as_bytes(create_l ? OPEN_FLAGS_CRE : OPEN_FLAGS);
+                ww_data <= as_bytes(probe_l ? 32'd0 :
+                                    create_l ? OPEN_FLAGS_CRE : OPEN_FLAGS);
                 state   <= ST_SIZE;
             end
 
             ST_SIZE: begin
                 ww_en   <= 1'b1;
                 ww_addr <= W_SIZE[6:0];
-                ww_data <= as_bytes(size_l);
+                ww_data <= as_bytes(probe_l ? 32'd0 : size_l);
                 state   <= ST_DONE;
             end
 

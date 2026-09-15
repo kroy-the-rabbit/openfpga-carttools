@@ -11,7 +11,8 @@
         "extensions": [
           "gba",
           "gb",
-          "gbc"
+          "gbc",
+          "gg"
         ],
         "address": "0x10000000",
         "size_maximum": "0x2000000"
@@ -25,6 +26,7 @@
           "gb",
           "gbc",
           "gba",
+          "gg",
           "bin"
         ],
         "address": "0x60000000",
