@@ -11,6 +11,12 @@ unknown adapter, the core displays `RAW` and `ADAPTER ID` and keeps the cartridg
 bus idle. Power off before changing a cartridge or adapter, then launch through
 **Play Cartridge**.
 
+The first ROM-reader candidate, **99E2**, read a stable `TMR SEGA` header at
+`7FF0` on hardware, then stopped with APF error 4 before any GG file appeared.
+The development correction uses the file-request and payload byte ordering
+established by the working restore service. Full GG capture still needs a new
+hardware test; a stable header alone does not verify the ROM's banked contents.
+
 With that adapter selected, the GG screen shows product/revision,
 region, the raw header and a manually selected capture length. Use Left for 256 KiB
 or Right for 512 KiB. The first profiles are:

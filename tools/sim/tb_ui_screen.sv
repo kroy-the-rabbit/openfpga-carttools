@@ -555,7 +555,7 @@ initial begin
     dump_err = 3'd4;
     settle();
     expect_row("dump failed", 10, "DUMP FAILED  err 4            ");
-    expect_row("dump failed", 12, "APF rejected every path       ");
+    expect_row("dump failed", 12, "APF malformed file path       ");
 
     dump_err = 3'd7;
     settle();
@@ -771,6 +771,13 @@ initial begin
     gg_size_512=1; id_seq=id_seq+1;
     settle();
     expect_row("GG explicit size",6,"ROM 512 KB (MANUAL)           ");
+    // A malformed APF path is a transport error, before any reread verdict.
+    // Check the complete row, including the final 'h' and trailing padding.
+    dump_state=3; dump_err=4; gg_verify_checked=0;
+    settle();
+    expect_row("GG malformed path code",10,"DUMP FAILED  err 4            ");
+    expect_row("GG malformed path",12,"APF malformed file path       ");
+    expect_first(12, "A");
     dump_state=2; gg_verify_checked=1; gg_verify_ok=1;
     settle();
     expect_row("GG reread",13,"SELECTED RANGE CRC AGREES     ");

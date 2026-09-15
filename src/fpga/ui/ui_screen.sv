@@ -266,7 +266,7 @@ localparam [LW-1:0] ROW_DUMP_FAIL = "DUMP FAILED  err              ";
 // the documentation is written in, but on its own it tells a user nothing.
 localparam [LW-1:0] ERR_2 = "slot 20 not declared          ";
 localparam [LW-1:0] ERR_3 = "file not found                ";
-localparam [LW-1:0] ERR_4 = "APF rejected every path       ";
+localparam [LW-1:0] ERR_4 = "APF malformed file path       ";
 localparam [LW-1:0] ERR_5 = "card full or write locked     ";
 localparam [LW-1:0] ERR_7 = "operation cancelled           ";
 localparam [LW-1:0] ERR_X = "unexpected result             ";

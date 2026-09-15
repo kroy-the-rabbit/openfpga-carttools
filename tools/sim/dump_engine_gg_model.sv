@@ -9,6 +9,8 @@
 // CASE 0: 256KiB plus cancellation/session loss/refusals.
 // CASE 1: 512KiB, opposite bridge byte order, occupied smaller capture.
 // CASE 2: reread mismatch, APF result failures, partial capture, full recovery.
+// CASE 3: short APF serialization regression, split scalar reads, both bridge
+// endian modes, and native settings that must not change the GG contract.
 module dump_engine_gg_model #(parameter integer CASE = 0);
 reg clk_sys = 0, clk_74a = 0;
 always #5 clk_sys = ~clk_sys;
@@ -16,6 +18,8 @@ always #6.734 clk_74a = ~clk_74a;
 reg reset = 1, start = 0, cancel = 0, powered = 1, save_mode = 0;
 reg adapter_present = 1;
 reg [31:0] size = 32'h40000;
+reg native_byte_order = 1;
+reg [2:0] native_path_style = 0;
 wire busy, done, failed, sum_checked, pair_checked;
 wire [2:0] err;
 wire [1:0] want_mode;
@@ -43,7 +47,8 @@ reg [15:0] t_result = 0;
 
 dump_engine #(.WAKE_CYCLES(8)) dut (
     .clk_sys(clk_sys), .reset_sys(reset), .start(start), .cancel(cancel),
-    .selftest(1'b0), .save_mode(save_mode), .byte_order(1'b1), .path_style(3'd0),
+    .selftest(1'b0), .save_mode(save_mode), .byte_order(native_byte_order),
+    .path_style(native_path_style),
     .title("NOT_A_GG_TITLE "), .cart_kind(3'd4), .cart_type(8'h03),
     .rom_size_code(8'd0), .ram_size_code(8'd2), .rom_source(2'd2),
     .gba_size_bytes(32'd0), .gg_size_bytes(size), .gba_save_size_bytes(32'd0),
@@ -180,14 +185,14 @@ begin
 end
 endfunction
 localparam [199:0] PREFIX = "/Assets/carttools/common/";
-reg [7:0] path [0:263];
+reg [7:0] path [0:255];
 reg [7:0] file_data [0:524287];
 reg occupied [0:15];
 integer lengths [0:15];
 integer opens = 0, creates = 0, writes = 0, file_bytes = 0, active_file = -1;
 integer name_index, flags, declared_size, j, wordno, lane;
 integer override_probe = -1, override_create = -1, fail_write_at = -1;
-reg [31:0] raw, host;
+reg [31:0] raw, host, discarded;
 integer last_reads = 0, last_writes = 0, last_opens = 0, last_mapper_writes = 0;
 integer stalled_cycles = 0;
 // Normal cartridge beats take fewer than twenty clocks and even a complete
@@ -219,19 +224,37 @@ initial begin
             opens = opens + 1;
             bridge_xfer(t_struct, raw, 0);
             for (wordno = 0; wordno < 66; wordno = wordno + 1) begin
-                bridge_xfer(t_struct + (wordno+1)*4, raw, 1);
+                if (CASE == 3 && wordno >= 64) begin
+                    // Hardware reads these as separate numeric words, not
+                    // as four little-endian bytes copied from the path.
+                    bridge_xfer(t_struct + wordno*4, discarded, 0);
+                    bridge_xfer(t_struct + wordno*4, raw, 1);
+                    bridge_xfer(t_struct + wordno*4, discarded, 1);
+                end else begin
+                    // Flush the final path response before independently
+                    // priming the scalar fields, as the restore host does.
+                    bridge_xfer(CASE == 3 && wordno == 63 ? 32'hF8001000 :
+                                t_struct + (wordno+1)*4, raw, 1);
+                end
                 host = native_word(raw);
-                for (lane = 0; lane < 4; lane = lane + 1)
-                    path[wordno*4+lane] = host[lane*8 +: 8];
+                if (wordno == 0 && host !== 32'h2F417373)
+                    $fatal(1, "APF path first word must be /Ass in SPI order: got %08h", host);
+                if (wordno < 64) begin
+                    // Independent firmware byte-buffer interpretation,
+                    // matching the hardware-tested restore command path.
+                    for (lane = 0; lane < 4; lane = lane + 1)
+                        path[wordno*4+lane] = host[31-lane*8 -: 8];
+                end else if (wordno == 64) flags = host;
+                else declared_size = host;
             end
             for (j = 0; j < 25; j = j + 1)
                 if (path[j] !== PREFIX[199-j*8 -: 8]) $fatal(1, "wrong GG directory");
             if ({path[25],path[26],path[31],path[32],path[33],path[34]} !== {"GG.gg",8'd0})
                 $fatal(1, "wrong GG filename/extension/terminator");
+            for (j = 35; j < 256; j = j + 1)
+                if (path[j] !== 0) $fatal(1, "GG path padding was not zero");
             name_index = hexval(path[27])*4096 + hexval(path[28])*256 + hexval(path[29])*16 + hexval(path[30]);
             if (name_index >= 16) $fatal(1, "allocator skipped available names");
-            flags = {path[259],path[258],path[257],path[256]};
-            declared_size = {path[263],path[262],path[261],path[260]};
             if (flags == 0) begin
                 if (declared_size != 0) $fatal(1, "existence probe supplied a resize");
                 t_result = override_probe >= 0 ? override_probe : occupied[name_index] ? 0 : 3;
@@ -260,9 +283,11 @@ initial begin
                     bridge_xfer(t_bridgeaddr + (wordno+1)*4, raw, 1);
                     host = native_word(raw);
                     for (lane = 0; lane < 4; lane = lane + 1) begin
-                        if (host[lane*8 +: 8] !== content(file_bytes))
-                            $fatal(1, "file byte %0d differs from ROM", file_bytes);
-                        file_data[file_bytes] = host[lane*8 +: 8];
+                        // The 772B recovery preflight measured this same
+                        // high-byte-first convention for outgoing payloads.
+                        if (host[31-lane*8 -: 8] !== content(file_bytes))
+                            $fatal(1, "APF payload byte %0d differs from ROM: word %08h", file_bytes, host);
+                        file_data[file_bytes] = host[31-lane*8 -: 8];
                         file_bytes = file_bytes + 1;
                     end
                 end
@@ -334,7 +359,31 @@ initial begin
     end
     repeat (8) @(negedge clk_sys);
     reset = 0;
-    if (CASE == 0) begin
+    if (CASE == 3) begin
+        // Keep each capture deliberately short: one complete chunk reaches
+        // the modeled card, then a host error ends the transfer. This gives
+        // fast negative controls without replacing any full-image coverage.
+        prepare;
+        fail_write_at = 1;
+        launch; finish;
+        if (!failed || err != 5 || opens != 4 || creates != 1 || writes != 2 ||
+            file_bytes != 4096 || active_file != 2 || !occupied[2])
+            $fatal(1, "short APF capture did not preserve its first chunk");
+        if ({file_data[0], file_data[1], file_data[2], file_data[3]} !== 32'h00010203)
+            $fatal(1, "short APF capture omitted the non-palindromic word");
+
+        prepare;
+        bridge_endian_little = 0;
+        native_byte_order = 0;
+        native_path_style = 7;
+        fail_write_at = 1;
+        launch; finish;
+        if (!failed || err != 5 || opens != 5 || creates != 1 || writes != 2 ||
+            file_bytes != 4096 || active_file != 3 || !occupied[2] || !occupied[3])
+            $fatal(1, "GG APF contract depended on native settings or bridge byte order");
+        $display("TB PASS: tb_dump_engine_gg_apf");
+        $finish;
+    end else if (CASE == 0) begin
         prepare; launch; finish; check_capture(2);
     end else if (CASE == 1) begin
         prepare;

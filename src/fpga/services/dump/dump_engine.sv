@@ -374,6 +374,15 @@ reg [1:0]   source_l;       // ROM source, latched; false must not imply GB
 wire        gb_l  = source_l == 2'd0;
 wire        gba_l = source_l == 2'd1;
 wire        gg_l  = source_l == 2'd2;
+// GG uses the APF representation measured by the restore path: byte arrays
+// leave the bridge byte zero high; flags and size are plain numeric words.
+// With the path generator's byte_order 0, field_order 1 produces those plain
+// scalars. The native format search and its remembered result are independent
+// of this contract, including the ordering of GG's file payload.
+wire        apf_byte_order = gg_l ? 1'b0 : bo_l;
+wire        path_field_order = gg_l ? 1'b1 : try_field;
+wire [2:0]  active_path_style = gg_l ? 3'd0 : try_style;
+wire        path_create_only = gg_l ? 1'b0 : try_create_only;
 reg [2:0]   kind_l;         // which system, for the extension, latched
 reg  [31:0] gsize_l;        // the probed size, latched
 reg  [31:0] gssize_l;       // the GBA save size, latched
@@ -692,8 +701,8 @@ always @(posedge clk_sys) begin
                             end_wait <= 16'hFFFF;
                             ss <= SS_END;
                         end else begin
-                            used_style <= try_style;
-                            used_order <= try_order;
+                            used_style <= active_path_style;
+                            used_order <= apf_byte_order;
                             ss <= SS_VERIFY;
                         end
                     end else if (w_failed && w_failed_open && !abort_l &&
@@ -1197,7 +1206,7 @@ dump_buffer #(.WORDS (BUF_WORDS), .AW (BUF_AW)) chunk_buf (
     .wr_en      ( buf_we ),
     .wr_data    ( buf_data ),
     .wr_flush   ( buf_flush ),
-    .byte_order ( bo_l ),
+    .byte_order ( apf_byte_order ),
     .rd_clk     ( clk_74a ),
     .rd_addr    ( buf_rd_addr ),
     .rd_q       ( buf_rd_q )
@@ -1213,15 +1222,15 @@ dump_path_gen path_gen (
     .reset       ( reset_sys ),
     .start       ( path_start ),
     .selftest    ( sel_l ),
-    .path_style  ( try_style ),
-    .field_order ( try_field ),
-    .create_only ( try_create_only ),
+    .path_style  ( active_path_style ),
+    .field_order ( path_field_order ),
+    .create_only ( path_create_only ),
     .probe_only  ( gg_l && !gg_create ),
     .file_index  ( gg_file_index ),
     .title       ( title ),
     .cart_kind   ( kind_l ),
     .total_bytes ( total_bytes ),
-    .byte_order  ( bo_l ),
+    .byte_order  ( apf_byte_order ),
     .busy        ( path_busy ),
     .done        ( path_done ),
     .out_name    ( out_name ),

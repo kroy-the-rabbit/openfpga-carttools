@@ -20,7 +20,9 @@ This branch adds Sega ROM dumping through the official Analogue Game Gear
 adapter, with explicit 256/512 KiB profiles, a CRC reread of the selected range
 and new `.gg` filenames for every attempt. The official adapter's APF ID `0x01`
 was measured in the C982 diagnostic capture and its routing is enabled. GG ROM
-dumping hardware qualification is still pending. See [Game Gear](docs/GAME-GEAR.md)
+dumping hardware qualification is still pending: 99E2 read a stable header but
+failed file allocation, and its APF serialization correction awaits retesting.
+See [Game Gear](docs/GAME-GEAR.md)
 for controls and limits. The native baseline below is separate from qualification
 of these new routing and GG changes.
 
