@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 `default_nettype none
 
-// Restore transaction for two save geometries: MBC1 + 8 KiB RAM (type 03,
-// RAM code 02, DMG) and MBC3 + battery RAM with four 8 KiB banks (type 10 or
-// 13, RAM code 03, DMG or CGB flag 80). save_bytes follows the RAM code.
+// Restore transaction for three save geometries: MBC1 + 8 KiB RAM (type 03,
+// RAM code 02, DMG), MBC3 + battery RAM with four 8 KiB banks (type 10 or
+// 13, RAM code 03, DMG or CGB flag 80) and MBC5 + RAM + battery with the same
+// four banks (type 1B, RAM code 03, any CGB flag, ROM to 4 MiB). save_bytes
+// follows the RAM code.
 // Identity comes from the prepared metadata, never a title or a built-in CRC.
 // The default build exercises every preflight check with save writes disabled.
 // SD completion events cross clocks outside this module. Buffer ownership is
@@ -164,7 +166,10 @@ wire geometry_mbc1_8k = cart_type == 8'h03 && ram_size_code == 8'h02 &&
 wire geometry_mbc3_32k = (cart_type == 8'h10 || cart_type == 8'h13) &&
                          ram_size_code == 8'h03 &&
                          (cgb_flag == 8'h00 || cgb_flag == 8'h80) && rom_size_code <= 8'd6;
-assign geometry_ok = geometry_mbc1_8k || geometry_mbc3_32k;
+wire geometry_mbc5_32k = cart_type == 8'h1B && ram_size_code == 8'h03 &&
+                         (cgb_flag == 8'h00 || cgb_flag == 8'h80 || cgb_flag == 8'hC0) &&
+                         rom_size_code <= 8'd7;
+assign geometry_ok = geometry_mbc1_8k || geometry_mbc3_32k || geometry_mbc5_32k;
 assign rom_reading = rom_busy;
 cart_dump_gb rom_reader (
     .clk(clk), .reset(reset || stopping), .start(rom_start),
@@ -332,14 +337,14 @@ always @(posedge clk) begin
                 save_crc <= 0;
                 mismatch_offset <= 0;
                 timer <= TIMEOUT_CYCLES;
-                if (!target_ok || !cart_powered || !(geometry_mbc1_8k || geometry_mbc3_32k)) begin
+                if (!target_ok || !cart_powered || !geometry_ok) begin
                     phase <= META;
                     fail_with(5'd2);
                 end else begin
                     type_l <= cart_type;
                     ram_l <= ram_size_code;
                     rom_l <= rom_size_code;
-                    save_bytes <= geometry_mbc3_32k ? 16'd32768 : 16'd8192;
+                    save_bytes <= geometry_mbc1_8k ? 16'd8192 : 16'd32768;
                     geometry <= {cgb_flag,rom_size_code,ram_size_code,cart_type};
                     identity <= {16'd0,sw_version,header_checksum};
                     io_op <= 0;

@@ -30,6 +30,15 @@ def fixture():
     return bytes(checksums(rom)), bytes((i * 17 + 3) & 255 for i in range(8192))
 
 
+def mbc5_fixture():
+    # Dragon Warrior III-shaped header: MBC5+RAM+BATTERY, 4 MB, 32 KiB RAM, CGB only.
+    rom = bytearray(4194304)
+    rom[0x134:0x143] = b"TEST MBC5\0\0\0\0\0\0"
+    rom[0x143] = 0xC0
+    rom[0x147:0x14A] = bytes((0x1B, 0x07, 0x03))
+    return bytes(checksums(rom)), bytes((i * 31 + 5) & 255 for i in range(32768))
+
+
 def mbc3_fixture():
     # Silver-shaped header: MBC3+TIMER+RAM+BATTERY, 2 MB, 32 KiB RAM, CGB flag 80.
     rom = bytearray(2097152)
@@ -82,6 +91,32 @@ class RestorePackageTests(unittest.TestCase):
             PREPARE.make_manifest(rom, save[:8192])
         for offset, value in ((0x149, 0x02), (0x143, 0xC0), (0x148, 0x07)):
             with self.subTest(offset=offset):
+                changed = bytearray(rom)
+                changed[offset] = value
+                with self.assertRaises(ValueError):
+                    PREPARE.make_manifest(checksums(changed), save)
+
+    def test_mbc5_geometry_binds_32k_save(self):
+        rom, save = mbc5_fixture()
+        meta = PREPARE.make_manifest(rom, save)
+        words = struct.unpack("<16I", meta)
+        self.assertEqual(words[1:3], (1, 32768))
+        self.assertEqual(words[3:6], (zlib.crc32(save), 4194304, zlib.crc32(rom)))
+        self.assertEqual(words[6], 0xC007031B)
+        self.assertEqual(meta[32:48], rom[0x134:0x144])
+        # DMG and dual-mode flags are the same geometry.
+        for flag, word in ((0x00, 0x0007031B), (0x80, 0x8007031B)):
+            with self.subTest(flag=flag):
+                plain = bytearray(rom)
+                plain[0x143] = flag
+                self.assertEqual(struct.unpack("<16I", PREPARE.make_manifest(checksums(plain), save))[6],
+                                 word)
+        with self.assertRaises(ValueError):
+            PREPARE.make_manifest(rom, save[:8192])
+        # Battery-less and rumble MBC5, the 8 KiB RAM code and an 8 MiB ROM
+        # code are each refused.
+        for offset, value in ((0x147, 0x1A), (0x147, 0x1E), (0x149, 0x02), (0x148, 0x08)):
+            with self.subTest(offset=offset, value=value):
                 changed = bytearray(rom)
                 changed[offset] = value
                 with self.assertRaises(ValueError):

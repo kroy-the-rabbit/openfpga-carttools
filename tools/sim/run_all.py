@@ -36,6 +36,15 @@ REPO = os.path.abspath(os.path.join(HERE, os.pardir, os.pardir))
 # Paths are relative to the repo root. One line, space separated.
 SOURCES_RE = re.compile(r"^\s*//\s*SOURCES:\s*(.+?)\s*$", re.MULTILINE)
 
+# Long benches may declare one explicit wall-clock budget. The default stays
+# 300s; malformed, duplicate, or unbounded declarations fail before compilation
+# instead of silently changing the suite's time limit.
+#
+#   // TIMEOUT: 900
+TIMEOUT_RE = re.compile(r"^[ \t]*//[ \t]*TIMEOUT:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+DEFAULT_TIMEOUT = 300
+MAX_TIMEOUT = 1800
+
 # And it declares success by printing this as the last thing it does, after the
 # final check and before $finish:
 #
@@ -94,12 +103,32 @@ def scan_markers(text):
     return ""
 
 
+def read_timeout(tb_path):
+    with open(tb_path, "r", encoding="utf-8", errors="replace") as fh:
+        declarations = TIMEOUT_RE.findall(fh.read())
+    if not declarations:
+        return DEFAULT_TIMEOUT
+    if len(declarations) != 1:
+        raise ValueError("expected at most one '// TIMEOUT:' header")
+    value = declarations[0]
+    if not re.fullmatch(r"[0-9]+", value):
+        raise ValueError("TIMEOUT must be an integer from 1 to {} seconds".format(MAX_TIMEOUT))
+    timeout = int(value)
+    if not 1 <= timeout <= MAX_TIMEOUT:
+        raise ValueError("TIMEOUT must be between 1 and {} seconds".format(MAX_TIMEOUT))
+    return timeout
+
+
 def run_testbench(tb_path):
     name = os.path.splitext(os.path.basename(tb_path))[0]
     try:
         sources = read_sources(tb_path)
     except ValueError as exc:
         return Result(name, False, str(exc), "bad SOURCES header")
+    try:
+        timeout = read_timeout(tb_path)
+    except ValueError as exc:
+        return Result(name, False, str(exc), "bad TIMEOUT header")
 
     with tempfile.TemporaryDirectory() as tmp:
         vvp_out = os.path.join(tmp, name + ".vvp")
@@ -122,7 +151,7 @@ def run_testbench(tb_path):
             return Result(name, False, log, "compile " + marker)
 
         proc = subprocess.run(["vvp", vvp_out], cwd=REPO, capture_output=True,
-                              text=True, timeout=300)
+                              text=True, timeout=timeout)
         log = proc.stdout + proc.stderr
 
     if proc.returncode != 0:
@@ -134,6 +163,21 @@ def run_testbench(tb_path):
         return Result(name, False, log,
                       "no 'TB PASS:' line; the testbench never reached its end")
     return Result(name, True, log)
+
+
+def checked_testbench(tb_path):
+    """Keep one timed-out bench from discarding the rest of the suite."""
+    try:
+        return run_testbench(tb_path)
+    except subprocess.TimeoutExpired as exc:
+        def decoded(output):
+            if isinstance(output, bytes):
+                return output.decode("utf-8", errors="replace")
+            return output or ""
+
+        return Result(os.path.splitext(os.path.basename(tb_path))[0], False,
+                      decoded(exc.stdout) + decoded(exc.stderr),
+                      "timeout after {}s".format(exc.timeout))
 
 
 def run_structural_checks():
@@ -177,7 +221,7 @@ def main():
                if not args.k or args.k in r.name]
     testbenches = discover(args.k)
     for tb in testbenches:
-        results.append(run_testbench(tb))
+        results.append(checked_testbench(tb))
 
     if not results:
         print("no testbenches or checks matched {!r}".format(args.k))

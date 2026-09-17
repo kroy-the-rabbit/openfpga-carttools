@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 `default_nettype none
 
-// The restore writer supports two physical save organizations: MBC1 + RAM +
-// battery (03) with one 8 KiB RAM bank (02), and MBC3 + battery RAM (10 or
-// 13) with four 8 KiB banks (03). Identification, immutable source staging,
+// The restore writer supports three physical save organizations: MBC1 + RAM +
+// battery (03) with one 8 KiB RAM bank (02), MBC3 + battery RAM (10 or 13)
+// with four 8 KiB banks (03), and MBC5 + RAM + battery (1B) with the same four
+// banks (03). Identification, immutable source staging,
 // the recovery backup, and confirmation belong to the caller. authorized must
 // represent all of those checks, and remain high throughout the operation.
 // No title or particular save content is assumed.
 //
-// MBC3 selects a bank by writing 0x00-0x03 to 0x4000. Values 0x08-0x0C map
-// the clock registers over the RAM window; this module can only form the
-// two-bit bank number, so it can never write them. MBC3 has no mode register,
-// so the 0x6000 writes belong to MBC1 only; on MBC3 that address latches the
-// clock and is left alone.
+// MBC3 and MBC5 select a bank by writing 0x00-0x03 to 0x4000. On MBC3 values
+// 0x08-0x0C map the clock registers over the RAM window; this module can only
+// form the two-bit bank number, so it can never write them. Neither has a mode
+// register, so the 0x6000 writes belong to MBC1 only; on MBC3 that address
+// latches the clock and is left alone, on MBC5 it is unmapped.
 //
 // Requests remain revocable until gb_cart_bus accepts them. An accepted byte
 // finishes before cancellation closes the RAM gate and restores MBC1 mode 0.
@@ -56,7 +57,8 @@ module cart_restore_gb (
 
 wire geometry_mbc1 = (cart_type == 8'h03) && (ram_size_code == 8'h02);
 wire geometry_mbc3 = (cart_type == 8'h10 || cart_type == 8'h13) && (ram_size_code == 8'h03);
-assign supported = geometry_mbc1 || geometry_mbc3;
+wire geometry_mbc5 = (cart_type == 8'h1B) && (ram_size_code == 8'h03);
+assign supported = geometry_mbc1 || geometry_mbc3 || geometry_mbc5;
 
 // Latched at start so a live identity change cancels through the sequence
 // that was begun rather than switching mapper mid-cleanup.

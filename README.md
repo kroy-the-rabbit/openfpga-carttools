@@ -36,7 +36,7 @@ yet hardware-verified. The GBA results below describe the previously verified
 | Save RAM banking, to 128 KB | **works** at 8 KB one bank and 32 KB four banks; 64 KB and 128 KB built, untested |
 | GBA save backup | **works**, eleven cartridges: 32 KiB SRAM, 64 KiB Flash, and EEPROM at 512 bytes and 8 KiB, each loaded in an emulator with its state intact. None of it writes to the cartridge; the EEPROM reader cannot even express a write. 128 KiB Flash refused, it needs a bank-select write |
 | A write that is cut short mid-pulse | **safe**, the cartridge captures the byte that was asked for rather than a floating bus |
-| Save restore | **alpha; verified on Pokemon Silver**, MBC3 32 KiB. MBC1 8 KiB and other MBC3 cartridges are implemented but untested. See [save restore](docs/SAVE-RESTORE.md) |
+| Save restore | **alpha; verified on Pokemon Silver**, MBC3 32 KiB. MBC1 8 KiB, other MBC3 and MBC5 32 KiB cartridges are implemented but untested. See [save restore](docs/SAVE-RESTORE.md) |
 | MBC3 RTC | not started |
 | MBC3 ROM and save dumping | **works**, Pokemon Silver, 2 MB and 32 KiB, after the idle-bus fix in `ff5dd03` |
 | MBC2, MBC1 above 512 KB | simulation only, no cartridge to test |

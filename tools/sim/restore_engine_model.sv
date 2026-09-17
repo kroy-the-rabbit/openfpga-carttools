@@ -3,7 +3,8 @@
 `timescale 1ns/1ps
 
 // Full restore transaction against a writable, synthetic MBC1 cartridge, or
-// with MBC3 set, a synthetic MBC3 cartridge with four RAM banks and CGB flag.
+// with MBC3 or MBC5 set, a synthetic cartridge of that mapper with four RAM
+// banks and a CGB flag (80 for MBC3, C0 for MBC5).
 // The file transport is modeled here; its actual APF bridge and byte order
 // are independently exercised by tb_restore_file_io. No corpus bytes enter
 // this fixture. Run a clamped-off candidate and enabled writer independently.
@@ -11,19 +12,21 @@ module restore_engine_case #(
     parameter bit WRITE_ENABLED = 1'b0,
     parameter integer ROM_CODE = 0,
     parameter bit MBC3 = 1'b0,
+    parameter bit MBC5 = 1'b0,
     // 0 runs every scenario; 1 runs the clean transaction and preflight
-    // faults, 2 the post-READY and cancellation scenarios. The 32 KiB cases
-    // are split so each bench file stays inside the runner's time limit.
+    // faults, 2 the post-READY and cancellation scenarios. The MBC3 cases
+    // are split so each bench file stays inside the default time limit.
     parameter integer PART = 0
 ) (
     input wire clk, clk_io,
     output reg finished = 0,
     output integer errors = 0
 );
-localparam [7:0] CART_TYPE = MBC3 ? 8'h10 : 8'h03;
-localparam [7:0] RAM_CODE = MBC3 ? 8'h03 : 8'h02;
-localparam [7:0] CGB_FLAG = MBC3 ? 8'h80 : 8'h00;
-localparam integer SAVE_BYTES = MBC3 ? 32768 : 8192;
+localparam bit BANKED = MBC3 || MBC5;
+localparam [7:0] CART_TYPE = MBC5 ? 8'h1B : MBC3 ? 8'h10 : 8'h03;
+localparam [7:0] RAM_CODE = BANKED ? 8'h03 : 8'h02;
+localparam [7:0] CGB_FLAG = MBC5 ? 8'hC0 : MBC3 ? 8'h80 : 8'h00;
+localparam integer SAVE_BYTES = BANKED ? 32768 : 8192;
 localparam integer SAVE_WORDS = SAVE_BYTES / 4;
 reg reset = 1, preflight_start = 0, commit_start = 0, cancel = 0;
 reg cart_powered = 1, mode_ready = 1, target_ok = 1;
@@ -78,7 +81,7 @@ reg [31:0] metadata [0:15];
 reg [31:0] retained_backup [0:SAVE_WORDS-1];
 reg [31:0] baseline_rom_crc, baseline_save_crc;
 reg ram_enabled = 0, mapper_mode = 0;
-reg [4:0] rom_bank = 1;
+reg [8:0] rom_bank = 1;
 reg [1:0] bank_upper = 0;
 reg accepted_wr;
 reg [15:0] accepted_addr;
@@ -162,12 +165,13 @@ endtask
 // A transaction is accepted with req while idle, then completes after an
 // independently modeled latency. Mapper and RAM writes take effect only at
 // completion, ensuring cancellation must drain an accepted write.
-// On MBC1 the RAM bank is bank_upper only in mode 1; on MBC3 it is always
-// bank_upper, and 0x08-0x0C there would map the clock registers instead.
+// On MBC1 the RAM bank is bank_upper only in mode 1; on MBC3 and MBC5 it is
+// always bank_upper, and on MBC3 0x08-0x0C there would map the clock registers
+// instead. MBC5 takes ROM bank bit 8 from 0x3000 and has no 0x6000 register.
 integer physical_address;
 integer ram_index;
 reg [7:0] read_value;
-wire [1:0] ram_bank = MBC3 ? bank_upper : (mapper_mode ? bank_upper : 2'd0);
+wire [1:0] ram_bank = BANKED ? bank_upper : (mapper_mode ? bank_upper : 2'd0);
 always @(posedge clk) begin
     bus_done <= 0;
     if (reset) begin
@@ -182,13 +186,16 @@ always @(posedge clk) begin
         else begin
             if (accepted_wr) begin
                 if (accepted_addr < 'h2000) ram_enabled <= accepted_data[3:0] == 'hA;
-                else if (accepted_addr < 'h4000)
-                    rom_bank <= accepted_data[4:0] == 0 ? 5'd1 : accepted_data[4:0];
+                else if (accepted_addr < 'h3000 || !MBC5) begin
+                    if (MBC5) rom_bank <= {rom_bank[8], accepted_data};
+                    else rom_bank <= accepted_data[4:0] == 0 ? 9'd1 : {4'd0, accepted_data[4:0]};
+                end else if (accepted_addr < 'h4000)
+                    rom_bank <= {accepted_data[0], rom_bank[7:0]};
                 else if (accepted_addr < 'h6000) begin
-                    if (MBC3) check(accepted_data < 4, "MBC3 bank register never selects the clock");
+                    if (BANKED) check(accepted_data < 4, "bank register stays within the four save banks");
                     bank_upper <= accepted_data[1:0];
                 end else if (accepted_addr < 'h8000) begin
-                    if (MBC3) check(accepted_data == 0, "MBC3 latch register only ever written zero");
+                    if (BANKED) check(accepted_data == 0, "latch or unmapped register only ever written zero");
                     else mapper_mode <= accepted_data[0];
                 end else if (accepted_addr >= 'hA000 && accepted_addr < 'hC000) begin
                     ram_index = ram_bank * 8192 + (accepted_addr - 'hA000);
@@ -325,7 +332,7 @@ task automatic fresh(input integer number);
         io_error_op = -1; backup_bad = 0; original_unstable = 0;
         changed_rom = 0; verify_bad = 0; retained_complete = 0; commit_permitted = 0;
         scenario = number;
-        $display("restore engine enabled=%0d mbc3=%0d ROM=%0d scenario=%0d", WRITE_ENABLED, MBC3, ROM_BYTES, number);
+        $display("restore engine enabled=%0d mbc3=%0d mbc5=%0d ROM=%0d scenario=%0d", WRITE_ENABLED, MBC3, MBC5, ROM_BYTES, number);
         $fflush();
         for (k=0; k<SAVE_BYTES; k=k+1) ram[k] = original_content(k);
         for (k=0; k<16; k=k+1) metadata[k] = 0;
@@ -555,7 +562,7 @@ initial begin
               "cancel drains at most one accepted save write then stops");
         for (k=0; k<SAVE_WORDS; k=k+1)
             check(retained_backup[k] === original_word(k), "cancel retains the complete original backup");
-        if (MBC3) begin
+        if (BANKED) begin
             // The last bank of a four-bank save is reached through three bank
             // switches; a fault there must still be caught at its true offset.
             fresh(19);
@@ -576,18 +583,18 @@ initial begin
         update_meta_crc();
         expect_preflight_failure(1);
         fresh(18);
-        cart_type = 'h1B;
+        cart_type = 'h1E;
         expect_preflight_failure(2);
         check(!dut.geometry_ok, "unsupported mapper is not offered to the guard");
         check(metadata_calls == 0 && save_calls == 0 && backup_calls == 0,
               "unsupported mapper rejected before file I/O");
         fresh(21);
-        ram_size_code = MBC3 ? 8'h02 : 8'h03;
+        ram_size_code = BANKED ? 8'h02 : 8'h03;
         expect_preflight_failure(2);
         check(!dut.geometry_ok, "other geometry's RAM code is not offered to the guard");
         check(metadata_calls == 0, "mapper with the other geometry's RAM code is rejected");
         fresh(22);
-        cgb_flag = MBC3 ? 8'hC0 : 8'h80;
+        cgb_flag = MBC5 ? 8'h40 : MBC3 ? 8'hC0 : 8'h80;
         expect_preflight_failure(2);
         check(!dut.geometry_ok, "unsupported CGB flag is not offered to the guard");
         check(metadata_calls == 0, "unsupported CGB flag for the mapper is rejected");

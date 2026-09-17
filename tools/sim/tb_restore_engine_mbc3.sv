@@ -1,4 +1,5 @@
 // SOURCES: tools/sim/restore_engine_model.sv src/fpga/services/restore/restore_engine.sv src/fpga/services/restore/cart_restore_gb.sv src/fpga/services/dump/cart_dump_gb.sv src/fpga/services/dump/cart_save_gb.sv
+// TIMEOUT: 900
 // The restore engine scenarios of tb_restore_engine against a synthetic MBC3
 // cartridge: type 10, four 8 KiB RAM banks, CGB flag 80. Part 1: the clean
 // clamped and enabled transactions and the preflight fault scenarios.

@@ -1,4 +1,5 @@
 // SOURCES: tools/sim/restore_engine_model.sv src/fpga/services/restore/restore_engine.sv src/fpga/services/restore/cart_restore_gb.sv src/fpga/services/dump/cart_dump_gb.sv src/fpga/services/dump/cart_save_gb.sv
+// TIMEOUT: 900
 // Part 2 of the MBC3 restore engine scenarios: post-READY refusals, the
 // enabled writer, verification mismatches, cancellation, the last-bank fault
 // and the geometry refusals. See tb_restore_engine_mbc3.

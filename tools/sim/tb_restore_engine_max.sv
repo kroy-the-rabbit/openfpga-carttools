@@ -1,4 +1,5 @@
 // SOURCES: tools/sim/restore_engine_model.sv src/fpga/services/restore/restore_engine.sv src/fpga/services/restore/cart_restore_gb.sv src/fpga/services/dump/cart_dump_gb.sv src/fpga/services/dump/cart_save_gb.sv
+// TIMEOUT: 900
 `default_nettype none
 `timescale 1ns/1ps
 module tb_restore_engine_max;

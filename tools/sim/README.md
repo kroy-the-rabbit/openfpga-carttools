@@ -79,7 +79,10 @@ continue.
 5. A watchdog `initial` block that `$fatal`s after a generous multiple of the
    expected run length. A testbench that deadlocks otherwise stalls until
    `run_all.py`'s own 300 second timeout, and a dead process explains nothing.
-6. `make test ARGS="-k <thing>"`.
+6. A `// TIMEOUT: <seconds>` line, up to 1800, only when the bench needs more
+   than that 300 seconds of wall clock on a runner. The restore engine
+   benches declare 900 and the single MBC5 bench 1800.
+7. `make test ARGS="-k <thing>"`.
 
 A testbench that instantiates `gba_cart_bus` should also instantiate
 `gba_cart_model` and name it in SOURCES. The model watches for the bus being
