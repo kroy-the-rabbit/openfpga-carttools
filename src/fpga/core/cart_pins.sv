@@ -127,13 +127,41 @@ wire [15:0] gg_connector_addr = {
 };
 
 // Any pin no engine claims takes the safe idle posture.
-wire [15:0] ad_out  = sel_gba ? gba_ad_out  : sel_gb ? gb_ad_out  : sel_gg ? gg_connector_addr : 16'h0000;
-wire        ad_oe   = sel_gba ? gba_ad_oe   : sel_gb ? gb_ad_oe   : sel_gg ? gg_ad_oe   : 1'b0;
-wire [7:0]  hi_out  = sel_gba ? gba_hi_out  : sel_gb ? gb_hi_out  : sel_gg ? gg_hi_out  : 8'h00;
-wire        hi_oe   = sel_gba ? gba_hi_oe   : sel_gb ? gb_hi_oe   : sel_gg ? gg_hi_oe   : 1'b0;
-wire [3:0]  ctl_out = sel_gba ? gba_ctl_out : sel_gb ? gb_ctl_out : sel_gg ? gg_ctl_out : 4'hf;
-wire        p30_out = sel_gba ? gba_p30_out : sel_gb ? gb_p30_out : sel_gg ? gg_p30_out : 1'b0;
-wire        p30_oe  = sel_gba ? gba_p30_oe  : sel_gb ? gb_p30_oe  : sel_gg ? gg_p30_oe  : 1'b0;
+wire [15:0] ad_out_d  = sel_gba ? gba_ad_out  : sel_gb ? gb_ad_out  : sel_gg ? gg_connector_addr : 16'h0000;
+wire        ad_oe_d   = sel_gba ? gba_ad_oe   : sel_gb ? gb_ad_oe   : sel_gg ? gg_ad_oe   : 1'b0;
+wire [7:0]  hi_out_d  = sel_gba ? gba_hi_out  : sel_gb ? gb_hi_out  : sel_gg ? gg_hi_out  : 8'h00;
+wire        hi_oe_d   = sel_gba ? gba_hi_oe   : sel_gb ? gb_hi_oe   : sel_gg ? gg_hi_oe   : 1'b0;
+wire [3:0]  ctl_out_d = sel_gba ? gba_ctl_out : sel_gb ? gb_ctl_out : sel_gg ? gg_ctl_out : 4'hf;
+wire        p30_out_d = sel_gba ? gba_p30_out : sel_gb ? gb_p30_out : sel_gg ? gg_p30_out : 1'b0;
+wire        p30_oe_d  = sel_gba ? gba_p30_oe  : sel_gb ? gb_p30_oe  : sel_gg ? gg_p30_oe  : 1'b0;
+
+// I/O-cell registers: pin timing must not depend on placement. Async reset releases without a clock.
+reg [15:0] ad_out;
+reg        ad_oe;
+reg [7:0]  hi_out;
+reg        hi_oe;
+reg [3:0]  ctl_out;
+reg        p30_out;
+reg        p30_oe;
+always @(posedge clk or posedge reset) begin
+    if (reset) begin
+        ad_out  <= 16'h0000;
+        ad_oe   <= 1'b0;
+        hi_out  <= 8'h00;
+        hi_oe   <= 1'b0;
+        ctl_out <= 4'hf;
+        p30_out <= 1'b0;
+        p30_oe  <= 1'b0;
+    end else begin
+        ad_out  <= ad_out_d;
+        ad_oe   <= ad_oe_d;
+        hi_out  <= hi_out_d;
+        hi_oe   <= hi_oe_d;
+        ctl_out <= ctl_out_d;
+        p30_out <= p30_out_d;
+        p30_oe  <= p30_oe_d;
+    end
+end
 
 assign cart_tran_bank3     = ad_oe ? ad_out[7:0]  : 8'hzz;
 assign cart_tran_bank3_dir = ad_oe;
