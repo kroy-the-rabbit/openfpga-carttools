@@ -23,10 +23,18 @@ reg clk = 1'b0;
 always #5 clk = ~clk;
 
 reg reset = 1'b1;
+reg adapter_diagnostic=0, adapter_valid=0;
+reg [31:0] adapter_report=0;
+reg [3:0] adapter_seq=0;
 
 reg         valid = 1'b0;
 reg  [2:0]  platform = 3'd0;
-reg         answered_gba = 1'b0;
+reg [1:0] answered_gba = 2'd0;
+reg [19:0] gg_product=0;
+reg [3:0] gg_version=0, gg_region=0;
+reg [15:0] gg_header_addr=0;
+reg [127:0] gg_header=0;
+reg gg_size_512=0, gg_verify_checked=0, gg_verify_ok=0;
 reg  [95:0] title = 96'd0;
 reg  [31:0] game_code = 32'd0;
 reg  [15:0] maker_code = 16'd0;
@@ -87,11 +95,15 @@ wire [7:0] rd_char;
 wire [1:0] rd_attr;
 
 ui_screen dut (
+    .gg_product(gg_product), .gg_version(gg_version), .gg_region(gg_region),
+    .gg_header_addr(gg_header_addr), .gg_header(gg_header), .gg_size_512(gg_size_512),
+    .gg_verify_checked(gg_verify_checked), .gg_verify_ok(gg_verify_ok),
+    .adapter_diagnostic(adapter_diagnostic), .adapter_report(adapter_report), .adapter_valid(adapter_valid), .adapter_seq(adapter_seq),
     .clk        ( clk ),
     .reset      ( reset ),
     .valid      ( valid ),
     .platform   ( platform ),
-    .answered_gba( answered_gba ),
+    .answered_protocol(answered_gba),
     .title      ( title ),
     .game_code  ( game_code ),
     .maker_code ( maker_code ),
@@ -171,15 +183,27 @@ endtask
 
 reg [8*COLS-1:0] got;
 
-task expect_row(input [255:0] what, input integer row, input [8*COLS-1:0] want);
+// Retain an extra byte: matching truncation in the DUT and the expected literal
+// must not make an overlong row pass. Actual output is also checked by prefix.
+task expect_row(input [255:0] what, input integer row, input [8*(COLS+1)-1:0] want);
     begin
+        if (want[8*COLS +: 8] !== 8'd0)
+            $fatal(1, "UI_ROW_LENGTH: %0s expected row exceeds %0d columns", what, COLS);
         read_row(row, got);
-        if (got !== want) begin
+        if (got !== want[8*COLS-1:0]) begin
             $display("ERROR: %0s row %0d", what, row);
             $display("         got: |%0s|", got);
             $display("    expected: |%0s|", want);
             errors = errors + 1;
         end
+    end
+endtask
+
+task expect_first(input integer row, input [7:0] want);
+    begin
+        read_row(row, got);
+        if (got[8*(COLS-1) +: 8] !== want)
+            $fatal(1, "UI_ROW_PREFIX: row %0d lost its first character", row);
     end
 endtask
 
@@ -411,6 +435,7 @@ initial begin
     dump_progress = 8'h60;          // six of sixteen cells
     settle();
     expect_row("dumping", 10, "DUMPING                       ");
+    expect_row("cancel during dump", 18, "A cancel                      ");
     expect_row("dumping", 11, "[######----------]            ");
     // Named while it is being written, not only afterwards. A dump that says
     // COMPLETE without naming the file leaves the reader hunting the card.
@@ -530,11 +555,11 @@ initial begin
     dump_err = 3'd4;
     settle();
     expect_row("dump failed", 10, "DUMP FAILED  err 4            ");
-    expect_row("dump failed", 12, "APF rejected every path       ");
+    expect_row("dump failed", 12, "APF malformed file path       ");
 
     dump_err = 3'd7;
     settle();
-    expect_row("dump failed", 12, "cartridge removed             ");
+    expect_row("dump cancelled", 12, "operation cancelled           ");
 
     // A command APF never answered, and which one. A stalled flush is not
     // the same news as a stalled open: the bytes are already at APF, because
@@ -703,7 +728,8 @@ initial begin
     pair_mismatches = 0; pair_even = 0; pair_odd = 0;
     dump_state = 2'd2;
     settle();
-    expect_row("stable reads", 15, "PAIRED READS AGREE             ");
+    expect_row("stable reads", 15, "PAIRED READS AGREE            ");
+    expect_first(15, "P");
     expect_row("stable counts", 16, "EVEN 000000 ODD 000000        ");
     expect_row("no stale first mismatch", 17, "                              ");
 
@@ -723,6 +749,91 @@ initial begin
     dump_state = 2'd2; scanning = 1;
     settle();
     expect_row("rescan hides pairs", 15, "                              ");
+
+    scanning=0; dump_state=0; platform=3'd6; answered_gba=2'd2;
+    gg_product=20'h12345; gg_version=4'h1; gg_region=4'h6;
+    gg_header_addr=16'h7FF0;
+    gg_header=128'h60104523_00005AA5_41474553_20524D54;
+    id_seq=id_seq+1;
+    settle();
+    expect_row("GG message",2,"GAME GEAR CARTRIDGE           ");
+    expect_row("GG product",4,"PRODUCT 12345  REV 1          ");
+    expect_row("GG header",8,"HDR0 544D522053454741         ");
+    expect_row("GG selected size",6,"ROM 256 KB (MANUAL)           ");
+    expect_row("GG size controls",16,"LEFT 256 KB   RIGHT 512 KB    ");
+    expect_row("GG save exclusion",17,"ROM ONLY; SAVE NOT SUPPORTED  ");
+    expect_first(16, "L");
+    expect_first(17, "R");
+    dump_ready=0;
+    settle();
+    expect_row("GG controls wait for ready",16,"                              ");
+    dump_ready=1;
+    gg_size_512=1; id_seq=id_seq+1;
+    settle();
+    expect_row("GG explicit size",6,"ROM 512 KB (MANUAL)           ");
+    // A malformed APF path is a transport error, before any reread verdict.
+    // Check the complete row, including the final 'h' and trailing padding.
+    dump_state=3; dump_err=4; gg_verify_checked=0;
+    settle();
+    expect_row("GG malformed path code",10,"DUMP FAILED  err 4            ");
+    expect_row("GG malformed path",12,"APF malformed file path       ");
+    expect_first(12, "A");
+    dump_state=2; gg_verify_checked=1; gg_verify_ok=1;
+    settle();
+    expect_row("GG reread",13,"SELECTED RANGE CRC AGREES     ");
+    expect_first(13, "S");
+    dump_state=3; gg_verify_ok=0;
+    settle();
+    expect_row("GG mismatch",12,"SELECTED RANGE CRC MISMATCH   ");
+    expect_first(12, "S");
+    platform=3'd4; dump_state=0; id_seq=id_seq+1;
+    settle();
+    expect_row("GG unstable reason",2,"UNSTABLE: GG HEADER           ");
+    expect_row("GG unstable detail",7,"HEADER READS UNSTABLE         ");
+    expect_first(7, "H");
+
+    // Raw response bytes remain useful after a failed probe. They must not
+    // become a product, region, or available capture size on that screen.
+    gg_product=20'hFFFFF; gg_region=4'hF; gg_version=4'hF;
+    gg_header={128{1'b1}}; dump_ready=0;
+    for (r=0; r<4; r=r+1) begin
+        case (r)
+            0: platform=3'd0;  // absent
+            1: platform=3'd3;  // unknown header
+            2: platform=3'd4;  // unstable
+            3: platform=3'd5;  // no power
+        endcase
+        id_seq=id_seq+1;
+        settle();
+        expect_row("GG failure has no product",4,"                              ");
+        expect_row("GG failure has no region",5,"                              ");
+        expect_row("GG failure has no size",6,"                              ");
+        expect_row("GG failure has no controls",16,"                              ");
+        expect_row("GG failure retains raw bytes",8,"HDR0 FFFFFFFFFFFFFFFF         ");
+    end
+
+    // A raw report must repaint even without any cartridge probe completing.
+    scanning=0; valid=0; dump_state=0; adapter_diagnostic=1;
+    settle();
+    expect_row("adapter title", 0, "CART ADAPTER DIAGNOSTIC   0000");
+    expect_first(0, "C");
+    expect_row("adapter waiting", 2, "WAITING FOR APF REPORT        ");
+    adapter_report=32'hA501B203; adapter_valid=1; adapter_seq=1;
+    settle();
+    expect_row("adapter raw", 4, "RAW  A501B203                 ");
+    expect_row("adapter id", 6, "ADAPTER ID 03                 ");
+    expect_row("adapter flags", 8, "PLAY 1  POWER 1               ");
+    expect_row("adapter idle", 11, "CARTRIDGE BUS HELD IDLE       ");
+    dump_state=3; dump_progress=8'hFF;
+    settle();
+    expect_row("adapter hides failed dump",11,"CARTRIDGE BUS HELD IDLE       ");
+    dump_state=1; out_name_valid=1; out_name="OLDNAME         "; out_name_len=7;
+    settle();
+    expect_row("adapter hides stale filename",12,"                              ");
+
+    adapter_report=32'h01010001; adapter_seq=2;
+    settle();
+    expect_row("adapter changed", 6, "ADAPTER ID 01                 ");
 
     if (errors != 0) begin
         $display("tb_ui_screen: %0d checks failed", errors);

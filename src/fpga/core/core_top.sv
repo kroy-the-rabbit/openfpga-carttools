@@ -394,6 +394,16 @@ wire            rtc_valid;
 wire            cart_play;
 wire            cart_power;
 wire    [31:0]  cart_adapter_id;
+wire [31:0] cart_report_74a;
+wire cart_report_valid_74a;
+wire [31:0] cart_report_s;
+wire cart_report_valid_s, cart_report_changed_s;
+wire [3:0] cart_report_seq;
+// Passive adapter diagnostic: every cartridge engine remains disabled.
+localparam bit ADAPTER_DIAGNOSTIC_ONLY = 1'b0;
+// Official GG adapter measured on C982: RAW 01010001, ID 01, Play/Power 1.
+// Evidence: Memories/Screenshots/20260914_205342.png (2026-09-14).
+localparam [7:0] GG_ADAPTER_ID = 8'h01;
 wire            cart_mode_74a = cart_play & cart_power;
 
 // Save states are gone with the emulator. Reporting them unsupported is not
@@ -543,6 +553,8 @@ core_bridge_cmd icb (
     .cart_play              ( cart_play ),
     .cart_power             ( cart_power ),
     .cart_adapter_id        ( cart_adapter_id ),
+    .cart_report            ( cart_report_74a ),
+    .cart_report_valid      ( cart_report_valid_74a ),
 
     .savestate_supported    ( savestate_supported ),
     .savestate_addr         ( savestate_addr ),
@@ -616,8 +628,49 @@ end
 //
 // ============================================================
 
-wire cart_mode_s;
-synch_3 s_cart_mode (cart_mode_74a, cart_mode_s, clk_sys);
+wire cart_mode_live_s;
+wire core_reset_n_s;
+synch_3 s_core_reset_n (reset_n, core_reset_n_s, clk_sys);
+wire native_adapter = cart_report_valid_s && cart_report_s[7:0] == 8'd0;
+wire gg_adapter = cart_report_valid_s && GG_ADAPTER_ID != 8'hFF &&
+                  GG_ADAPTER_ID != 8'd0 && cart_report_s[7:0] == GG_ADAPTER_ID;
+wire adapter_supported = native_adapter || gg_adapter;
+wire adapter_diagnostic = ADAPTER_DIAGNOSTIC_ONLY ||
+                          (cart_report_valid_s && !adapter_supported);
+// Power/report loss is physical disconnection and gates the pins immediately.
+// Reset Enter is different: an admitted session must stay powered while its
+// owner finishes an in-flight write and, on GB, closes the RAM write gate.
+// Only Reset Exit admits a new powered adapter session. Remember its ID so a
+// different adapter cannot inherit admission while the core is held in reset.
+wire cart_powered_s = cart_mode_live_s && cart_report_valid_s &&
+                      cart_report_s[24] && cart_report_s[16] &&
+                      !ADAPTER_DIAGNOSTIC_ONLY;
+reg cart_session_admitted;
+reg [7:0] cart_session_adapter;
+always @(posedge clk_sys) begin
+    if (~pll_core_locked || !cart_powered_s ||
+        (cart_session_admitted && cart_session_adapter != cart_report_s[7:0])) begin
+        cart_session_admitted <= 1'b0;
+        cart_session_adapter <= 8'd0;
+    end else if (core_reset_n_s) begin
+        cart_session_admitted <= 1'b1;
+        cart_session_adapter <= cart_report_s[7:0];
+    end
+end
+wire cart_mode_s = cart_powered_s && cart_session_admitted &&
+                   cart_session_adapter == cart_report_s[7:0];
+// Every new action uses this admission gate. Existing owners use cart_mode_s
+// until their ordinary cancellation/cleanup path releases the connector.
+wire cart_run_allowed = cart_mode_s && core_reset_n_s;
+wire [1:0] slot_protocol = gg_adapter ? 2'd2 : native_adapter ? 2'd0 : 2'd3;
+synch_3 s_cart_mode (cart_mode_74a, cart_mode_live_s, clk_sys);
+cart_adapter_state adapter_state (
+    .clk_host(clk_74a), .reset_host(~pll_core_locked_s),
+    .report_host(cart_report_74a), .valid_host(cart_report_valid_74a),
+    .clk_sys(clk_sys), .reset_sys(~pll_core_locked),
+    .report(cart_report_s), .valid(cart_report_valid_s),
+    .changed(cart_report_changed_s), .report_seq(cart_report_seq)
+);
 
 wire [31:0] cart_bus_rdata;
 wire        cart_bus_done;
@@ -751,7 +804,7 @@ wire [15:0] gb_ad_in;
 wire [7:0]  gb_hi_in;
 
 wire [1:0]  probe_mode;
-wire        probe_answered_gba;
+wire [1:0] probe_answered_protocol;
 
 // A dump holds the connector in its own mode for as long as it runs.
 // cart_probe parks the mode at idle when it finishes and idle drives pin 30
@@ -792,12 +845,12 @@ wire [1:0]  cart_mode_req;
 cart_mode_hold mode_hold (
     .clk          ( clk_sys ),
     .req_in       ( cart_mode_req_raw ),
-    .write_active ( gba_write_active ),
+    .write_active ( gba_write_active || gg_write_active ),
     .req_out      ( cart_mode_req )
 );
 
-wire        gb_mode_s  = cart_mode_s && (cart_mode_req == 2'b10) && cart_mode_ready;
-wire        gba_mode_s = cart_mode_s && (cart_mode_req == 2'b01) && cart_mode_ready;
+wire        gb_mode_s  = cart_mode_s && native_adapter && (cart_mode_req == 2'b10) && cart_mode_ready;
+wire        gba_mode_s = cart_mode_s && native_adapter && (cart_mode_req == 2'b01) && cart_mode_ready;
 
 wire        gbid_req;
 wire        gbid_wr;
@@ -853,12 +906,37 @@ gb_cart_bus gb_bus (
 );
 
 
+wire gg_mode_s = cart_mode_s && gg_adapter &&
+                 (cart_mode_req == 2'b11) && cart_mode_ready;
+wire [15:0] gg_ad_out;
+wire gg_ad_oe, gg_hi_oe, gg_p30_out, gg_p30_oe;
+wire [7:0] gg_hi_out, gg_hi_in;
+wire [3:0] gg_ctl_out;
+wire [7:0] gg_bus_rdata;
+wire gg_bus_done, gg_bus_busy, gg_write_active, gg_bus_rejected;
+wire ggid_req, ggid_wr, ggdmp_req, ggdmp_wr;
+wire [15:0] ggid_addr, ggdmp_addr;
+wire [7:0] ggid_wdata, ggdmp_wdata;
+
+gg_cart_bus gg_bus (
+    .clk(clk_sys), .reset(~pll_core_locked), .gg_mode(gg_mode_s),
+    .req(dump_busy ? ggdmp_req : ggid_req),
+    .wr(dump_busy ? ggdmp_wr : ggid_wr),
+    .addr(dump_busy ? ggdmp_addr : ggid_addr),
+    .wdata(dump_busy ? ggdmp_wdata : ggid_wdata),
+    .rdata(gg_bus_rdata), .done(gg_bus_done), .busy(gg_bus_busy),
+    .write_active(gg_write_active), .rejected(gg_bus_rejected),
+    .e_ad_out(gg_ad_out), .e_ad_oe(gg_ad_oe),
+    .e_hi_out(gg_hi_out), .e_hi_oe(gg_hi_oe), .e_hi_in(gg_hi_in),
+    .e_ctl_out(gg_ctl_out), .e_p30_out(gg_p30_out), .e_p30_oe(gg_p30_oe)
+);
+
 // cart_pins owns the connector pins and muxes the engines onto them by mode.
-// 00 idle, 01 GBA, 10 GB, 11 idle. cart_probe drives the mode.
+// 00 idle, 01 GBA, 10 GB, 11 GG. The verified adapter selects the protocol.
 cart_pins cart_pins_inst (
     .clk                    ( clk_sys ),
     .reset                  ( ~pll_core_locked ),
-    .mode                   ( cart_mode_s ? cart_mode_req : 2'b00 ),
+    .mode                   ( cart_mode_s && adapter_supported ? cart_mode_req : 2'b00 ),
     .mode_ready             ( cart_mode_ready ),
 
     .gba_ad_out             ( gba_ad_out ),
@@ -880,6 +958,14 @@ cart_pins cart_pins_inst (
     .gb_p30_oe              ( gb_p30_oe ),
     .gb_ad_in               ( gb_ad_in ),
     .gb_hi_in               ( gb_hi_in ),
+    .gg_ad_out              ( gg_ad_out ),
+    .gg_ad_oe               ( gg_ad_oe ),
+    .gg_hi_out              ( gg_hi_out ),
+    .gg_hi_oe               ( gg_hi_oe ),
+    .gg_ctl_out             ( gg_ctl_out ),
+    .gg_p30_out             ( gg_p30_out ),
+    .gg_p30_oe              ( gg_p30_oe ),
+    .gg_hi_in               ( gg_hi_in ),
 
     .cart_tran_bank2        ( cart_tran_bank2 ),
     .cart_tran_bank2_dir    ( cart_tran_bank2_dir ),
@@ -982,7 +1068,9 @@ localparam [2:0] path_style = 3'd0;
 // the identifier answers immediately with "slot not powered" rather than
 // leaving the name of a cartridge that is no longer there on display.
 reg  cart_mode_d;
-wire cart_mode_change = cart_mode_s ^ cart_mode_d;
+wire cart_mode_change = (cart_mode_s ^ cart_mode_d) || cart_report_changed_s;
+// Reports invalidate actions even if power remains high. Re-arming the wake
+// counter schedules a fresh scan after the new adapter session has settled.
 wire cart_mode_fell   = cart_mode_change & ~cart_mode_s;
 
 // The rising edge is not like the falling one. cart_play & cart_power says the
@@ -1003,7 +1091,7 @@ reg        cart_wake_pulse;
 
 always @(posedge clk_sys) begin
     cart_wake_pulse <= 1'b0;
-    if (~pll_core_locked || !cart_mode_s) begin
+    if (~pll_core_locked || !cart_run_allowed || cart_report_changed_s) begin
         cart_wake <= CART_WAKE_CYCLES;
     end else if (cart_wake != 29'd0) begin
         cart_wake <= cart_wake - 29'd1;
@@ -1069,7 +1157,7 @@ wire        probe_done;
 // stay available throughout. The bus conflict that would create is handled by
 // resetting the scanner when a dump starts, below, rather than by making the
 // user wait for it.
-wire        cart_engine_busy = probe_busy | probe_sizing | sz_start;
+wire        cart_engine_busy = probe_busy | probe_sizing | sz_start | ggid_busy | gg_start;
 
 // A file action is accepted from the current screen state, but it first
 // requests a new probe. The guard holds the action until the newly read
@@ -1088,13 +1176,32 @@ wire action_validated_save_available;
 // pressed. Named rather than left inline in cart_probe's instantiation
 // because the dump display has to clear on exactly the same event, and two
 // copies of this expression would drift.
-wire        scan_start = (cart_wake_pulse | cart_mode_fell |
+wire        scan_start = core_reset_n_s && (cart_wake_pulse | cart_mode_fell |
                           (key_a_edge & ~restore_block) |
                           action_scan_start | restore_preflight_request | restore_reprobe_request) &
-                         ~dump_busy & ~probe_sizing & ~sz_start &
+                         ~dump_busy & ~probe_sizing & ~sz_start & ~ggid_busy & ~gg_start &
                          (~restore_busy | restore_reprobe_request);
 wire [2:0]  platform;
-wire        gb_start, gba_start;
+wire        gb_start, gba_start, gg_start;
+wire ggid_busy, ggid_done;
+wire [2:0] ggid_result;
+wire [127:0] ggid_raw_bytes;
+wire [15:0] ggid_header_addr, ggid_checksum;
+wire [19:0] ggid_product;
+wire [3:0] ggid_version, ggid_region, ggid_size_code;
+
+cart_identify_gg identify_gg (
+    .clk(clk_sys), .reset(~pll_core_locked || !cart_run_allowed ||
+                         !gg_adapter || cart_report_changed_s), .gg_mode(gg_mode_s),
+    .start(gg_start), .busy(ggid_busy), .done(ggid_done),
+    .cart_req(ggid_req), .cart_wr(ggid_wr), .cart_addr(ggid_addr),
+    .cart_wdata(ggid_wdata), .cart_rdata(gg_bus_rdata),
+    .cart_done(gg_bus_done), .cart_busy(gg_bus_busy),
+    .result(ggid_result), .raw_bytes(ggid_raw_bytes),
+    .header_addr(ggid_header_addr), .product_code(ggid_product),
+    .sw_version(ggid_version), .region(ggid_region),
+    .rom_size_code(ggid_size_code), .checksum_read(ggid_checksum)
+);
 
 cart_probe probe (
     .clk          ( clk_sys ),
@@ -1110,6 +1217,8 @@ cart_probe probe (
     // sizing window is a few tens of microseconds, so what is dropped here is
     // a button press nobody could time deliberately.
     .start        ( scan_start ),
+    .cancel       ( cart_mode_change || !core_reset_n_s ),
+    .slot_protocol( slot_protocol ),
     .cart_powered ( cart_mode_s ),
     .busy         ( probe_busy ),
     .done         ( probe_done ),
@@ -1121,27 +1230,46 @@ cart_probe probe (
     .gba_start    ( gba_start ),
     .gba_done     ( id_done ),
     .gba_result   ( id_result ),
+    .gg_start     ( gg_start ),
+    .gg_done      ( ggid_done ),
+    .gg_result    ( ggid_result ),
     .platform     ( platform ),
-    .answered_gba ( probe_answered_gba )
+    .answered_protocol ( probe_answered_protocol )
 );
 
 // Latched so the screen keeps the last result while a new probe runs.
+// Initial Sega profiles use an explicit length, never the header size nibble.
+// Selection cannot change during fresh identification or an active dump.
+reg gg_size_512;
+reg gg_left_d, gg_right_d;
+wire gg_left = cont1_key_s[2];
+wire gg_right = cont1_key_s[3];
+wire gg_size_change = (gg_left && !gg_left_d || gg_right && !gg_right_d) &&
+                     cart_run_allowed && id_valid && platform == 3'd6 && !cart_engine_busy &&
+                     !dump_busy && !action_pending && !action_dump_start && !restore_block;
+wire [31:0] gg_size_bytes = gg_size_512 ? 32'd524288 : 32'd262144;
+always @(posedge clk_sys) begin
+    gg_left_d <= gg_left;
+    gg_right_d <= gg_right;
+    if (~pll_core_locked || cart_mode_change) gg_size_512 <= 1'b0;
+    else if (gg_size_change) gg_size_512 <= gg_right;
+end
 reg [3:0] id_seq;
 always @(posedge clk_sys) begin
     if (~pll_core_locked) id_seq <= 4'd0;
-    else if (probe_done)  id_seq <= id_seq + 4'd1;
+    else if (probe_done || gg_size_change) id_seq <= id_seq + 4'd1;
 end
 
 reg id_valid;
 always @(posedge clk_sys) begin
     if (~pll_core_locked)      id_valid <= 1'b0;
-    else if (cart_mode_change) id_valid <= 1'b0;
+    else if (cart_mode_change || !core_reset_n_s) id_valid <= 1'b0;
     else if (probe_done)       id_valid <= 1'b1;
 end
 
 cart_identify_gb identify_gb (
     .clk         ( clk_sys ),
-    .reset       ( ~pll_core_locked ),
+    .reset       ( ~pll_core_locked || !cart_run_allowed || !native_adapter || cart_report_changed_s ),
     .gb_mode     ( gb_mode_s ),
 
     .start       ( gb_start ),
@@ -1171,7 +1299,7 @@ cart_identify_gb identify_gb (
 
 cart_identify_gba identify (
     .clk         ( clk_sys ),
-    .reset       ( ~pll_core_locked ),
+    .reset       ( ~pll_core_locked || !cart_run_allowed || !native_adapter || cart_report_changed_s ),
     .cart_mode   ( gba_mode_s ),
 
     .start       ( gba_start ),
@@ -1226,11 +1354,11 @@ wire [4:0]  sz_points;
 // One pulse, on the edge of the probe finishing with a GBA cartridge. Not
 // gated on dump_busy: a dump cannot be running here, because a dump cannot
 // start until this has produced a size.
-assign sz_start = probe_done && (platform == 3'd1);
+assign sz_start = cart_run_allowed && probe_done && (platform == 3'd1);
 
 gba_size_probe sizer (
     .clk        ( clk_sys ),
-    .reset      ( ~pll_core_locked ),
+    .reset      ( ~pll_core_locked || !cart_run_allowed ),
     .cart_mode  ( gba_mode_s ),
     .start      ( sz_start ),
     .busy       ( probe_sizing ),
@@ -1281,7 +1409,7 @@ wire        svs_ambiguous, svs_found_any, svs_complete;
 
 // On the edge of the size probe finishing with a size. No size, no scan: the
 // scan's loop bound is the ROM size and a zero would scan nothing anyway.
-assign save_scan_start = sz_done && sz_size_valid;
+assign save_scan_start = cart_run_allowed && sz_done && sz_size_valid;
 
 // Reset by a new probe, which is a new cartridge and so a result that no
 // longer describes anything. A dump is different and used to be a reset here:
@@ -1292,7 +1420,7 @@ assign save_scan_start = sz_done && sz_size_valid;
 // dump releases the bus, while a finished scan is left alone.
 gba_save_scan save_scanner (
     .clk            ( clk_sys ),
-    .reset          ( ~pll_core_locked | scan_start ),
+    .reset          ( ~pll_core_locked | scan_start | !cart_run_allowed ),
     .abort          ( dump_busy ),
     .cart_mode      ( gba_mode_s ),
     .start          ( save_scan_start ),
@@ -1327,7 +1455,7 @@ gba_save_scan save_scanner (
 // the chip, once, on the edge the scan finishes having found EEPROM. Held off
 // an ambiguous cartridge for the same reason the accept condition is: a
 // cartridge carrying two families of string is refused, not guessed at.
-assign ee_probe_start = save_scan_done && svs_eeprom && !svs_ambiguous;
+assign ee_probe_start = cart_run_allowed && save_scan_done && svs_eeprom && !svs_ambiguous;
 
 wire [31:0] ee_size_bytes;
 wire [3:0]  ee_addr_bits;
@@ -1336,7 +1464,7 @@ wire        ee_probe_done;
 
 gba_eeprom_probe ee_probe (
     .clk        ( clk_sys ),
-    .reset      ( ~pll_core_locked | scan_start ),
+    .reset      ( ~pll_core_locked | scan_start | !cart_run_allowed ),
     .cart_mode  ( gba_mode_s ),
     .start      ( ee_probe_start ),
     .abort      ( dump_busy ),
@@ -1358,7 +1486,8 @@ gba_eeprom_probe ee_probe (
 reg save_scan_valid;
 always @(posedge clk_sys) begin
     if (~pll_core_locked)        save_scan_valid <= 1'b0;
-    else if (scan_start)         save_scan_valid <= 1'b0;
+    else if (scan_start || !cart_run_allowed || cart_report_changed_s)
+                                save_scan_valid <= 1'b0;
     else if (save_scan_start)    save_scan_valid <= 1'b0;
     else if (save_scan_done)     save_scan_valid <= svs_complete;
 end
@@ -1490,6 +1619,8 @@ wire [31:0]  dump_out_ext;
 wire [2:0]   dump_out_ext_len;
 wire         dump_out_name_valid;
 wire [31:0]  dump_crc32;
+wire dump_gg_verify_checked, dump_gg_verify_ok;
+wire [31:0] dump_gg_verify_crc32;
 wire         dump_pair_checked;
 wire [23:0]  dump_pair_mismatches, dump_pair_even, dump_pair_odd;
 wire [22:0]  dump_pair_first_addr;
@@ -1510,20 +1641,21 @@ wire [31:0]  dump_save_first;
 // The size cannot stand in for this. A 1 MB Game Boy cartridge and a 1 MB
 // GBA cartridge are both ordinary, so a file named only after its length
 // tells a reader nothing.
-wire [1:0] cart_kind =
-    action_save_mode                                            ? 2'd3 :
-    (platform == 3'd1)                                          ? 2'd2 :
-    (gbid_cgb_flag == 8'h80 || gbid_cgb_flag == 8'hC0)          ? 2'd1 : 2'd0;
+wire [2:0] cart_kind =
+    action_save_mode ? 3'd3 : (platform == 3'd6) ? 3'd4 :
+    (platform == 3'd1) ? 3'd2 :
+    (gbid_cgb_flag == 8'h80 || gbid_cgb_flag == 8'hC0) ? 3'd1 : 3'd0;
 
 assign action_rom_available = id_valid &&
                               ((platform == 3'd2) ||
-                               ((platform == 3'd1) && sz_size_valid));
+                               ((platform == 3'd1) && sz_size_valid) ||
+                               ((platform == 3'd6) && gg_adapter));
 
 // Hide both actions while one is being revalidated. The displayed readiness
 // is for accepting a new press; the guard separately receives the raw result
 // of the fresh scan when deciding whether the queued action is allowed.
-wire dump_ready = action_rom_available && !cart_engine_busy &&
-                  !dump_busy && !action_pending && !restore_block;
+wire dump_ready = cart_run_allowed && action_rom_available && !cart_engine_busy &&
+                  !dump_busy && !action_pending && !action_dump_start && !restore_block;
 
 // Y only when this cartridge has a save this core can actually read, which is
 // a stricter condition than dump_ready and false for most cartridges: GB or
@@ -1538,8 +1670,8 @@ wire dump_ready = action_rom_available && !cart_engine_busy &&
 assign action_save_available = action_rom_available &&
                                (((platform == 3'd2) && dump_save_supported) ||
                                 ((platform == 3'd1) && gba_save_ok));
-wire save_ready = action_save_available && !cart_engine_busy &&
-                  !dump_busy && !action_pending && !restore_block;
+wire save_ready = cart_run_allowed && action_save_available && !cart_engine_busy &&
+                  !dump_busy && !action_pending && !action_dump_start && !restore_block;
 
 // A cartridge that has a save and is refused anyway. MBC2's RAM lives inside
 // the mapper and reports 0x00 at 0x0149, so the type has to be asked as well
@@ -1567,7 +1699,8 @@ assign action_validation_complete = action_pending &&
 // guard samples it. The producer results themselves are already stable while
 // their done pulse is high.
 assign action_validated_rom_available =
-    (platform == 3'd2) || ((platform == 3'd1) && sz_size_valid);
+    (platform == 3'd2) || ((platform == 3'd1) && sz_size_valid) ||
+    ((platform == 3'd6) && gg_adapter);
 assign action_validated_save_available = action_validated_rom_available &&
     (((platform == 3'd2) && dump_save_supported) ||
      ((platform == 3'd1) &&
@@ -1578,7 +1711,7 @@ assign action_validated_save_available = action_validated_rom_available &&
 cart_action_guard action_guard (
     .clk                      ( clk_sys ),
     .reset                    ( ~pll_core_locked ),
-    .cancel                   ( cart_mode_change | key_a_edge ),
+    .cancel                   ( cart_mode_change | key_a_edge | !core_reset_n_s ),
     .request_rom              ( key_x_edge ),
     .request_save             ( key_y_edge ),
     .rom_available            ( dump_ready ),
@@ -1592,7 +1725,7 @@ cart_action_guard action_guard (
     .pending                  ( action_pending )
 );
 
-wire dump_start = action_dump_start;
+wire dump_start = cart_run_allowed && action_dump_start;
 
 // What the screen says. Kept here rather than derived from busy and failed so
 // that the result of the last dump stays on the display after it finishes.
@@ -1626,14 +1759,13 @@ end
 
 reg [1:0] dump_state;
 always @(posedge clk_sys) begin
-    if (~pll_core_locked)  dump_state <= D_IDLE;
+    if (~pll_core_locked || !core_reset_n_s || scan_start ||
+        cart_mode_change || gg_size_change) dump_state <= D_IDLE;
     else if (dump_start)   dump_state <= D_RUN;
-    else if (dump_done)    dump_state <= dump_failed ? D_FAIL : D_OK;
-    // After the two above, so a dump starting or finishing on the same cycle
-    // as a scan wins. A is gated on ~dump_busy, so that is not reachable
-    // today; the ordering is here so it stays unreachable if that changes.
-    else if (scan_start || cart_mode_change)
-                           dump_state <= D_IDLE;
+    // A completion may arrive after a reset/session change canceled the
+    // displayed operation. Only the still-running operation owns a result.
+    else if (dump_done && dump_state == D_RUN)
+                           dump_state <= dump_failed ? D_FAIL : D_OK;
 end
 
 dump_engine dump (
@@ -1641,6 +1773,7 @@ dump_engine dump (
     .reset_sys     ( ~pll_core_locked ),
 
     .start         ( dump_start ),
+    .cancel        ( cart_mode_change | key_a_edge | !core_reset_n_s ),
     // Simulation hook only. dump_engine's ramp generator is how the
     // testbench exercises the APF path search with no cartridge modelled;
     // tied off here, Quartus folds it and everything it reaches out of the
@@ -1660,7 +1793,12 @@ dump_engine dump (
     .cart_type     ( gbid_cart_type ),
     .rom_size_code ( gbid_rom_size ),
     .ram_size_code ( gbid_ram_size ),
-    .platform_gba  ( platform == 3'd1 ),
+    .rom_source    ( (platform == 3'd6) ? 2'd2 : (platform == 3'd1) ? 2'd1 : 2'd0 ),
+    .gg_size_bytes ( gg_size_bytes ),
+    .gg_connected  ( cart_mode_s && gg_adapter ),
+    .gg_verify_checked ( dump_gg_verify_checked ),
+    .gg_verify_ok ( dump_gg_verify_ok ),
+    .gg_verify_crc32 ( dump_gg_verify_crc32 ),
     .cart_kind     ( cart_kind ),
     .gba_size_bytes( sz_size_bytes ),
     .gba_save_size_bytes( gba_save_size ),
@@ -1735,6 +1873,14 @@ dump_engine dump (
     .bus_done      ( gb_bus_done ),
     .bus_busy      ( gb_bus_busy ),
 
+    .gg_req        ( ggdmp_req ),
+    .gg_wr         ( ggdmp_wr ),
+    .gg_addr       ( ggdmp_addr ),
+    .gg_wdata      ( ggdmp_wdata ),
+    .gg_rdata      ( gg_bus_rdata ),
+    .gg_done       ( gg_bus_done ),
+    .gg_busy       ( gg_bus_busy ),
+
     .gba_req       ( gdmp_req ),
     .gba_wr        ( gdmp_wr ),
     .gba_addr      ( gdmp_addr ),
@@ -1766,6 +1912,7 @@ dump_engine dump (
     .target_buffer_param_struct ( d_target_struct ),
     .target_buffer_resp_struct  ( d_target_response ),
     .target_dataslot_done       ( target_dataslot_done ),
+    .target_dataslot_result ( target_dataslot_result ),
     .target_dataslot_err        ( target_dataslot_err )
 );
 
@@ -1786,7 +1933,7 @@ wire restore_transaction_busy = restore_busy || restore_probe_pending ||
 wire restore_geometry_ok;
 wire restore_available = id_valid && platform == 3'd2 && restore_geometry_ok &&
     !cart_engine_busy && !dump_busy && !action_pending &&
-    !restore_busy && !restore_probe_pending && !restore_poisoned_s && cart_mode_s;
+    !restore_busy && !restore_probe_pending && !restore_poisoned_s && cart_run_allowed;
 
 restore_guard restore_lock (
     .clk(clk_sys), .reset(~pll_core_locked),
@@ -1885,7 +2032,8 @@ restore_file_io restore_files (
 );
 restore_engine #(.WRITE_ENABLED(RESTORE_WRITE_ENABLED)) restore (
     .clk(clk_sys), .reset(~pll_core_locked), .clk_io(clk_74a),
-    .preflight_start(restore_engine_start), .commit_start(restore_commit_request),
+    .preflight_start(restore_engine_start && cart_run_allowed),
+    .commit_start(restore_commit_request && cart_run_allowed),
     .reprobe_start(restore_reprobe_request), .reprobe_done(probe_done),
     .reprobe_ok(platform == 3'd2 && gbid_checksum_ok),
     .cancel(restore_stop_request || (!restore_active && restore_busy) ||
@@ -1913,11 +2061,7 @@ restore_engine #(.WRITE_ENABLED(RESTORE_WRITE_ENABLED)) restore (
 
 // cart_play and cart_power are in the clk_74a domain. The diagnostics page
 // reports them raw rather than as the AND the bus uses.
-wire cart_play_s, cart_power_s;
-wire [7:0] cart_adapter_id_s;
-synch_3 s_cart_play  (cart_play,  cart_play_s,  clk_sys);
-synch_3 s_cart_power (cart_power, cart_power_s, clk_sys);
-synch_3 #(.WIDTH(8)) s_cart_adapter (cart_adapter_id[7:0], cart_adapter_id_s, clk_sys);
+// Adapter diagnostics use cart_report_s and cart_report_valid_s from the mailbox.
 
 wire [9:0] tb_addr;
 wire [7:0] tb_char;
@@ -1949,9 +2093,17 @@ ui_screen screen (
     .clk         ( clk_sys ),
     .reset       ( ~pll_core_locked || (restore_overlay_d && !restore_overlay) ),
 
+    .adapter_diagnostic ( adapter_diagnostic ),
+    .adapter_report ( cart_report_s ),
+    .adapter_valid ( cart_report_valid_s ),
+    .adapter_seq ( cart_report_seq ),
     .valid       ( id_valid ),
     .platform    ( platform ),
-    .answered_gba( probe_answered_gba ),
+    .answered_protocol( probe_answered_protocol ),
+    .gg_product(ggid_product), .gg_version(ggid_version), .gg_region(ggid_region),
+    .gg_header_addr(ggid_header_addr), .gg_header(ggid_raw_bytes),
+    .gg_size_512(gg_size_512), .gg_verify_checked(dump_gg_verify_checked),
+    .gg_verify_ok(dump_gg_verify_ok),
     .title       ( id_title ),
     .game_code   ( id_game_code ),
     .maker_code  ( id_maker_code ),

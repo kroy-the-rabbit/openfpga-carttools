@@ -25,6 +25,9 @@ module cart_probe #(
     input  wire        reset,
 
     input  wire        start,
+    input  wire        cancel,
+    // 0 native GB/GBA probe, 2 confirmed GG, 3 unsupported adapter.
+    input  wire [1:0]  slot_protocol,
     input  wire        cart_powered,      // APF cart_play & cart_power
     output reg         busy,
     output reg         done,
@@ -43,17 +46,22 @@ module cart_probe #(
     input  wire        gba_done,
     input  wire [2:0]  gba_result,
 
+    output reg         gg_start,
+    input  wire        gg_done,
+    input  wire [2:0]  gg_result,
+
     output reg  [2:0]  platform,          // see below
 
     // Which engine produced the verdict in platform. P_UNKNOWN and P_UNSTABLE
     // can arrive from either, so the platform code alone cannot tell a reader
     // which identifier's buffer holds the bytes that were actually read.
-    output reg         answered_gba
+    output reg  [1:0]  answered_protocol
 );
 
 localparam [1:0] MODE_IDLE = 2'b00;
 localparam [1:0] MODE_GBA  = 2'b01;
 localparam [1:0] MODE_GB   = 2'b10;
+localparam [1:0] MODE_GG   = 2'b11;
 
 // Identifier result codes, shared by both.
 localparam [2:0] R_OK        = 3'd0;
@@ -69,37 +77,48 @@ localparam [2:0] P_GB       = 3'd2;
 localparam [2:0] P_UNKNOWN  = 3'd3;
 localparam [2:0] P_UNSTABLE = 3'd4;
 localparam [2:0] P_NO_POWER = 3'd5;
+localparam [2:0] P_GG = 3'd6;
+localparam [2:0] P_ADAPTER = 3'd7;
 
-localparam [2:0] ST_IDLE      = 3'd0;
-localparam [2:0] ST_MODE_HOLD = 3'd1;   // one cycle for cart_pins to see it
-localparam [2:0] ST_MODE_WAIT = 3'd2;
-localparam [2:0] ST_GB_RUN    = 3'd3;
-localparam [2:0] ST_GBA_RUN   = 3'd4;
-localparam [2:0] ST_WAKE      = 3'd5;
-localparam [2:0] ST_PARK      = 3'd6;
-localparam [2:0] ST_DONE      = 3'd7;
+localparam [3:0] ST_IDLE      = 4'd0;
+localparam [3:0] ST_MODE_HOLD = 4'd1;   // one cycle for cart_pins to see it
+localparam [3:0] ST_MODE_WAIT = 4'd2;
+localparam [3:0] ST_GB_RUN    = 4'd3;
+localparam [3:0] ST_GBA_RUN   = 4'd4;
+localparam [3:0] ST_WAKE      = 4'd5;
+localparam [3:0] ST_PARK      = 4'd6;
+localparam [3:0] ST_DONE      = 4'd7;
 
-reg [2:0] state;
+localparam [3:0] ST_GG_RUN = 4'd8;
+reg [3:0] state;
 reg [27:0] wake;
 
 // mode_ready is stale in the cycle after mode changes, so it is not sampled
 // until ST_MODE_WAIT. Sampling it a cycle earlier reads the previous mode's
 // answer and starts a probe against pins that have not turned round.
-reg next_is_gba;
+reg [1:0] next_protocol;
 
 always @(posedge clk) begin
     done      <= 1'b0;
     gb_start  <= 1'b0;
     gba_start <= 1'b0;
+    gg_start  <= 1'b0;
 
     if (reset) begin
         state        <= ST_IDLE;
         busy         <= 1'b0;
         mode         <= MODE_IDLE;
         platform     <= P_NONE;
-        next_is_gba  <= 1'b0;
-        answered_gba <= 1'b0;
+        next_protocol <= 2'd0;
+        answered_protocol <= 2'd0;
         wake         <= 28'd0;
+    end else if (busy && (cancel || !cart_powered)) begin
+        mode <= MODE_IDLE;
+        platform <= cart_powered ? P_NONE : P_NO_POWER;
+        answered_protocol <= 2'd3;
+        state <= ST_IDLE;
+        busy <= 1'b0;
+        done <= 1'b1;
     end else begin
         case (state)
             ST_IDLE: begin
@@ -107,13 +126,18 @@ always @(posedge clk) begin
                     busy <= 1'b1;
                     if (!cart_powered) begin
                         platform     <= P_NO_POWER;
-                        answered_gba <= 1'b0;
+                        answered_protocol <= 2'd0;
                         mode         <= MODE_IDLE;
                         state        <= ST_DONE;
+                    end else if (slot_protocol == 2'd0 || slot_protocol == 2'd2) begin
+                        mode <= slot_protocol == 2'd2 ? MODE_GG : MODE_GB;
+                        next_protocol <= slot_protocol;
+                        state <= ST_MODE_HOLD;
                     end else begin
-                        mode        <= MODE_GB;
-                        next_is_gba <= 1'b0;
-                        state       <= ST_MODE_HOLD;
+                        mode <= MODE_IDLE;
+                        platform <= P_ADAPTER;
+                        answered_protocol <= 2'd3;
+                        state <= ST_DONE;
                     end
                 end
             end
@@ -133,13 +157,17 @@ always @(posedge clk) begin
             ST_WAKE: begin
                 if (wake != 28'd0) begin
                     wake <= wake - 28'd1;
-                end else if (next_is_gba) begin
+                end else if (next_protocol == 2'd2) begin
+                    gg_start <= 1'b1;
+                    answered_protocol <= 2'd2;
+                    state <= ST_GG_RUN;
+                end else if (next_protocol == 2'd1) begin
                     gba_start    <= 1'b1;
-                    answered_gba <= 1'b1;
+                    answered_protocol <= 2'd1;
                     state        <= ST_GBA_RUN;
                 end else begin
                     gb_start     <= 1'b1;
-                    answered_gba <= 1'b0;
+                    answered_protocol <= 2'd0;
                     state        <= ST_GB_RUN;
                 end
             end
@@ -156,11 +184,12 @@ always @(posedge clk) begin
                         R_NO_POWER: begin platform <= P_NO_POWER; state <= ST_PARK; end
                         // Nothing drove the bus. A GBA cartridge reads this
                         // way in GB mode, so this is the one case that goes on.
-                        default: begin
+                        R_NO_CART: begin
                             mode        <= MODE_GBA;
-                            next_is_gba <= 1'b1;
+                            next_protocol <= 2'd1;
                             state       <= ST_MODE_HOLD;
                         end
+                        default: begin platform <= P_UNKNOWN; state <= ST_PARK; end
                     endcase
                 end
             end
@@ -173,6 +202,20 @@ always @(posedge clk) begin
                         R_NOT_MINE: platform <= P_UNKNOWN;
                         R_NO_POWER: platform <= P_NO_POWER;
                         default:    platform <= P_NONE;
+                    endcase
+                    state <= ST_PARK;
+                end
+            end
+
+            ST_GG_RUN: begin
+                if (gg_done) begin
+                    case (gg_result)
+                        R_OK:       platform <= P_GG;
+                        R_UNSTABLE: platform <= P_UNSTABLE;
+                        R_NOT_MINE: platform <= P_UNKNOWN;
+                        R_NO_POWER: platform <= P_NO_POWER;
+                        R_NO_CART: platform <= P_NONE;
+                        default: platform <= P_UNKNOWN;
                     endcase
                     state <= ST_PARK;
                 end

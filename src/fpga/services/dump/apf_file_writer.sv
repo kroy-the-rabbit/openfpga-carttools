@@ -23,8 +23,9 @@
 // side free to run at its own rate in its own clock domain, and it is what
 // lets a dump be built out of a reader that knows nothing about APF.
 //
-// Error handling is deliberate. target_dataslot_err is three bits and it is
-// the only failure channel that exists: there is no free space query, and a
+// Error handling is deliberate. Native dumps retain their three-bit error
+// contract. GG allocation uses the full result, so an unknown result cannot
+// alias onto success or permission to overwrite a file. There is no free space query, and a
 // full card, a write-protected card and a filesystem error all collapse into
 // the same code. So every command is checked, not just the last one, and the
 // chunk index of the first failure is held for the UI. A dump that fails at
@@ -91,6 +92,12 @@ module apf_file_writer #(
     // and 0x0184 writes into that. The name is fixed instead of chosen, which
     // is worse, and a dump that exists is better than one that does not.
     input  wire        skip_open,
+    // GG first probes a candidate with flags zero, then creates and sizes it.
+    // A probe never requests payload. A create requires the full result 1;
+    // result 0 describes an existing file and must not authorize a write.
+    input  wire        probe_only,
+    input  wire        require_created,
+    output reg         file_exists,
     output reg         busy,
     output reg         done,           // one cycle when the whole file is written
     output reg         failed,         // sticky with done: something went wrong
@@ -126,7 +133,8 @@ module apf_file_writer #(
     output reg  [31:0] target_dataslot_length,
     output wire [31:0] target_buffer_param_struct,
     input  wire        target_dataslot_done,
-    input  wire [2:0]  target_dataslot_err
+    input  wire [2:0]  target_dataslot_err,
+    input  wire [15:0] target_dataslot_result
 );
 
 assign target_buffer_param_struct = STRUCT_BASE;
@@ -157,6 +165,12 @@ reg        saw_busy;
 // handshake, and the command completes on its own in a bounded time anyway.
 // So it is latched, and taken at the next point where the choice is ours.
 reg        aborting;
+reg        probe_l, strict_l;
+// After a timeout APF may still own the outstanding command. GG does not
+// retry or start another operation until a core reset clears that ambiguity.
+reg        strict_poisoned;
+wire [2:0] full_err = target_dataslot_result <= 16'd5 ?
+                     target_dataslot_result[2:0] : 3'd5;
 
 // Reloaded on entry to every wait state, counted down while waiting.
 reg [31:0] tmo;
@@ -199,6 +213,10 @@ always @(posedge clk) begin
         remaining   <= 32'd0;
         saw_busy    <= 1'b0;
         aborting    <= 1'b0;
+        probe_l     <= 1'b0;
+        strict_l    <= 1'b0;
+        strict_poisoned <= 1'b0;
+        file_exists <= 1'b0;
         stall_at    <= 2'd0;
         tmo         <= 32'd0;
         target_dataslot_id         <= SLOT_ID;
@@ -213,6 +231,9 @@ always @(posedge clk) begin
                 busy <= 1'b0;
                 if (start) begin
                     aborting <= 1'b0;
+                    probe_l     <= probe_only;
+                    strict_l    <= require_created || probe_only;
+                    file_exists <= 1'b0;
                     busy        <= 1'b1;
                     failed      <= 1'b0;
                     failed_open <= 1'b0;
@@ -223,7 +244,16 @@ always @(posedge clk) begin
                     remaining   <= total_bytes;
                     chunk_index <= 16'd0;
                     target_dataslot_id <= SLOT_ID;
-                    state       <= skip_open ? ST_ASK : ST_OPEN;
+                    if ((require_created || probe_only) && strict_poisoned) begin
+                        err <= ERR_STALLED;
+                        stall_at <= AT_OPEN;
+                        failed_open <= 1'b1;
+                        state <= ST_FAIL;
+                    end else if ((require_created || probe_only) && skip_open) begin
+                        err <= 3'd5;
+                        failed_open <= 1'b1;
+                        state <= ST_FAIL;
+                    end else state <= skip_open ? ST_ASK : ST_OPEN;
                 end
             end
 
@@ -240,18 +270,39 @@ always @(posedge clk) begin
             ST_OPEN_WAIT: begin
                 tmo <= tmo - 32'd1;
                 if (expired) begin
+                    if (strict_l) strict_poisoned <= 1'b1;
                     err         <= ERR_STALLED;
                     stall_at    <= AT_OPEN;
                     failed_open <= 1'b1;
                     state       <= ST_FAIL;
                 end else if (!target_dataslot_done) saw_busy <= 1'b1;
                 else if (saw_busy) begin
-                    err <= target_dataslot_err;
+                    err <= strict_l ? full_err : target_dataslot_err;
                     // 0 opened, 1 created and opened. 1 is not an error, and
                     // treating it as one would break every first dump.
-                    if (aborting) begin
+                    if (aborting || (strict_l && abort)) begin
                         err   <= ERR_ABORTED;
                         state <= ST_FAIL;
+                    end else if (probe_l) begin
+                        if (target_dataslot_result == 16'd0 ||
+                            target_dataslot_result == 16'd3) begin
+                            file_exists <= target_dataslot_result == 16'd0;
+                            err <= 3'd0;
+                            state <= ST_DONE;
+                        end else begin
+                            err <= full_err < 3'd2 ? 3'd5 : full_err;
+                            failed_open <= 1'b1;
+                            state <= ST_FAIL;
+                        end
+                    end else if (strict_l) begin
+                        if (target_dataslot_result == 16'd1) begin
+                            err <= 3'd0;
+                            state <= remaining == 32'd0 ? ST_DONE : ST_ASK;
+                        end else begin
+                            err <= full_err == 3'd0 ? 3'd5 : full_err;
+                            failed_open <= 1'b1;
+                            state <= ST_FAIL;
+                        end
                     end else if (target_dataslot_err == 3'd0 ||
                                  target_dataslot_err == 3'd1) begin
                         if (remaining == 32'd0)
@@ -306,18 +357,20 @@ always @(posedge clk) begin
             ST_WRITE_WAIT: begin
                 tmo <= tmo - 32'd1;
                 if (expired) begin
+                    if (strict_l) strict_poisoned <= 1'b1;
                     err        <= ERR_STALLED;
                     stall_at   <= AT_WRITE;
                     fail_chunk <= chunk_index;
                     state      <= ST_FAIL;
                 end else if (!target_dataslot_done) saw_busy <= 1'b1;
                 else if (saw_busy) begin
-                    err <= target_dataslot_err;
-                    if (aborting) begin
+                    err <= strict_l ? full_err : target_dataslot_err;
+                    if (aborting || (strict_l && abort)) begin
                         err        <= ERR_ABORTED;
                         fail_chunk <= chunk_index;
                         state      <= ST_FAIL;
-                    end else if (target_dataslot_err == 3'd0) begin
+                    end else if (strict_l ? target_dataslot_result == 16'd0 :
+                                           target_dataslot_err == 3'd0) begin
                         written   <= written   + chunk_len;
                         remaining <= remaining - chunk_len;
                         if (remaining == chunk_len) begin
@@ -350,13 +403,15 @@ always @(posedge clk) begin
             ST_FLUSH_WAIT: begin
                 tmo <= tmo - 32'd1;
                 if (expired) begin
+                    if (strict_l) strict_poisoned <= 1'b1;
                     err      <= ERR_STALLED;
                     stall_at <= AT_FLUSH;
                     state    <= ST_FAIL;
                 end else if (!target_dataslot_done) saw_busy <= 1'b1;
                 else if (saw_busy) begin
-                    err <= target_dataslot_err;
-                    if (target_dataslot_err == 3'd0) state <= ST_DONE;
+                    err <= strict_l ? full_err : target_dataslot_err;
+                    if (strict_l ? target_dataslot_result == 16'd0 :
+                                   target_dataslot_err == 3'd0) state <= ST_DONE;
                     else                             state <= ST_FAIL;
                 end
             end

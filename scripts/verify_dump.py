@@ -11,6 +11,11 @@ against the size of the file. The core checks most of that on the device; the
 value here is a second opinion computed by different code, and a CRC32 to
 compare against published records.
 
+Game Gear's Sega header supplies metadata hints and an often unreliable
+checksum extent. Its checksum and repeated-bank reports are diagnostic only;
+use --expect-sha1/--expect-crc32/--expect-size or match_dats.py for an external
+reference. No Game Gear save backup or restore is handled here.
+
 **None of this can prove a save is correct.** A save carries no logo, no
 checksum, no length and nothing that describes itself, so every check that
 makes a ROM dump trustworthy is missing. The only proof is loading it in an
@@ -44,6 +49,7 @@ interpreting its unrelated byte at 0x0149 as a Game Boy RAM-size code.
 """
 
 import argparse
+import hashlib
 import os
 import sys
 import zlib
@@ -74,6 +80,13 @@ RAM_SIZES = {0x00: 0, 0x01: 2048, 0x02: 8192, 0x03: 32768,
              0x04: 131072, 0x05: 65536}
 
 BANK = 8192
+
+GG_HEADERS = (0x1FF0, 0x3FF0, 0x7FF0)  # same address order as CartTools
+# The low nibble declares a checksum extent. Real games can carry an incorrect
+# value, so this is never used to infer physical ROM capacity or trim a dump.
+GG_CHECKSUM_SIZES = {0xA: 8192, 0xB: 16384, 0xC: 32768, 0xD: 49152,
+                     0xE: 65536, 0xF: 131072, 0: 262144, 1: 524288,
+                     2: 1048576}
 
 
 class Report:
@@ -234,6 +247,91 @@ def find_rom_beside(path):
     return None
 
 
+def gg_checksum(data, offset, extent):
+    """Conventional byte sum, excluding the selected 16-byte Sega header.
+
+    The 48 KiB checksum has BIOS-specific behavior and is not evaluated here.
+    Even a conventional sum that matches is only a diagnostic for Game Gear.
+    """
+    if extent is None or extent == 49152 or not offset + 16 <= extent <= len(data):
+        return None
+    return (sum(data[:offset]) + sum(data[offset + 16:extent])) & 0xFFFF
+
+
+def verify_gg(path, data, rep):
+    size = len(data)
+    rep.note("size", "{} bytes; not a capacity measurement".format(size))
+    rep.note("crc32", "{:08X}".format(zlib.crc32(data) & 0xFFFFFFFF))
+    rep.note("sha1", hashlib.sha1(data).hexdigest())
+    rep.note("Game Gear verification",
+             "header fields and checksum are hints; use a full-file reference hash")
+    if size < 8192 or size % 8192:
+        rep.bad("whole 8 KiB units", "too short or a partial bank")
+    else:
+        rep.ok("whole 8 KiB units")
+
+    headers = [(offset, data[offset:offset + 16]) for offset in GG_HEADERS
+               if len(data[offset:offset + 16]) == 16
+               and data[offset:offset + 8] == b"TMR SEGA"]
+    if not headers:
+        rep.warn("TMR SEGA header", "none complete at 0x1FF0, 0x3FF0 or 0x7FF0")
+    else:
+        rep.note("TMR SEGA header locations",
+                 ", ".join("0x{:04X}".format(offset) for offset, _ in headers))
+        if len({raw for _, raw in headers}) > 1:
+            rep.warn("conflicting headers", "all are retained; no capacity inferred")
+        for offset, raw in headers:
+            rep.note("header at 0x{:04X}".format(offset), "no game title is stored here")
+            if all(byte >> 4 <= 9 and byte & 15 <= 9 for byte in raw[12:14]):
+                def bcd(byte):
+                    return (byte >> 4) * 10 + (byte & 15)
+                code = (raw[14] >> 4) * 10000 + bcd(raw[13]) * 100 + bcd(raw[12])
+                rep.note("  product / revision", "{:05d} / {}".format(code, raw[14] & 15))
+            else:
+                rep.warn("  product code", "invalid BCD; revision {}".format(raw[14] & 15))
+            region = raw[15] >> 4
+            (rep.note if region in (5, 6, 7) else rep.warn)(
+                "  region hint", "{}{}".format(region, "" if region in (5, 6, 7)
+                                              else " (not a usual Game Gear region)"))
+            code = raw[15] & 15
+            extent = GG_CHECKSUM_SIZES.get(code)
+            rep.note("  checksum extent hint", "code {:X}: {}".format(
+                code, "{} bytes".format(extent) if extent else "unknown"))
+            if extent != size:
+                rep.warn("  extent differs from file", "not proof of an incomplete or oversized dump")
+            stored = int.from_bytes(raw[10:12], "little")
+            total = gg_checksum(data, offset, extent)
+            if total is None:
+                rep.warn("  diagnostic checksum", "not evaluated for this extent/header combination")
+            elif stored == total:
+                rep.note("  diagnostic checksum", "{:04X} matches; not verification".format(total))
+            else:
+                rep.warn("  diagnostic checksum", "stored {:04X}, computed {:04X}; not a failure verdict"
+                         .format(stored, total))
+
+    banks = [data[i:i + 16384] for i in range(0, size - 16383, 16384)]
+    if len(banks) > 1 and len(set(banks)) != len(banks):
+        rep.warn("duplicate 16 KiB banks",
+                 "{} distinct of {}; repetition does not prove mapper failure or capacity"
+                 .format(len(set(banks)), len(banks)))
+    if data and all(byte == data[0] for byte in data):
+        rep.warn("uniform data", "every byte is {:02X}; inspect the bus and compare a reference".format(data[0]))
+
+
+def verify_reference(data, rep, *, sha1=None, crc32=None, size=None):
+    """Explicit expected values are independent of header claims and names."""
+    for label, got, wanted in (
+            ("reference SHA-1", hashlib.sha1(data).hexdigest(), sha1),
+            ("reference CRC32", "{:08x}".format(zlib.crc32(data) & 0xFFFFFFFF), crc32),
+            ("reference size", len(data), size)):
+        if wanted is None:
+            continue
+        if got == wanted:
+            rep.ok(label, str(got))
+        else:
+            rep.bad(label, "expected {}, got {}".format(wanted, got))
+
+
 def verify_sav(path, data, rep):
     size = len(data)
     rep.note("size", "{} bytes".format(size))
@@ -305,10 +403,11 @@ def verify_sav(path, data, rep):
     rep.note("read once", "the core does not double read; --compare two dumps")
 
 
-def verify(path):
+def verify(path, *, sha1=None, crc32=None, size=None):
     rep = Report(os.path.basename(path))
     try:
-        data = open(path, "rb").read()
+        with open(path, "rb") as f:
+            data = f.read()
     except OSError as exc:
         rep.bad("unreadable", str(exc))
         return rep
@@ -318,12 +417,15 @@ def verify(path):
         verify_gb(path, data, rep)
     elif ext == ".gba":
         verify_gba(path, data, rep)
+    elif ext == ".gg":
+        verify_gg(path, data, rep)
     elif ext == ".sav":
         verify_sav(path, data, rep)
     else:
         rep.warn("unrecognised extension", ext or "(none)")
         rep.note("size", "{} bytes".format(len(data)))
         rep.note("crc32", "{:08X}".format(zlib.crc32(data) & 0xFFFFFFFF))
+    verify_reference(data, rep, sha1=sha1, crc32=crc32, size=size)
     return rep
 
 
@@ -464,6 +566,25 @@ def selftest():
     return 0
 
 
+def hash_argument(digits):
+    def parse(value):
+        value = value.lower()
+        if len(value) != digits or any(c not in "0123456789abcdef" for c in value):
+            raise argparse.ArgumentTypeError("expected {} hexadecimal digits".format(digits))
+        return value
+    return parse
+
+
+def size_argument(value):
+    try:
+        size = int(value, 0)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected a byte count") from exc
+    if size <= 0:
+        raise argparse.ArgumentTypeError("expected a positive byte count")
+    return size
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -473,7 +594,14 @@ def main():
                     help="two reads of the same cartridge, byte for byte")
     ap.add_argument("--selftest", action="store_true",
                     help="prove the checks can fail, then exit")
+    ap.add_argument("--expect-sha1", type=hash_argument(40), help="full-file reference SHA-1")
+    ap.add_argument("--expect-crc32", type=hash_argument(8), help="full-file reference CRC32")
+    ap.add_argument("--expect-size", type=size_argument, help="reference byte count (decimal or 0x hex)")
     args = ap.parse_args()
+
+    if any(value is not None for value in (args.expect_sha1, args.expect_crc32, args.expect_size)):
+        if len(args.files) != 1 or args.compare or args.selftest:
+            ap.error("reference options require exactly one file and no --compare/--selftest")
 
     if args.selftest:
         return selftest()
@@ -483,7 +611,7 @@ def main():
         failures += compare(*args.compare).failures
 
     for path in args.files:
-        rep = verify(path)
+        rep = verify(path, sha1=args.expect_sha1, crc32=args.expect_crc32, size=args.expect_size)
         rep.render()
         failures += rep.failures
 
@@ -494,7 +622,7 @@ def main():
     if failures:
         print("{} check{} failed".format(failures, "" if failures == 1 else "s"))
         return 1
-    print("all checks passed")
+    print("all requested checks passed; diagnostic warnings are not verification")
     return 0
 
 

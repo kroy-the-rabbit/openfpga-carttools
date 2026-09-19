@@ -15,7 +15,7 @@
 //
 // WHICH READER
 // ------------
-// platform_gba picks, and it is latched at start with everything else. The two
+// rom_source picks, and it is latched at start with everything else. The
 // readers present the same byte stream, so the choice reaches exactly three
 // places: which start pulse is issued, where total_bytes comes from, and which
 // bus SS_END watches. Nothing downstream of src_data knows there are two.
@@ -74,6 +74,7 @@ module dump_engine #(
     input  wire        reset_sys,
 
     input  wire        start,             // pulse
+    input  wire        cancel,            // adapter/session changed; drain writes
     input  wire        selftest,          // write the ramp, touch no cartridge
     // Read the cartridge's battery-backed RAM instead of its ROM. GB and GBC
     // only; there is no GBA save path yet. Latched at start with everything
@@ -84,7 +85,7 @@ module dump_engine #(
     input  wire [119:0] title,            // GB header 0x0134
     // Which system, for the file extension. Latched at start with everything
     // else, so a scan mid-dump cannot rename the file being written.
-    input  wire [1:0]  cart_kind,
+    input  wire [2:0]  cart_kind,
     input  wire [7:0]  cart_type,         // 0x0147
     input  wire [7:0]  rom_size_code,     // 0x0148
     // 0x0149. Not latched into the engine: cart_save_gb latches it itself,
@@ -96,8 +97,15 @@ module dump_engine #(
     // gba_size_probe instead of from a header byte, and it must be stable for
     // the whole dump for the same reason rom_size_code must: the loop bound is
     // read live.
-    input  wire        platform_gba,
+    input  wire [1:0]  rom_source,        // 0 GB, 1 GBA, 2 GG; 3 refused
     input  wire [31:0] gba_size_bytes,
+    input  wire [31:0] gg_size_bytes,
+    // Physical session authority, independent of requested mode/turnaround.
+    // Losing it may reset a bus without a done reply; release the reader too.
+    input  wire        gg_connected,
+    output wire        gg_verify_checked,
+    output wire        gg_verify_ok,
+    output wire [31:0] gg_verify_crc32,
     // How many bytes of GBA save to read, decided by core_top from
     // gba_save_scan's result. Zero when the type was refused or not found, and
     // cart_save_gba treats that as finish without touching the connector.
@@ -285,6 +293,16 @@ module dump_engine #(
     input  wire        gba_done,
     input  wire        gba_busy,
 
+    // GG has its own memory-cycle controller and adapter wiring. Only the
+    // accepted byte stream is shared with the existing file infrastructure.
+    output wire        gg_req,
+    output wire        gg_wr,
+    output wire [15:0] gg_addr,
+    output wire [7:0]  gg_wdata,
+    input  wire [7:0]  gg_rdata,
+    input  wire        gg_done,
+    input  wire        gg_busy,
+
     // ---- bridge domain ----
     input  wire        clk_74a,
     input  wire        reset_74a,
@@ -308,7 +326,8 @@ module dump_engine #(
     output wire [31:0] target_buffer_param_struct,
     output wire [31:0] target_buffer_resp_struct,
     input  wire        target_dataslot_done,
-    input  wire [2:0]  target_dataslot_err
+    input  wire [2:0]  target_dataslot_err,
+    input  wire [15:0] target_dataslot_result
 );
 
 // ============================================================
@@ -351,8 +370,20 @@ reg  [7:0]  type_l;
 reg  [7:0]  size_l;
 
 wire [31:0] rom_bytes;      // from cart_dump_gb, combinational off size_l
-reg         gba_l;          // which reader this dump is using, latched
-reg [1:0]   kind_l;         // which system, for the extension, latched
+reg [1:0]   source_l;       // ROM source, latched; false must not imply GB
+wire        gb_l  = source_l == 2'd0;
+wire        gba_l = source_l == 2'd1;
+wire        gg_l  = source_l == 2'd2;
+// GG uses the APF representation measured by the restore path: byte arrays
+// leave the bridge byte zero high; flags and size are plain numeric words.
+// With the path generator's byte_order 0, field_order 1 produces those plain
+// scalars. The native format search and its remembered result are independent
+// of this contract, including the ordering of GG's file payload.
+wire        apf_byte_order = gg_l ? 1'b0 : bo_l;
+wire        path_field_order = gg_l ? 1'b1 : try_field;
+wire [2:0]  active_path_style = gg_l ? 3'd0 : try_style;
+wire        path_create_only = gg_l ? 1'b0 : try_create_only;
+reg [2:0]   kind_l;         // which system, for the extension, latched
 reg  [31:0] gsize_l;        // the probed size, latched
 reg  [31:0] gssize_l;       // the GBA save size, latched
 reg         eeprom_l;       // this save is EEPROM, latched
@@ -363,7 +394,7 @@ reg  [3:0]  eebits_l;       // its address width, latched
 assign total_bytes = sel_l            ? SELFTEST_BYTES :
                      (gba_l & save_l) ? (eeprom_l ? gee_bytes : gsv_bytes) :
                      save_l           ? save_bytes :
-                     gba_l            ? gsize_l : rom_bytes;
+                     (gba_l || gg_l)   ? gsize_l : rom_bytes;
 
 // Chunks the file will take. Every GB ROM size is a multiple of the chunk so
 // the round-up only ever matters for the self-test, but a progress display
@@ -434,6 +465,7 @@ localparam [3:0] SS_HOLD  = 4'd4;
 localparam [3:0] SS_GO    = 4'd5;
 localparam [3:0] SS_RUN   = 4'd6;
 localparam [3:0] SS_END   = 4'd7;
+localparam [3:0] SS_VERIFY = 4'd8;
 
 reg [3:0]  ss;
 reg [31:0] wake;
@@ -446,7 +478,8 @@ reg        abort_l;
 localparam [2:0] ERR_ABORTED = 3'd7;
 
 // A self test touches no cartridge, so slot power is irrelevant to it.
-wire abort_now = busy && !sel_l && !cart_powered;
+wire abort_now = busy && !sel_l &&
+                 (!cart_powered || cancel || (gg_l && !gg_connected));
 
 always @(posedge clk_sys) begin
     if (reset_sys)         abort_l <= 1'b0;
@@ -459,6 +492,10 @@ reg [15:0] end_wait;
 reg        rd_start;        // pulse to cart_dump_gb
 reg        arm;             // pulse to dump_chunk_src
 reg        path_start;
+reg [15:0] gg_file_index;
+reg        gg_create;      // false: probe only; true: create this absent name
+reg        gg_cancel;
+reg        gg_read_started;
 
 wire       path_busy, path_done;
 
@@ -469,6 +506,7 @@ wire       w_failed_open;
 wire [1:0] w_stall_at;
 wire [2:0] w_err;
 wire [15:0] w_fail_chunk;
+wire        w_file_exists;
 
 always @(posedge clk_sys) begin
     done       <= 1'b0;
@@ -483,8 +521,15 @@ always @(posedge clk_sys) begin
         err        <= 3'd0;
         fail_chunk <= 16'd0;
         want_mode  <= 2'b00;
-        gba_l      <= 1'b0;
-        kind_l     <= 2'd0;
+        // No cartridge source has been accepted yet. Resetting this to GB
+        // would expose its checksum eligibility before the first start,
+        // including while a GG cartridge is being identified.
+        source_l   <= 2'd3;
+        kind_l     <= 3'd0;
+        gg_file_index <= 16'd0;
+        gg_create  <= 1'b0;
+        gg_cancel  <= 1'b0;
+        gg_read_started <= 1'b0;
         gsize_l    <= 32'd0;
         gssize_l   <= 32'd0;
         eeprom_l   <= 1'b0;
@@ -510,6 +555,7 @@ always @(posedge clk_sys) begin
         size_l     <= 8'd0;
         out_name_valid <= 1'b0;
     end else begin
+        if (rd_start_gg) gg_read_started <= 1'b1;
         user_last <= user_combo;
         if (user_combo != user_last) known <= 1'b0;
 
@@ -528,22 +574,41 @@ always @(posedge clk_sys) begin
                     out_name_valid <= 1'b0;
                     sel_l      <= selftest;
                     save_l     <= save_mode;
+                    gg_file_index <= 16'd0;
+                    gg_create  <= 1'b0;
+                    gg_cancel  <= 1'b0;
+                    gg_read_started <= 1'b0;
                     tries      <= 8'd0;
-                    combo      <= known_valid ? known_combo : user_combo;
-                    bo_l       <= known_valid ? ~known_combo[3] : byte_order;
+                    // GG uses the selected, established format. Changing
+                    // roots/byte orders after an allocation error could
+                    // create an unexpected file and cannot be an allocator.
+                    combo      <= rom_source == 2'd2 ? user_combo :
+                                  known_valid ? known_combo : user_combo;
+                    bo_l       <= rom_source == 2'd2 ? byte_order :
+                                  known_valid ? ~known_combo[3] : byte_order;
                     type_l     <= cart_type;
                     size_l     <= rom_size_code;
-                    gba_l      <= platform_gba;
-                    kind_l     <= cart_kind;
-                    gsize_l    <= gba_size_bytes;
+                    source_l   <= selftest ? 2'd0 : rom_source;
+                    kind_l     <= rom_source == 2'd2 ? 3'd4 : cart_kind;
+                    gsize_l    <= rom_source == 2'd2 ? gg_size_bytes : gba_size_bytes;
                     gssize_l   <= gba_save_size_bytes;
                     eeprom_l   <= gba_save_is_eeprom;
                     eebits_l   <= gba_save_addr_bits;
                     arm        <= 1'b1;
                     if (selftest) begin
                         ss <= SS_PATH;
+                    end else if (rom_source == 2'd3 ||
+                                 (rom_source == 2'd2 &&
+                                  (save_mode || (gg_size_bytes != 32'h40000 &&
+                                                 gg_size_bytes != 32'h80000)))) begin
+                        failed <= 1'b1;
+                        err <= 3'd5;
+                        gg_cancel <= 1'b1;
+                        end_wait <= 16'hFFFF;
+                        ss <= SS_END;
                     end else begin
-                        want_mode <= platform_gba ? 2'b01 : 2'b10;
+                        want_mode <= rom_source == 2'd2 ? 2'b11 :
+                                     rom_source == 2'd1 ? 2'b01 : 2'b10;
                         ss        <= SS_MODE;
                     end
                 end
@@ -575,7 +640,8 @@ always @(posedge clk_sys) begin
             SS_PATH: begin
                 bo_l       <= try_order;
                 path_start <= 1'b1;
-                tries      <= tries + 8'd1;
+                if (tries != 8'hFF) tries <= tries + 8'd1;
+                if (gg_l) out_name_valid <= 1'b0;
                 ss         <= SS_HOLD;
             end
 
@@ -608,7 +674,38 @@ always @(posedge clk_sys) begin
                     // A stall is not retried. Each one costs the full
                     // timeout, and sixty-four of those is a minute of a
                     // screen saying nothing.
-                    if (w_failed && w_failed_open && !abort_l &&
+                    if (gg_l && !gg_create) begin
+                        // These results cross with fin_pulse, after the
+                        // writer has held them stable for several clocks.
+                        if (w_failed || abort_l ||
+                            (w_file_exists && gg_file_index == 16'hFFFF)) begin
+                            failed <= 1'b1;
+                            err <= abort_l ? ERR_ABORTED : w_failed ? w_err : 3'd5;
+                            fail_chunk <= w_fail_chunk;
+                            stall_at <= w_stall_at;
+                            gg_cancel <= 1'b1;
+                            end_wait <= 16'hFFFF;
+                            ss <= SS_END;
+                        end else begin
+                            if (w_file_exists) gg_file_index <= gg_file_index + 16'd1;
+                            else gg_create <= 1'b1;
+                            ss <= SS_PATH;
+                        end
+                    end else if (gg_l) begin
+                        failed <= w_failed || abort_l;
+                        err <= abort_l ? ERR_ABORTED : w_err;
+                        fail_chunk <= w_fail_chunk;
+                        stall_at <= w_stall_at;
+                        if (w_failed || abort_l) begin
+                            gg_cancel <= 1'b1;
+                            end_wait <= 16'hFFFF;
+                            ss <= SS_END;
+                        end else begin
+                            used_style <= active_path_style;
+                            used_order <= apf_byte_order;
+                            ss <= SS_VERIFY;
+                        end
+                    end else if (w_failed && w_failed_open && !abort_l &&
                         w_err != 3'd6 && tries != COMBO_COUNT) begin
                         combo <= combo + 6'd1;
                         ss    <= SS_PATH;
@@ -643,6 +740,24 @@ always @(posedge clk_sys) begin
                 end
             end
 
+            // The APF write and the independent second cartridge read can
+            // finish in either order. Keep the connector owned until both
+            // complete. No second-pass byte enters the file/stream CRC.
+            SS_VERIFY: begin
+                if (abort_l) begin
+                    failed <= 1'b1;
+                    err <= ERR_ABORTED;
+                    gg_cancel <= 1'b1;
+                    end_wait <= 16'hFFFF;
+                    ss <= SS_END;
+                end else if (!gg_rd_busy) begin
+                    failed <= !gg_verify_checked || !gg_verify_ok || gg_rd_error != 0;
+                    err <= (!gg_verify_checked || !gg_verify_ok || gg_rd_error != 0) ? 3'd5 : 3'd0;
+                    end_wait <= 16'hFFFF;
+                    ss <= SS_END;
+                end
+            end
+
             // Dropping want_mode changes the connector mode, and cart_pins
             // honours that immediately: /WR rises and the data pins release
             // on the same edge, which is the edge a cartridge latches a
@@ -673,14 +788,14 @@ always @(posedge clk_sys) begin
                 // combinationally, so the strobe would simply stop. The one
                 // write that must never be truncated is the one that shuts
                 // the cartridge's write gate.
-                if ((!dump_bus_busy && !(save_l && sv_busy)) ||
-                    end_wait == 16'd0) begin
+                if ((!dump_bus_busy && !(save_l && sv_busy) &&
+                     !(gg_l && gg_rd_busy)) || (!gg_l && end_wait == 16'd0)) begin
                     want_mode <= 2'b00;
                     busy    <= 1'b0;
                     done    <= 1'b1;
                     ss      <= SS_IDLE;
                 end else begin
-                    end_wait <= end_wait - 16'd1;
+                    if (end_wait != 16'd0) end_wait <= end_wait - 16'd1;
                 end
             end
 
@@ -705,6 +820,14 @@ wire       gsv_busy, gsv_done;
 wire [31:0] gsv_bytes;
 wire        gsv_responded, gsv_blank_ff, gsv_blank_00;
 wire [31:0] gsv_first;
+wire [7:0] gg_data;
+wire gg_valid, gg_rd_busy, gg_rd_done, gg_rd_aborted;
+wire [2:0] gg_rd_error;
+wire gg_checked_raw, gg_ok_raw;
+wire [31:0] gg_verify_raw;
+assign gg_verify_checked = gg_l && !sel_l && gg_read_started && gg_checked_raw;
+assign gg_verify_ok = gg_verify_checked && gg_ok_raw;
+assign gg_verify_crc32 = gg_verify_checked ? gg_verify_raw : 32'd0;
 
 // The GBA bus has two masters now for the same reason the GB bus does: a ROM
 // reader and a save reader.
@@ -746,11 +869,40 @@ wire [31:0] save_bytes;
 // is not selected would wait forever for a done that its bus, disabled by
 // cart_pins, is never going to raise.
 // Four operations, four readers, one running at a time.
-wire rd_start_gb     = rd_start & ~gba_l & ~save_l;
+wire rd_start_gb     = rd_start &  gb_l & ~save_l;
 wire rd_start_gba    = rd_start &  gba_l & ~save_l;
-wire rd_start_sv     = rd_start & ~gba_l &  save_l;
+wire rd_start_sv     = rd_start &  gb_l &  save_l;
 wire rd_start_gba_sv = rd_start &  gba_l &  save_l & ~eeprom_l;
 wire rd_start_gba_ee = rd_start &  gba_l &  save_l &  eeprom_l;
+wire rd_start_gg     = rd_start &  gg_l & ~save_l;
+
+cart_dump_gg reader_gg (
+    .clk           ( clk_sys ),
+    .reset         ( reset_sys || !gg_connected ),
+    .cancel        ( gg_cancel || abort_l ),
+    .start         ( rd_start_gg ),
+    .size_bytes    ( gsize_l ),
+    .verify_enable ( 1'b1 ),
+    .busy          ( gg_rd_busy ),
+    .done          ( gg_rd_done ),
+    .aborted       ( gg_rd_aborted ),
+    .error         ( gg_rd_error ),
+    .total_bytes   (  ),
+    .bus_req       ( gg_req ),
+    .bus_wr        ( gg_wr ),
+    .bus_addr      ( gg_addr ),
+    .bus_wdata     ( gg_wdata ),
+    .bus_rdata     ( gg_rdata ),
+    .bus_done      ( gg_done ),
+    .bus_busy      ( gg_busy ),
+    .out_data      ( gg_data ),
+    .out_valid     ( gg_valid ),
+    .out_ready     ( src_ready ),
+    .verify_checked( gg_checked_raw ),
+    .verify_ok     ( gg_ok_raw ),
+    .first_crc32   (  ),
+    .verify_crc32  ( gg_verify_raw )
+);
 
 // Held in reset by an abort rather than given an abort input of its own: it
 // is stalled waiting for a bus_done that is not coming, and a reset is the
@@ -921,10 +1073,10 @@ assign gba_wdata = gba_ee_l ? gee_wdata : save_l ? gsv_wdata : gdmp_wdata;
 wire gba_sv_l = gba_l & save_l;
 wire gba_ee    = gba_sv_l &  eeprom_l;
 wire gba_ram   = gba_sv_l & ~eeprom_l;
-assign src_data  = gba_ee ? gee_data : gba_ram ? gsv_data : gba_l ? gba_data    : save_l ? sv_data  : gb_data;
-assign src_valid = gba_ee ? gee_valid: gba_ram ? gsv_valid: gba_l ? gba_valid   : save_l ? sv_valid : gb_valid;
-assign rd_busy   = gba_ee ? gee_busy : gba_ram ? gsv_busy : gba_l ? gba_rd_busy : save_l ? sv_busy  : gb_busy;
-assign rd_done   = gba_ee ? gee_done : gba_ram ? gsv_done : gba_l ? gba_rd_done : save_l ? sv_done  : gb_done;
+assign src_data  = gg_l ? gg_data : gba_ee ? gee_data : gba_ram ? gsv_data : gba_l ? gba_data    : save_l ? sv_data  : gb_data;
+assign src_valid = gg_l ? gg_valid: gba_ee ? gee_valid: gba_ram ? gsv_valid: gba_l ? gba_valid   : save_l ? sv_valid : gb_valid;
+assign rd_busy   = gg_l ? gg_rd_busy : gba_ee ? gee_busy : gba_ram ? gsv_busy : gba_l ? gba_rd_busy : save_l ? sv_busy  : gb_busy;
+assign rd_done   = gg_l ? gg_rd_done : gba_ee ? gee_done : gba_ram ? gsv_done : gba_l ? gba_rd_done : save_l ? sv_done  : gb_done;
 
 // The evidence follows whichever reader ran, for the same reason the stream
 // does. These were wired straight from the GB reader once, and the screen
@@ -937,7 +1089,7 @@ assign save_blank_00  = gba_ee ? gee_blank_00  : gba_sv_l ? gsv_blank_00  : sv_b
 assign save_first     = gba_ee ? gee_first     : gba_sv_l ? gsv_first     : sv_first;
 
 // Which bus SS_END has to see go idle before it drops the mode.
-wire dump_bus_busy = gba_l ? gba_busy : bus_busy;
+wire dump_bus_busy = gg_l ? gg_busy : gba_l ? gba_busy : bus_busy;
 
 // Chunk request, crossed from the bridge domain. req is a level held until
 // ack, so three flops are all it needs.
@@ -1005,12 +1157,12 @@ dump_crc32 crccalc (
 // and stops at 0xBC, so there is nothing here to compare a whole image
 // against, and sum_computed against sum_stored would be two numbers about
 // nothing. Reported as unchecked, which is the truth, rather than as a pass.
-assign sum_checked = !sel_l && !gba_l && !save_l;
+assign sum_checked = !sel_l && gb_l && !save_l;
 
 always @(posedge clk_sys) begin
     if (reset_sys || abort_l || (ss == SS_IDLE && start))
         pair_checked <= 1'b0;
-    else if (gb_done && !sel_l && !gba_l && !save_l)
+    else if (gb_done && !sel_l && gb_l && !save_l)
         pair_checked <= 1'b1;
 end
 
@@ -1054,7 +1206,7 @@ dump_buffer #(.WORDS (BUF_WORDS), .AW (BUF_AW)) chunk_buf (
     .wr_en      ( buf_we ),
     .wr_data    ( buf_data ),
     .wr_flush   ( buf_flush ),
-    .byte_order ( bo_l ),
+    .byte_order ( apf_byte_order ),
     .rd_clk     ( clk_74a ),
     .rd_addr    ( buf_rd_addr ),
     .rd_q       ( buf_rd_q )
@@ -1070,13 +1222,15 @@ dump_path_gen path_gen (
     .reset       ( reset_sys ),
     .start       ( path_start ),
     .selftest    ( sel_l ),
-    .path_style  ( try_style ),
-    .field_order ( try_field ),
-    .create_only ( try_create_only ),
+    .path_style  ( active_path_style ),
+    .field_order ( path_field_order ),
+    .create_only ( path_create_only ),
+    .probe_only  ( gg_l && !gg_create ),
+    .file_index  ( gg_file_index ),
     .title       ( title ),
     .cart_kind   ( kind_l ),
     .total_bytes ( total_bytes ),
-    .byte_order  ( bo_l ),
+    .byte_order  ( apf_byte_order ),
     .busy        ( path_busy ),
     .done        ( path_done ),
     .out_name    ( out_name ),
@@ -1363,6 +1517,11 @@ synch_3 s_abort (.i (abort_l), .o (abort_74a), .clk (clk_74a));
 
 wire skip_open_74a;
 synch_3 s_skip (.i (skip_open), .o (skip_open_74a), .clk (clk_74a));
+// Stable before the path is generated and until this writer operation ends.
+// The go toggle is issued only after path_done plus its 31-cycle hold.
+wire gg_strict_74a, gg_probe_74a;
+synch_3 s_gg_strict (.i (gg_l && !sel_l), .o (gg_strict_74a), .clk (clk_74a));
+synch_3 s_gg_probe (.i (gg_l && !sel_l && !gg_create), .o (gg_probe_74a), .clk (clk_74a));
 
 wire w_busy, w_done;
 wire [15:0] w_slot_id;
@@ -1392,6 +1551,9 @@ apf_file_writer #(
     .total_bytes ( total_74a ),
     .abort       ( abort_74a ),
     .skip_open   ( skip_open_74a ),
+    .probe_only  ( gg_probe_74a ),
+    .require_created( gg_strict_74a ),
+    .file_exists ( w_file_exists ),
     .busy        ( w_busy ),
     .done        ( w_done ),
     .failed      ( w_failed ),
@@ -1412,7 +1574,8 @@ apf_file_writer #(
     .target_dataslot_length     ( target_dataslot_length ),
     .target_buffer_param_struct ( target_buffer_param_struct ),
     .target_dataslot_done       ( target_dataslot_done ),
-    .target_dataslot_err        ( target_dataslot_err )
+    .target_dataslot_err        ( target_dataslot_err ),
+    .target_dataslot_result     ( target_dataslot_result )
 );
 
 // Finish, crossed back. The result registers are written on the same edge

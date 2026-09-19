@@ -20,7 +20,11 @@ reg cart_powered = 1'b1;
 
 wire       busy, done;
 wire [1:0] mode;
-wire       gb_start, gba_start;
+wire       gb_start, gba_start, gg_start;
+reg gg_done=0, cancel=0;
+reg [2:0] gg_result=0;
+reg [1:0] slot_protocol=0;
+wire [1:0] answered_protocol;
 wire [2:0] platform;
 
 reg        gb_done = 1'b0;
@@ -56,6 +60,9 @@ end
 cart_probe #(.WAKE_CYCLES(4)) dut (
     .clk (clk), .reset (reset),
     .start (start), .cart_powered (cart_powered),
+    .cancel(cancel), .slot_protocol(slot_protocol),
+    .gg_start(gg_start), .gg_done(gg_done), .gg_result(gg_result),
+    .answered_protocol(answered_protocol),
     .busy (busy), .done (done),
     .mode (mode), .mode_ready (mode_ready),
     .gb_start (gb_start), .gb_done (gb_done), .gb_result (gb_result),
@@ -65,10 +72,16 @@ cart_probe #(.WAKE_CYCLES(4)) dut (
 
 integer errors = 0;
 integer gb_runs, gba_runs;
+integer gg_runs=0;
 
 // Count probes, and catch the unsafe one: GBA mode entered while a Game Boy
 // cartridge is in the slot.
 always @(posedge clk) begin
+    if (gg_start) gg_runs=gg_runs+1;
+    if (slot_protocol == 2 && busy && (gb_start || gba_start || mode == MODE_GB || mode == MODE_GBA))
+        $fatal(1,"GG adapter entered a native protocol");
+    if (slot_protocol == 3 && mode != MODE_IDLE)
+        $fatal(1,"unsupported adapter drove cartridge pins");
     if (gb_start)  gb_runs  = gb_runs + 1;
     if (gba_start) gba_runs = gba_runs + 1;
 end
@@ -80,6 +93,8 @@ always @(posedge clk) begin
         $fatal(1, "a probe started with mode_ready low");
     if (gb_start && mode !== MODE_GB)
         $fatal(1, "GB probe started with mode %b", mode);
+    if (gg_start && (mode !== 2'b11 || !mode_ready))
+        $fatal(1,"GG identifier started without qualified GG mode");
     if (gba_start && mode !== MODE_GBA)
         $fatal(1, "GBA probe started with mode %b", mode);
 end
@@ -140,6 +155,22 @@ task probe(input [2:0] gb_r, input [2:0] gba_r);
     end
 endtask
 
+task gg_probe(input [2:0] verdict, input [2:0] expected);
+    begin
+        @(negedge clk); start=1; gg_result=verdict;
+        @(negedge clk); start=0;
+        wait(gg_start);
+        repeat(8) @(negedge clk);
+        gg_done=1;
+        @(negedge clk); gg_done=0;
+        wait(done);
+        @(negedge clk);
+        expect3("GG verdict",platform,expected);
+        if(answered_protocol !== 2'd2 || mode !== MODE_IDLE)
+            $fatal(1,"GG result lost protocol or failed to park");
+    end
+endtask
+
 initial begin
     gb_runs = 0; gba_runs = 0;
     repeat (4) @(negedge clk);
@@ -195,6 +226,27 @@ initial begin
         $display("ERROR: mode left at %b after a probe, expected idle", mode);
         errors = errors + 1;
     end
+
+    // Every GG outcome stays within GG; none can trigger native probing.
+    slot_protocol=2;
+    gg_probe(R_OK,3'd6);
+    gg_probe(R_NO_CART,P_NONE);
+    gg_probe(R_UNSTABLE,P_UNSTABLE);
+    gg_probe(R_NOT_MINE,P_UNKNOWN);
+    gg_probe(R_NO_POWER,P_NO_POWER);
+    // Unknown adapters complete without touching the connector.
+    slot_protocol=3;
+    @(negedge clk); start=1;
+    @(negedge clk); start=0;
+    wait(done); @(negedge clk);
+    expect3("unsupported adapter",platform,3'd7);
+    // A report change cancels a pending GG header even if no reply arrives.
+    slot_protocol=2;
+    @(negedge clk); start=1;
+    @(negedge clk); start=0;
+    wait(gg_start); @(negedge clk); cancel=1;
+    @(negedge clk); cancel=0;
+    if(busy || mode != MODE_IDLE) $fatal(1,"adapter cancellation did not release probe");
 
     if (errors != 0) begin
         $display("tb_cart_probe: %0d checks failed", errors);

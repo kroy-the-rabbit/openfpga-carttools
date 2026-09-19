@@ -58,6 +58,8 @@ output  reg             rtc_valid,
 output  reg             cart_play,
 output  reg             cart_power,
 output  reg     [31:0]  cart_adapter_id,
+output  reg     [31:0]  cart_report,
+output  reg             cart_report_valid,
 
 input   wire            savestate_supported,
 input   wire    [31:0]  savestate_addr,
@@ -203,6 +205,8 @@ initial begin
     cart_play <= 0;
     cart_power <= 0;
     cart_adapter_id <= 0;
+    cart_report <= 0;
+    cart_report_valid <= 0;
     savestate_start <= 0;
     savestate_load <= 0;
     osnotify_inmenu <= 0;
@@ -420,6 +424,8 @@ always @(posedge clk) begin
             // Cartridge adapter state (APF framework 1.2).
             // host_20[24] = Play Cartridge selected, [16] = cart power enabled,
             // [7:0] = detected cartridge adapter ID.
+            cart_report <= host_20;
+            cart_report_valid <= 1'b1;
             cart_play <= host_20[24];
             cart_power <= host_20[16];
             cart_adapter_id <= {24'd0, host_20[7:0]};

@@ -41,10 +41,20 @@ module ui_screen #(
     input  wire        clk,
     input  wire        reset,
 
+    input wire adapter_diagnostic,
+    input wire [31:0] adapter_report,
+    input wire adapter_valid,
+    input wire [3:0] adapter_seq,
+
     // Result snapshot from cart_identify_gba. Stable while `valid` is high.
     input  wire        valid,           // an identification has completed
     input  wire [2:0]  platform,        // cart_probe result, see below
-    input  wire        answered_gba,    // which identifier produced the result
+    input  wire [1:0]  answered_protocol,    // which identifier produced the result
+    input wire [19:0] gg_product,
+    input wire [3:0] gg_version, gg_region,
+    input wire [15:0] gg_header_addr,
+    input wire [127:0] gg_header,
+    input wire gg_size_512, gg_verify_checked, gg_verify_ok,
     input  wire [95:0] title,
     input  wire [31:0] game_code,
     input  wire [15:0] maker_code,
@@ -146,6 +156,9 @@ module ui_screen #(
     output reg         tb_we
 );
 
+// A diagnostic owns the whole page; stale dump fields cannot overlay its text.
+wire [1:0] paint_dump_state = adapter_diagnostic ? 2'd0 : dump_state;
+
 // cart_probe platform codes. These reach the user as text; append, never
 // renumber.
 localparam [2:0] P_NONE     = 3'd0;
@@ -154,6 +167,8 @@ localparam [2:0] P_GB       = 3'd2;
 localparam [2:0] P_UNKNOWN  = 3'd3;
 localparam [2:0] P_UNSTABLE = 3'd4;
 localparam [2:0] P_NO_POWER = 3'd5;
+localparam [2:0] P_GG = 3'd6;
+localparam [2:0] P_ADAPTER = 3'd7;
 
 // Which bitstream is actually running, as four hex characters in the title
 // row. Two hardware sessions were spent flashing builds that looked identical
@@ -224,6 +239,7 @@ localparam [LW-1:0] ROW_FLAGS_GB   = "           checksum           ";
 localparam [LW-1:0] ROW_HELP_DUMP  = "A scan  X dump                ";
 localparam [LW-1:0] ROW_HELP_SAVE  = "A scan  X dump  Y save        ";
 localparam [LW-1:0] ROW_HELP_PLAIN = "A scan                        ";
+localparam [LW-1:0] ROW_HELP_CANCEL = "A cancel                      ";
 
 // The dump status line. Values are overlaid at fixed columns:
 //
@@ -250,9 +266,9 @@ localparam [LW-1:0] ROW_DUMP_FAIL = "DUMP FAILED  err              ";
 // the documentation is written in, but on its own it tells a user nothing.
 localparam [LW-1:0] ERR_2 = "slot 20 not declared          ";
 localparam [LW-1:0] ERR_3 = "file not found                ";
-localparam [LW-1:0] ERR_4 = "APF rejected every path       ";
+localparam [LW-1:0] ERR_4 = "APF malformed file path       ";
 localparam [LW-1:0] ERR_5 = "card full or write locked     ";
-localparam [LW-1:0] ERR_7 = "cartridge removed             ";
+localparam [LW-1:0] ERR_7 = "operation cancelled           ";
 localparam [LW-1:0] ERR_X = "unexpected result             ";
 // APF never answered. Which command it was matters: a stalled flush means
 // every write already succeeded and the bytes may well be on the card.
@@ -330,24 +346,24 @@ endfunction
 // with no dump running. save_shown is here because it changes which verdict
 // row 13 carries. The rest of the save fields are not, for the reason crc32
 // is not: they are latched at the start of a save and read at the end of it,
-// so they cannot move without dump_state moving with them. out_name and
-// out_ext are the exception: path generation finishes after dump_state enters
+// so they cannot move without paint_dump_state moving with them. out_name and
+// out_ext are the exception: path generation finishes after paint_dump_state enters
 // RUN, so out_name_valid repaints once those fields belong to this dump
 // without putting their 192 bits here.
-wire [41:0] snapshot = {valid, scanning, platform, answered_gba, id_seq,
+wire [48:0] snapshot = {adapter_diagnostic, adapter_valid, adapter_seq, valid, scanning, platform, answered_protocol, id_seq,
                         save_ready, restore_ready, save_shown, save_refused,
                         // The probed size, as a code. Four bits, and they are
                         // needed: the size arrives after the probe that
                         // id_seq counts, so id_seq has already moved by the
                         // time there is a size to show.
                         gba_size_code,
-                        dump_state, dump_ready, no_open, stall_at,
+                        paint_dump_state, dump_ready, no_open, stall_at,
                         sum_checked, sum_ok, sum_computed[7:0],
                         // Four bits, because the bar has sixteen cells and
                         // changes only when they do.
                         dump_progress[7:4], dump_err, out_name_valid};
 
-reg [41:0] shown;
+reg [48:0] shown;
 reg         painting;
 
 // ---- Where the painter is -------------------------------------------------
@@ -394,16 +410,20 @@ reg       paint_r;
 // That is a simulation and synthesis mismatch on the exact case a user is
 // most likely to hit first, a cold boot with an empty slot.
 function [LW-1:0] msg_of(input scan, input val, input [2:0] res,
-                         input from_gba);
+                         input [1:0] from_protocol);
     begin
         if (scan)       msg_of = MSG_SCANNING;
         else if (!val)  msg_of = MSG_READY;
         else case (res)
             P_GBA:      msg_of = MSG_GBA;
             P_GB:       msg_of = MSG_GB;
+            P_GG:       msg_of = "GAME GEAR CARTRIDGE           ";
+            P_ADAPTER:  msg_of = "UNSUPPORTED ADAPTER           ";
             P_NONE:     msg_of = MSG_NO_CART;
-            P_UNSTABLE: msg_of = from_gba ? MSG_UNSTABLE_GBA : MSG_UNSTABLE_GB;
-            P_UNKNOWN:  msg_of = from_gba ? MSG_UNKNOWN_GBA : MSG_UNKNOWN_GB;
+            P_UNSTABLE: msg_of = from_protocol == 2'd2 ? "UNSTABLE: GG HEADER           " :
+                                   from_protocol == 2'd1 ? MSG_UNSTABLE_GBA : MSG_UNSTABLE_GB;
+            P_UNKNOWN:  msg_of = from_protocol == 2'd2 ? "UNKNOWN: GG HEADER            " :
+                                   from_protocol == 2'd1 ? MSG_UNKNOWN_GBA : MSG_UNKNOWN_GB;
             P_NO_POWER: msg_of = MSG_NO_POWER;
             // Every result code has a line. A code with no line would put the
             // user in front of a blank screen after a failure, which is the
@@ -413,12 +433,15 @@ function [LW-1:0] msg_of(input scan, input val, input [2:0] res,
     end
 endfunction
 
-wire [LW-1:0] msg_line = msg_of(scanning, valid, platform, answered_gba);
+wire [LW-1:0] msg_line = msg_of(scanning, valid, platform, answered_protocol);
 
 wire settled     = valid && !scanning;
-wire details_gba = settled && (platform == P_GBA);
-wire details_gb  = settled && (platform == P_GB);
+wire details_gba = !adapter_diagnostic && settled && (platform == P_GBA);
+wire details_gb  = !adapter_diagnostic && settled && (platform == P_GB);
 wire details     = details_gba || details_gb;
+wire details_gg = !adapter_diagnostic && settled && answered_protocol == 2'd2;
+// Failed GG probes retain raw evidence, but arbitrary bytes are not metadata.
+wire decoded_gg = details_gg && platform == P_GG;
 
 // Same reasoning as msg_of: a function behind a continuous assignment, so it
 // is defined before anything changes rather than after.
@@ -433,7 +456,7 @@ function [LW-1:0] dump_line_of(input [1:0] st, input nop);
     end
 endfunction
 
-wire [LW-1:0] dump_line = dump_line_of(dump_state, no_open);
+wire [LW-1:0] dump_line = dump_line_of(paint_dump_state, no_open);
 
 // The GBA version row, with the probed size in it. One of ten prepared lines,
 // picked here in the row path, so the column path is untouched. Written as a
@@ -490,13 +513,13 @@ wire [LW-1:0] ROW_FIRST = {"first  ",
 // Which of the save lines, if any. Only after a save that finished: a verdict
 // about a partial read is worth less than no verdict.
 wire [LW-1:0] save_line =
-    !(save_shown && dump_state == 2'd2) ? ROW_BLANKR :
+    !(save_shown && paint_dump_state == 2'd2) ? ROW_BLANKR :
     !save_responded                     ? ROW_SAVE_DEAD :
     save_blank_ff                       ? ROW_SAVE_FF :
     save_blank_00                       ? ROW_SAVE_00 :
                                           ROW_SAVE_OK;
 
-wire [LW-1:0] first_line = (save_shown && dump_state == 2'd2) ? ROW_FIRST :
+wire [LW-1:0] first_line = (save_shown && paint_dump_state == 2'd2) ? ROW_FIRST :
                            save_refused                       ? ROW_NO_SAVE
                                                               : ROW_BLANKR;
 
@@ -529,7 +552,8 @@ function [LW-1:0] line_of(input [4:0] r, input det, input gb,
             // cartridge has been identified; Y only when that cartridge has
             // a save this core can read, which is a stricter condition and
             // false for most of them.
-            R_HELP:  line_of = svrdy ? ROW_HELP_SAVE :
+            R_HELP:  line_of = dst == 2'd1 ? ROW_HELP_CANCEL :
+                               svrdy ? ROW_HELP_SAVE :
                                rdy   ? ROW_HELP_DUMP : ROW_HELP_PLAIN;
             default: line_of = ROW_BLANKR;
         endcase
@@ -554,12 +578,15 @@ function [LW-1:0] err_line_of(input [2:0] e, input [1:0] at);
     end
 endfunction
 
-wire [LW-1:0] file_line = (dump_state == 2'd3) ? err_line_of(dump_err, stall_at)
+wire [LW-1:0] file_line = (paint_dump_state == 2'd3 && details_gg &&
+                            gg_verify_checked && !gg_verify_ok) ?
+                            "SELECTED RANGE CRC MISMATCH   " :
+                            (paint_dump_state == 2'd3) ? err_line_of(dump_err, stall_at)
                                                : ROW_BLANKR;
 
 // Only once a dump has finished, and only when there was a header to check
 // against: the self test has none and must not claim one.
-wire sum_shown = (dump_state == 2'd2) && sum_checked;
+wire sum_shown = (paint_dump_state == 2'd2) && sum_checked;
 
 wire [LW-1:0] sum_line = !sum_shown ? ROW_BLANKR
                        : sum_ok     ? ROW_ISUM_OK
@@ -568,7 +595,7 @@ wire [LW-1:0] sum_line = !sum_shown ? ROW_BLANKR
 // Gated the same way the checksum row is, and for a sharper reason: the
 // checksum row would merely be blank for a self test, while this one would
 // show the previous cartridge dump's number under the self test's name.
-wire [LW-1:0] crc_line = (dump_state == 2'd2) ? ROW_CRC
+wire [LW-1:0] crc_line = (paint_dump_state == 2'd2) ? ROW_CRC
                                                              : ROW_BLANKR;
 
 // Row 13 carries whichever verdict applies. A ROM dump has the cartridge's
@@ -585,9 +612,9 @@ function [47:0] hex24(input [23:0] v);
              hex_digit(v[7:4]), hex_digit(v[3:0])};
 endfunction
 wire pair_shown = details_gb && !save_shown && pair_checked &&
-                  dump_state == 2'd2;
+                  paint_dump_state == 2'd2;
 wire [LW-1:0] pair_count_line = pair_mismatches == 24'd0 ?
-    "PAIRED READS AGREE             " :
+    "PAIRED READS AGREE            " :
     {"READ DIFF ", hex24(pair_mismatches), " (HEX)        "};
 wire [LW-1:0] pair_parity_line =
     {"EVEN ", hex24(pair_even), " ODD ", hex24(pair_odd), "        "};
@@ -602,7 +629,73 @@ wire [LW-1:0] pair_first_line = pair_mismatches == 24'd0 ?
      hex_digit(pair_first_b[7:4]), hex_digit(pair_first_b[3:0]),
      "          "};
 
-wire [LW-1:0] static_next = pair_shown && row_c == 5'd15 ? pair_count_line :
+function [LW-1:0] adapter_line(input [4:0] r);
+    begin
+        case (r)
+            0: adapter_line = "CART ADAPTER DIAGNOSTIC       ";
+            2: adapter_line = adapter_valid ?
+                  "APF REPORT RECEIVED           " :
+                  "WAITING FOR APF REPORT        ";
+            4: adapter_line = {"RAW  ",
+                hex_digit(adapter_report[31:28]), hex_digit(adapter_report[27:24]),
+                hex_digit(adapter_report[23:20]), hex_digit(adapter_report[19:16]),
+                hex_digit(adapter_report[15:12]), hex_digit(adapter_report[11:8]),
+                hex_digit(adapter_report[7:4]), hex_digit(adapter_report[3:0]),
+                "                 "};
+            6: adapter_line = {"ADAPTER ID ", hex_digit(adapter_report[7:4]),
+                               hex_digit(adapter_report[3:0]), "                 "};
+            8: adapter_line = {"PLAY ", adapter_report[24] ? "1" : "0",
+                               "  POWER ", adapter_report[16] ? "1" : "0",
+                               "               "};
+            11: adapter_line = "CARTRIDGE BUS HELD IDLE       ";
+            13: adapter_line = "POWER OFF BEFORE SWAPPING     ";
+            14: adapter_line = "CARTS OR ADAPTERS             ";
+            17: adapter_line = "RECORD RAW AND ADAPTER ID     ";
+            default: adapter_line = ROW_BLANKR;
+        endcase
+    end
+endfunction
+
+function [127:0] gg_hex_bytes(input [63:0] value);
+    integer j;
+    begin
+        for (j=0;j<8;j=j+1) begin
+            gg_hex_bytes[127-j*16 -: 8] = hex_digit(value[j*8+4 +: 4]);
+            gg_hex_bytes[119-j*16 -: 8] = hex_digit(value[j*8 +: 4]);
+        end
+    end
+endfunction
+wire [LW-1:0] gg_product_line = {"PRODUCT ", hex_digit(gg_product[19:16]),
+    hex_digit(gg_product[15:12]), hex_digit(gg_product[11:8]),
+    hex_digit(gg_product[7:4]), hex_digit(gg_product[3:0]),
+    "  REV ", hex_digit(gg_version), "          "};
+wire [LW-1:0] gg_mapper_line = {"SEGA ROM   REGION ", hex_digit(gg_region), "           "};
+wire [LW-1:0] gg_size_line = gg_size_512 ?
+    "ROM 512 KB (MANUAL)           " : "ROM 256 KB (MANUAL)           ";
+wire [LW-1:0] gg_header_line = platform == P_GG ?
+    {"HEADER AT ", hex_digit(gg_header_addr[15:12]), hex_digit(gg_header_addr[11:8]),
+     hex_digit(gg_header_addr[7:4]), hex_digit(gg_header_addr[3:0]), "  STABLE        "} :
+    platform == P_UNSTABLE ? "HEADER READS UNSTABLE         " :
+                            "HEADER UNRECOGNISED           ";
+wire gg_verdict_shown = details_gg && (paint_dump_state == 2'd2 || paint_dump_state == 2'd3) &&
+                       gg_verify_checked;
+wire [LW-1:0] gg_verify_line = gg_verify_ok ?
+    "SELECTED RANGE CRC AGREES     " : "SELECTED RANGE CRC MISMATCH   ";
+
+wire [LW-1:0] static_next = adapter_diagnostic ? adapter_line(row_c) :
+                            decoded_gg && row_c == R_NAME ? gg_product_line :
+                            decoded_gg && row_c == R_TYPE ? gg_mapper_line :
+                            decoded_gg && row_c == R_SIZE ? gg_size_line :
+                            details_gg && row_c == R_FLAGS ? gg_header_line :
+                            details_gg && row_c == 5'd8 ?
+                                {"HDR0 ", gg_hex_bytes(gg_header[63:0]), "         "} :
+                            details_gg && row_c == 5'd9 ?
+                                {"HDR1 ", gg_hex_bytes(gg_header[127:64]), "         "} :
+                            decoded_gg && dump_ready && row_c == 5'd16 && paint_dump_state == 0 ?
+                                "LEFT 256 KB   RIGHT 512 KB    " :
+                            details_gg && row_c == 5'd17 ?
+                                "ROM ONLY; SAVE NOT SUPPORTED  " :
+                            gg_verdict_shown && row_c == R_VERIFY ? gg_verify_line : pair_shown && row_c == 5'd15 ? pair_count_line :
                             pair_shown && row_c == 5'd16 ? pair_parity_line :
                             pair_shown && row_c == 5'd17 ? pair_first_line :
                             row_c == R_RESTORE_HELP && restore_ready ?
@@ -610,7 +703,7 @@ wire [LW-1:0] static_next = pair_shown && row_c == 5'd15 ? pair_count_line :
                             line_of(row_c, details, details_gb, msg_line,
                                     dump_line, file_line, verify_line,
                                     gba_ver_row, crc_line, first_line,
-                                    dump_ready, save_ready, dump_state);
+                                    dump_ready, save_ready, paint_dump_state);
 reg  [LW-1:0] static_line;
 
 // Left to right: a 30-character constant has its first character in the most
@@ -697,7 +790,7 @@ reg [7:0] field_char_r;
 reg       field_hit_r;
 always @(row or col or details or details_gb or title or game_code or
          maker_code or sw_version or gb_title or gb_cart_type or
-         rom_txt or ram_txt or map_txt or dump_state or
+         rom_txt or ram_txt or map_txt or paint_dump_state or
          out_name or out_name_len or out_ext or out_ext_len or
          out_name_valid) begin
     field_char_r = 8'h20;
@@ -710,7 +803,7 @@ always @(row or col or details or details_gb or title or game_code or
         field_hit_r  = 1'b1;
         field_char_r = hex_digit(BUILD_STAMP[4*(5'd29 - col) +: 4]);
     end else if (row == R_FILE && out_name_valid &&
-                 dump_state != 2'd0 && dump_state != 2'd3) begin
+                 paint_dump_state != 2'd0 && paint_dump_state != 2'd3) begin
         // The name of the file being written, or that was written. A dump
         // that says COMPLETE without naming the file leaves the reader
         // hunting the card for it.
@@ -813,9 +906,9 @@ wire [7:0] flag_char =
 // Counts are hexadecimal. A decimal one would need a divide, and this module
 // has already failed timing once for putting a divider in a per-cell path.
 
-wire dump_run = (dump_state == 2'd1);
-wire dump_ok  = (dump_state == 2'd2);
-wire dump_bad = (dump_state == 2'd3);
+wire dump_run = (paint_dump_state == 2'd1);
+wire dump_ok  = (paint_dump_state == 2'd2);
+wire dump_bad = (paint_dump_state == 2'd3);
 
 // A bar, not a hex chunk count. "DUMPING 0042 OF 0200" asks the reader to do
 // hexadecimal arithmetic to find out whether anything is happening.
@@ -829,7 +922,7 @@ localparam integer BAR_W = 16;
 wire [3:0] bar_fill = dump_progress[7:4];
 wire [4:0] bar_i    = col - BAR_L[4:0];
 
-wire bar_hit = (row == R_BAR) && (dump_state != 2'd0) &&
+wire bar_hit = (row == R_BAR) && (paint_dump_state != 2'd0) &&
                (col >= BAR_L[4:0]) && (col < BAR_L[4:0] + BAR_W[4:0]);
 
 // Full on success regardless of where the counter got to: the last chunk
@@ -870,7 +963,7 @@ always @(posedge clk) begin
         col_c    <= 5'd0;
         addr_c   <= 10'd0;
         paint_r  <= 1'b0;
-        shown    <= {42{1'b1}};   // deliberately not a reachable snapshot
+        shown    <= {49{1'b1}};   // deliberately not a reachable snapshot
         tb_we    <= 1'b0;
     end else begin
         tb_we <= 1'b0;

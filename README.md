@@ -2,8 +2,9 @@
 
 A Pocket core that reads cartridges through the handheld's own cartridge slot.
 It identifies Game Boy, Game Boy Color and Game Boy Advance cartridges, dumps
-their ROMs to the SD card, and backs up their saves. It is not an emulator and
-it will not play anything.
+their ROMs to the SD card, and backs up their saves. With the official Analogue
+adapter it also dumps Game Gear ROMs. It is not an emulator and it will not
+play anything.
 
 **Based on commit `0e1b2e1` of the `feat/cartridge-support` branch of
 [Rai/openfpga-GBA](https://github.com/Rai/openfpga-GBA)**, which is a fork of
@@ -16,11 +17,11 @@ what was written here.
 
 ## What works
 
-**GBA regression in `v0.9999.20260914`:** GBA cartridges have been reported
-to fail every scan with `UNSTABLE: GB SAFETY GATE`, before GBA identification
-starts. This branch tests a precharge-release timing correction; it is not
-yet hardware-verified. The GBA results below describe the previously verified
-`v0.9999.250d6a0` baseline, not qualification of this candidate.
+**GBA regression fix:** `57513fc` is the source of replacement artifact
+`0.9999.20260914.1`. On that build, Metroid Zero Mission produced an 8 MiB
+reference-matching dump; Pokemon Silver ROM/save dumping and the restore
+readbacks also passed. The broader cartridge counts below describe the earlier
+verified corpus, not a repeated qualification of every cart on later builds.
 
 | | |
 |---|---|
@@ -28,15 +29,16 @@ yet hardware-verified. The GBA results below describe the previously verified
 | GBA cartridge identification | **works** |
 | GB / GBC ROM dumping | **works**, twenty-six cartridges, 32 KB to 4 MB |
 | GBA ROM dumping | **works**, fifteen cartridges, 4 to 16 MB |
+| Game Gear ROM dumping | **works** through the official Analogue adapter, three cartridges at 256 and 512 KiB, each matching the reference size, SHA-1 and CRC32. See [Game Gear](docs/GAME-GEAR.md) |
 | GBA ROM size detection | **works**, measured from open bus, and every size agrees with the published record |
 | CRC32 shown on the device | **works**, both platforms, over a save as well as a ROM |
 | Image checked against the cartridge's own checksum | **works**, GB / GBC only |
-| Files named `.gb` / `.gbc` / `.gba` | **works** |
+| Files named `.gb` / `.gbc` / `.gba` / `.gg` | **works** |
 | GB / GBC save backup | **works**, fifteen cartridges backed up and loaded in an emulator with their state intact, one of them showing no recognisable state and carried as unverified |
 | Save RAM banking, to 128 KB | **works** at 8 KB one bank and 32 KB four banks; 64 KB and 128 KB built, untested |
 | GBA save backup | **works**, eleven cartridges: 32 KiB SRAM, 64 KiB Flash, and EEPROM at 512 bytes and 8 KiB, each loaded in an emulator with its state intact. None of it writes to the cartridge; the EEPROM reader cannot even express a write. 128 KiB Flash refused, it needs a bank-select write |
 | A write that is cut short mid-pulse | **safe**, the cartridge captures the byte that was asked for rather than a floating bus |
-| Save restore | **alpha; verified on Pokemon Silver**, MBC3 32 KiB. MBC1 8 KiB, other MBC3 and MBC5 32 KiB cartridges are implemented but untested. See [save restore](docs/SAVE-RESTORE.md) |
+| Save restore | **alpha; verified on Pokemon Silver**, MBC3 32 KiB, **and Dragon Warrior III**, MBC5 32 KiB. MBC1 8 KiB and other MBC3 and MBC5 32 KiB cartridges are implemented but untested. See [save restore](docs/SAVE-RESTORE.md) |
 | MBC3 RTC | not started |
 | MBC3 ROM and save dumping | **works**, Pokemon Silver, 2 MB and 32 KiB, after the idle-bus fix in `ff5dd03` |
 | MBC2, MBC1 above 512 KB | simulation only, no cartridge to test |
@@ -44,7 +46,7 @@ yet hardware-verified. The GBA results below describe the previously verified
 | GBA cartridges above 16 MB | untested |
 | Automatic readback of ROM/save dump files | not built; restore recovery files are read back and verified |
 | Sidecar metadata | specified in [docs/FILE-FORMATS.md](docs/FILE-FORMATS.md), not written |
-| Two cartridges with the same title | the second dump silently overwrites the first |
+| Two native cartridges with the same title | the second dump silently overwrites the first; the GG path allocates a new name |
 | CGB filenames | four bytes of manufacturer code land in the name |
 
 ## Why cartridge control stays in RTL
@@ -189,7 +191,7 @@ For save writes, follow the [save restore guide](docs/SAVE-RESTORE.md).
 ## Checking what came off the cartridge
 
 ```sh
-scripts/verify_dump.py FILE...          logos, checksums, sizes, CRC32
+scripts/verify_dump.py FILE...          logos, checksums, sizes, hashes
 scripts/verify_dump.py --compare A B    two reads of the same cartridge
 scripts/match_dats.py                   match every dump to a published record
 tools/podman/play-dump.sh ROM [SAV]     play it in mGBA, in a container
@@ -208,13 +210,28 @@ this core shows for a GBA image is computed from the bytes it just read, so it
 proves a second read matches the first, not that either matches the cartridge.
 Matching a published record, or dumping twice and comparing, is the evidence
 there is, and `match_dats.py` is the first of those: it checks every dump
-against a No-Intro DAT by CRC32 and size. The DAT is external to this core and
+against a No-Intro DAT by SHA-1, CRC32 and size. The DAT is external to this core and
 to this repo, so it cannot agree with a dump for the same reason the dump is
 wrong. **Save RAM
 carries no checksum of any kind**, so the only thing that can prove a `.sav` is
 loading it beside its ROM and seeing the game's own state come back. That is
 what `play-dump.sh` is for, and it is what moved save backup from built to
 verified.
+
+For `.gg` dumps, `verify_dump.py` reads the Sega headers at `0x1FF0`, `0x3FF0`
+and `0x7FF0`. Product, revision, region and checksum extent are hints: they
+provide no title or reliable ROM capacity, and a checksum mismatch is only a
+diagnostic. Repeated banks likewise do not prove the mapper failed or reveal
+the physical size. Keep the complete dump and compare two reads, then use a
+Game Gear DAT or an explicit reference:
+
+```sh
+scripts/verify_dump.py GG0000.gg --expect-size 524288 --expect-sha1 dabb452e416b4fa9cb83d8ddd307c2a32c3a1a7f --expect-crc32 95a18ec7
+```
+
+That reference is [Sonic the Hedgehog 2 (World)](https://github.com/mamedev/mame/blob/954def46685cd0276671138fbd032036b1a771fb/hash/gamegear.xml#L8086).
+`match_dats.py` accepts zipped or extracted XML DATs; CRC-only records cannot
+verify a dump. Run these Python commands with an activated project venv.
 
 `verify_dump.py` covers what a checksum can, computed independently of the core,
 plus the one structural failure the device cannot see: **every bank identical**,

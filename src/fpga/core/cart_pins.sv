@@ -26,7 +26,7 @@ module cart_pins (
     input  wire        clk,
     input  wire        reset,
 
-    // 00 idle, 01 GBA, 10 GB, 11 idle.
+    // 00 idle, 01 GBA, 10 GB, 11 Game Gear through the official adapter.
     input  wire [1:0]  mode,
     // High only when the pins are carrying the requested mode.
     output wire        mode_ready,
@@ -53,6 +53,16 @@ module cart_pins (
     output wire [15:0] gb_ad_in,
     output wire [7:0]  gb_hi_in,
 
+    // GG engine. Addresses remain logical until this connector boundary.
+    input  wire [15:0] gg_ad_out,
+    input  wire        gg_ad_oe,
+    input  wire [7:0]  gg_hi_out,
+    input  wire        gg_hi_oe,
+    input  wire [3:0]  gg_ctl_out,
+    input  wire        gg_p30_out,
+    input  wire        gg_p30_oe,
+    output wire [7:0]  gg_hi_in,
+
     inout  wire [7:0]  cart_tran_bank2,
     output wire        cart_tran_bank2_dir,
     inout  wire [7:0]  cart_tran_bank3,
@@ -71,6 +81,7 @@ module cart_pins (
 localparam [1:0] MODE_IDLE = 2'b00;
 localparam [1:0] MODE_GBA  = 2'b01;
 localparam [1:0] MODE_GB   = 2'b10;
+localparam [1:0] MODE_GG   = 2'b11;
 
 // Cycles of idle a mode change must pass through before any pin is driven for
 // the new mode. Switching protocols reverses the direction of eight pins, and
@@ -96,21 +107,33 @@ always @(posedge clk) begin
     end
 end
 
-assign mode_ready = (mode == mode_q) && (settle == 5'd0);
+assign mode_ready = !reset && (mode == mode_q) && (settle == 5'd0);
 
 wire [1:0] active = mode_ready ? mode : MODE_IDLE;
 wire       sel_gba = active == MODE_GBA;
 wire       sel_gb  = active == MODE_GB;
+wire       sel_gg  = active == MODE_GG;
 
-// Engine mux. Idle, mode 2'b11, and any pin no engine claims take the safe
-// idle of docs/HARDWARE-NOTES.md section 3.
-wire [15:0] ad_out  = sel_gba ? gba_ad_out  : sel_gb ? gb_ad_out  : 16'h0000;
-wire        ad_oe   = sel_gba ? gba_ad_oe   : sel_gb ? gb_ad_oe   : 1'b0;
-wire [7:0]  hi_out  = sel_gba ? gba_hi_out  : sel_gb ? gb_hi_out  : 8'h00;
-wire        hi_oe   = sel_gba ? gba_hi_oe   : sel_gb ? gb_hi_oe   : 1'b0;
-wire [3:0]  ctl_out = sel_gba ? gba_ctl_out : sel_gb ? gb_ctl_out : 4'hf;
-wire        p30_out = sel_gba ? gba_p30_out : sel_gb ? gb_p30_out : 1'b0;
-wire        p30_oe  = sel_gba ? gba_p30_oe  : sel_gb ? gb_p30_oe  : 1'b0;
+// Official AP-A01 adapter wiring, independently used by sfiera/cartload:
+// https://github.com/sfiera/pocket-adapters/blob/4c61591b7bb0565331d525b96186ce0b308667be/gg.md
+// Pocket pins 6..21 follow physical GG connector order, not address order.
+// GG control is {/IOREQ, /WR, /RD, /CE}; the actual GG clock is tied high
+// inside the adapter. Data bit order is unchanged.
+wire [15:0] gg_connector_addr = {
+    gg_ad_out[14], gg_ad_out[13], gg_ad_out[8], gg_ad_out[9],
+    gg_ad_out[11], gg_ad_out[15], gg_ad_out[10], gg_ad_out[0],
+    gg_ad_out[1], gg_ad_out[2], gg_ad_out[3], gg_ad_out[4],
+    gg_ad_out[5], gg_ad_out[6], gg_ad_out[7], gg_ad_out[12]
+};
+
+// Any pin no engine claims takes the safe idle posture.
+wire [15:0] ad_out  = sel_gba ? gba_ad_out  : sel_gb ? gb_ad_out  : sel_gg ? gg_connector_addr : 16'h0000;
+wire        ad_oe   = sel_gba ? gba_ad_oe   : sel_gb ? gb_ad_oe   : sel_gg ? gg_ad_oe   : 1'b0;
+wire [7:0]  hi_out  = sel_gba ? gba_hi_out  : sel_gb ? gb_hi_out  : sel_gg ? gg_hi_out  : 8'h00;
+wire        hi_oe   = sel_gba ? gba_hi_oe   : sel_gb ? gb_hi_oe   : sel_gg ? gg_hi_oe   : 1'b0;
+wire [3:0]  ctl_out = sel_gba ? gba_ctl_out : sel_gb ? gb_ctl_out : sel_gg ? gg_ctl_out : 4'hf;
+wire        p30_out = sel_gba ? gba_p30_out : sel_gb ? gb_p30_out : sel_gg ? gg_p30_out : 1'b0;
+wire        p30_oe  = sel_gba ? gba_p30_oe  : sel_gb ? gb_p30_oe  : sel_gg ? gg_p30_oe  : 1'b0;
 
 assign cart_tran_bank3     = ad_oe ? ad_out[7:0]  : 8'hzz;
 assign cart_tran_bank3_dir = ad_oe;
@@ -129,10 +152,10 @@ assign cart_tran_pin30     = p30_oe ? p30_out : 1'b0;
 assign cart_tran_pin30_dir = p30_oe;
 // Released only while an engine owns the slot. Low holds a Game Boy cartridge
 // in reset, which is the strongest safe state.
-assign cart_pin30_pwroff_reset = sel_gba || sel_gb;
+assign cart_pin30_pwroff_reset = sel_gba || sel_gb || sel_gg;
 
-// Pin 31 is IRQ on a GBA cartridge and the analogue VIN on a Game Boy one. No
-// engine claims it, so it is never driven.
+// Pin 31 is IRQ on GBA, analogue VIN on GB, and /GG mode sense through AP-A01.
+// All three are inputs to the Pocket. No engine may drive this pin.
 assign cart_tran_pin31     = 1'bz;
 assign cart_tran_pin31_dir = 1'b0;
 
@@ -140,5 +163,6 @@ assign gba_ad_in = {cart_tran_bank2, cart_tran_bank3};
 assign gba_hi_in = cart_tran_bank1;
 assign gb_ad_in  = {cart_tran_bank2, cart_tran_bank3};
 assign gb_hi_in  = cart_tran_bank1;
+assign gg_hi_in  = cart_tran_bank1;
 
 endmodule

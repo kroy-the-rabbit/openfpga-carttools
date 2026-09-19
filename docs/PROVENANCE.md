@@ -49,6 +49,15 @@ Rai's own commit message is `Initial WIP on cart support. Not all save types
 have been tested!`. Every inherited behaviour is unverified until this
 repository verifies it. `docs/STATUS.md` tracks which ones have been.
 
+## Game Gear adapter
+
+The GG adapter mapping is based on [sfiera's measured AP-A01 wiring](https://github.com/sfiera/pocket-adapters/blob/4c61591b7bb0565331d525b96186ce0b308667be/gg.md),
+cross-checked against the [Cartload GG reader](https://github.com/sfiera/cartload/blob/893cfe69f66e7e7d37ecc1e08ed27cdb6dd068eb/src/gg.js).
+The GG bus, header reader, Sega ROM reader and their hardware models were written
+for CartTools. They do not import the GG emulator or modify its vendored sources.
+The initial implementation deliberately uses slot-2 banking and explicit ROM
+lengths rather than copying Cartload's slot-1 size probe.
+
 ## Build harness
 
 `Makefile`, `tools/podman/` and parts of `scripts/` came from the `cheats`

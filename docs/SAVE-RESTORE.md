@@ -5,8 +5,12 @@ verified on **Pokemon Silver**, using 32 KiB of MBC3 save RAM. The game then
 booted a publicly obtained save with player name **Mattia**, 16 badges,
 Pokédex 251 and time 56:44, a public save sourced from [here](https://gbatemp.net/download/pokemon-silver-version-save-file.38572/).
 
-MBC1 8 KiB, other MBC3 32 KiB and MBC5 32 KiB cartridges (type `1B`, ROM up
-to 4 MiB) are implemented but untested on hardware. MBC3 RTC state and GBA
+Restore is also verified on **Dragon Warrior III**, MBC5 32 KiB (type `1B`,
+4 MiB ROM), using the all-medals save from
+[Woodus](https://www.woodus.com/den/games/dw3gbc/monstermedalsavestate.php).
+
+MBC1 8 KiB and other MBC3 and MBC5 32 KiB cartridges (MBC5 ROM up to 4 MiB)
+are implemented but untested on hardware. MBC3 RTC state and GBA
 saves are not restored.
 
 ## Prepare the input
