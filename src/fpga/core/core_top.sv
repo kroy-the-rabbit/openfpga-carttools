@@ -631,9 +631,19 @@ end
 wire cart_mode_live_s;
 wire core_reset_n_s;
 synch_3 s_core_reset_n (reset_n, core_reset_n_s, clk_sys);
-wire native_adapter = cart_report_valid_s && cart_report_s[7:0] == 8'd0;
-wire gg_adapter = cart_report_valid_s && GG_ADAPTER_ID != 8'hFF &&
-                  GG_ADAPTER_ID != 8'd0 && cart_report_s[7:0] == GG_ADAPTER_ID;
+// Adapter ID compares are registered off the timing-critical fanout; valid and
+// the power bits below stay combinational so power loss still gates at once.
+reg native_id_r, gg_id_r, session_id_match_r;
+reg cart_session_admitted;
+reg [7:0] cart_session_adapter;
+always @(posedge clk_sys) begin
+    native_id_r <= cart_report_s[7:0] == 8'd0;
+    gg_id_r <= GG_ADAPTER_ID != 8'hFF && GG_ADAPTER_ID != 8'd0 &&
+               cart_report_s[7:0] == GG_ADAPTER_ID;
+    session_id_match_r <= cart_session_adapter == cart_report_s[7:0];
+end
+wire native_adapter = cart_report_valid_s && native_id_r;
+wire gg_adapter = cart_report_valid_s && gg_id_r;
 wire adapter_supported = native_adapter || gg_adapter;
 wire adapter_diagnostic = ADAPTER_DIAGNOSTIC_ONLY ||
                           (cart_report_valid_s && !adapter_supported);
@@ -645,8 +655,6 @@ wire adapter_diagnostic = ADAPTER_DIAGNOSTIC_ONLY ||
 wire cart_powered_s = cart_mode_live_s && cart_report_valid_s &&
                       cart_report_s[24] && cart_report_s[16] &&
                       !ADAPTER_DIAGNOSTIC_ONLY;
-reg cart_session_admitted;
-reg [7:0] cart_session_adapter;
 always @(posedge clk_sys) begin
     if (~pll_core_locked || !cart_powered_s ||
         (cart_session_admitted && cart_session_adapter != cart_report_s[7:0])) begin
@@ -657,8 +665,7 @@ always @(posedge clk_sys) begin
         cart_session_adapter <= cart_report_s[7:0];
     end
 end
-wire cart_mode_s = cart_powered_s && cart_session_admitted &&
-                   cart_session_adapter == cart_report_s[7:0];
+wire cart_mode_s = cart_powered_s && cart_session_admitted && session_id_match_r;
 // Every new action uses this admission gate. Existing owners use cart_mode_s
 // until their ordinary cancellation/cleanup path releases the connector.
 wire cart_run_allowed = cart_mode_s && core_reset_n_s;
