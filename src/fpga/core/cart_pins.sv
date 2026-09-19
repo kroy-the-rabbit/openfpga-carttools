@@ -158,7 +158,7 @@ always @(posedge clk or posedge reset) begin
         hi_out  <= hi_out_d;
         hi_oe   <= hi_oe_d;
         ctl_out <= ctl_out_d;
-        p30_out <= p30_out_d;
+        p30_out <= p30_oe_d & p30_out_d;
         p30_oe  <= p30_oe_d;
     end
 end
@@ -176,7 +176,7 @@ assign cart_tran_bank1_dir = hi_oe;
 assign cart_tran_bank0     = ctl_out;
 assign cart_tran_bank0_dir = 1'b1;
 
-assign cart_tran_pin30     = p30_oe ? p30_out : 1'b0;
+assign cart_tran_pin30     = p30_out;
 assign cart_tran_pin30_dir = p30_oe;
 // Released only while an engine owns the slot. Low holds a Game Boy cartridge
 // in reset, which is the strongest safe state.
