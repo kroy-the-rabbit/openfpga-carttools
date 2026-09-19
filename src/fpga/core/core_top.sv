@@ -398,6 +398,9 @@ wire [31:0] cart_report_74a;
 wire cart_report_valid_74a;
 wire [31:0] cart_report_s;
 wire cart_report_valid_s, cart_report_changed_s;
+// Registered so the admission decode stays off the path into the pin registers.
+reg gb_mode_s, gba_mode_s, gg_mode_s;
+reg [1:0] pins_mode_r;
 wire [3:0] cart_report_seq;
 // Passive adapter diagnostic: every cartridge engine remains disabled.
 localparam bit ADAPTER_DIAGNOSTIC_ONLY = 1'b0;
@@ -856,8 +859,8 @@ cart_mode_hold mode_hold (
     .req_out      ( cart_mode_req )
 );
 
-wire        gb_mode_s  = cart_mode_s && native_adapter && (cart_mode_req == 2'b10) && cart_mode_ready;
-wire        gba_mode_s = cart_mode_s && native_adapter && (cart_mode_req == 2'b01) && cart_mode_ready;
+wire        gb_mode_c  = cart_mode_s && native_adapter && (cart_mode_req == 2'b10) && (pins_mode_r == 2'b10) && cart_mode_ready;
+wire        gba_mode_c = cart_mode_s && native_adapter && (cart_mode_req == 2'b01) && (pins_mode_r == 2'b01) && cart_mode_ready;
 
 wire        gbid_req;
 wire        gbid_wr;
@@ -913,8 +916,14 @@ gb_cart_bus gb_bus (
 );
 
 
-wire gg_mode_s = cart_mode_s && gg_adapter &&
-                 (cart_mode_req == 2'b11) && cart_mode_ready;
+wire gg_mode_c = cart_mode_s && gg_adapter && (cart_mode_req == 2'b11) &&
+                 (pins_mode_r == 2'b11) && cart_mode_ready;
+always @(posedge clk_sys) begin
+    gb_mode_s   <= gb_mode_c;
+    gba_mode_s  <= gba_mode_c;
+    gg_mode_s   <= gg_mode_c;
+    pins_mode_r <= cart_mode_s && adapter_supported ? cart_mode_req : 2'b00;
+end
 wire [15:0] gg_ad_out;
 wire gg_ad_oe, gg_hi_oe, gg_p30_out, gg_p30_oe;
 wire [7:0] gg_hi_out, gg_hi_in;
@@ -943,7 +952,7 @@ gg_cart_bus gg_bus (
 cart_pins cart_pins_inst (
     .clk                    ( clk_sys ),
     .reset                  ( ~pll_core_locked ),
-    .mode                   ( cart_mode_s && adapter_supported ? cart_mode_req : 2'b00 ),
+    .mode                   ( pins_mode_r ),
     .mode_ready             ( cart_mode_ready ),
 
     .gba_ad_out             ( gba_ad_out ),
