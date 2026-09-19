@@ -9,7 +9,7 @@ Restore is also verified on **Dragon Warrior III**, MBC5 32 KiB (type `1B`,
 4 MiB ROM), using the all-medals save from
 [Woodus](https://www.woodus.com/den/games/dw3gbc/monstermedalsavestate.php).
 
-MBC1 8 KiB and other MBC3 and MBC5 32 KiB cartridges (MBC5 ROM up to 4 MiB)
+MBC1 8 KiB, other MBC3 32 KiB and MBC5 8 or 32 KiB cartridges (MBC5 ROM up to 4 MiB)
 are implemented but untested on hardware. MBC3 RTC state and GBA
 saves are not restored.
 

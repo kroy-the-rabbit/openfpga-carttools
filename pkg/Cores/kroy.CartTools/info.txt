@@ -10,8 +10,8 @@ Licensed under GPL-2.0.
 Save restore is alpha. It writes GB/GBC cartridge save RAM after identity
 and input checks, a verified recovery backup, and a deliberate confirmation.
 Restore is hardware-verified on Pokemon Silver (MBC3, 32 KiB) and
-Dragon Warrior III (MBC5, 32 KiB). MBC1 8 KiB and other MBC3 and MBC5
-cartridges are implemented but untested.
+Dragon Warrior III (MBC5, 32 KiB). MBC1 8 KiB, other MBC3 32 KiB and MBC5
+8 or 32 KiB cartridges are implemented but untested.
 MBC3 RTC state and GBA saves are not restored.
 
 It does write to mapper registers, in ROM space, because that is the only way

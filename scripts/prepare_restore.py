@@ -25,6 +25,7 @@ GEOMETRIES = {
     (0x03, 0x02): (8192, (0x00,), 4),
     (0x10, 0x03): (32768, (0x00, 0x80), 6),
     (0x13, 0x03): (32768, (0x00, 0x80), 6),
+    (0x1B, 0x02): (8192, (0x00, 0x80, 0xC0), 7),
     (0x1B, 0x03): (32768, (0x00, 0x80, 0xC0), 7),
 }
 
@@ -39,14 +40,14 @@ def save_bytes_for(rom):
 
 
 def validate_rom(rom):
-    """Limit preparation to MBC1 8 KiB, MBC3 32 KiB or MBC5 32 KiB battery cartridges."""
+    """Limit preparation to MBC1 8 KiB, MBC3 32 KiB or MBC5 8/32 KiB battery cartridges."""
     if len(rom) < 0x150:
         raise ValueError("ROM is too short to contain a complete GB header")
     geometry = GEOMETRIES.get((rom[0x147], rom[0x149]))
     if geometry is None:
         raise ValueError("restore requires MBC1+RAM+BAT type 03 with RAM code 02, "
                          "MBC3 type 10/13 with RAM code 03, "
-                         "or MBC5+RAM+BAT type 1B with RAM code 03")
+                         "or MBC5+RAM+BAT type 1B with RAM code 02 or 03")
     _, cgb_flags, max_code = geometry
     if rom[0x143] not in cgb_flags:
         raise ValueError("CGB flag {:02X} is not supported for this mapper".format(rom[0x143]))

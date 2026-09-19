@@ -113,14 +113,28 @@ class RestorePackageTests(unittest.TestCase):
                                  word)
         with self.assertRaises(ValueError):
             PREPARE.make_manifest(rom, save[:8192])
-        # Battery-less and rumble MBC5, the 8 KiB RAM code and an 8 MiB ROM
+        # Battery-less and rumble MBC5, the 2 KiB RAM code and an 8 MiB ROM
         # code are each refused.
-        for offset, value in ((0x147, 0x1A), (0x147, 0x1E), (0x149, 0x02), (0x148, 0x08)):
+        for offset, value in ((0x147, 0x1A), (0x147, 0x1E), (0x149, 0x01), (0x148, 0x08)):
             with self.subTest(offset=offset, value=value):
                 changed = bytearray(rom)
                 changed[offset] = value
                 with self.assertRaises(ValueError):
                     PREPARE.make_manifest(checksums(changed), save)
+
+    def test_mbc5_8k_geometry_binds_8k_save(self):
+        # Shadowgate Classic-shaped header: MBC5+RAM+BATTERY, 1 MB, 8 KiB RAM, CGB flag 80.
+        rom = bytearray(1048576)
+        rom[0x134:0x143] = b"TEST MBC5 8K\0\0\0"
+        rom[0x143] = 0x80
+        rom[0x147:0x14A] = bytes((0x1B, 0x05, 0x02))
+        rom = bytes(checksums(rom))
+        save = bytes((i * 13 + 7) & 255 for i in range(8192))
+        words = struct.unpack("<16I", PREPARE.make_manifest(rom, save))
+        self.assertEqual(words[1:3], (1, 8192))
+        self.assertEqual(words[6], 0x8005021B)
+        with self.assertRaises(ValueError):
+            PREPARE.make_manifest(rom, save + save + save + save)
 
     def test_refuses_different_size_mapper_or_color(self):
         rom, save = fixture()

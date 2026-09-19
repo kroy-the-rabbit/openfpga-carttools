@@ -81,7 +81,7 @@ continue.
    `run_all.py`'s own 300 second timeout, and a dead process explains nothing.
 6. A `// TIMEOUT: <seconds>` line, up to 1800, only when the bench needs more
    than that 300 seconds of wall clock on a runner. The restore engine
-   benches declare 900 and the single MBC5 bench 1800.
+   benches declare 900, except the MBC5 32 KiB bench at 1800.
 7. `make test ARGS="-k <thing>"`.
 
 A testbench that instantiates `gba_cart_bus` should also instantiate

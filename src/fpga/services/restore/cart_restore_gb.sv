@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 `default_nettype none
 
-// The restore writer supports three physical save organizations: MBC1 + RAM +
+// The restore writer supports four physical save organizations: MBC1 + RAM +
 // battery (03) with one 8 KiB RAM bank (02), MBC3 + battery RAM (10 or 13)
-// with four 8 KiB banks (03), and MBC5 + RAM + battery (1B) with the same four
-// banks (03). Identification, immutable source staging,
+// with four 8 KiB banks (03), and MBC5 + RAM + battery (1B) with one bank (02)
+// or four (03). Identification, immutable source staging,
 // the recovery backup, and confirmation belong to the caller. authorized must
 // represent all of those checks, and remain high throughout the operation.
 // No title or particular save content is assumed.
@@ -58,12 +58,13 @@ module cart_restore_gb (
 wire geometry_mbc1 = (cart_type == 8'h03) && (ram_size_code == 8'h02);
 wire geometry_mbc3 = (cart_type == 8'h10 || cart_type == 8'h13) && (ram_size_code == 8'h03);
 wire geometry_mbc5 = (cart_type == 8'h1B) && (ram_size_code == 8'h03);
-assign supported = geometry_mbc1 || geometry_mbc3 || geometry_mbc5;
+wire geometry_mbc5_8k = (cart_type == 8'h1B) && (ram_size_code == 8'h02);
+assign supported = geometry_mbc1 || geometry_mbc3 || geometry_mbc5 || geometry_mbc5_8k;
 
 // Latched at start so a live identity change cancels through the sequence
 // that was begun rather than switching mapper mid-cleanup.
-reg mbc1_l;
-wire [14:0] last_offset = mbc1_l ? 15'd8191 : 15'd32767;
+reg mbc1_l, ram8k_l;
+wire [14:0] last_offset = ram8k_l ? 15'd8191 : 15'd32767;
 
 localparam [3:0] ST_DISABLE_INITIAL = 4'd0;
 localparam [3:0] ST_MODE_INITIAL    = 4'd1;
@@ -233,6 +234,7 @@ always @(posedge clk) begin
         source_offset  <= 15'd0;
         source_byte    <= 8'd0;
         mbc1_l         <= 1'b1;
+        ram8k_l        <= 1'b1;
         bus_wr         <= 1'b0;
         bus_addr       <= 16'd0;
         bus_wdata      <= 8'd0;
@@ -256,6 +258,7 @@ always @(posedge clk) begin
             busy          <= 1'b1;
             source_offset <= 15'd0;
             mbc1_l        <= geometry_mbc1;
+            ram8k_l       <= geometry_mbc1 || geometry_mbc5_8k;
             cancelled     <= 1'b0;
             all_written   <= 1'b0;
             pending       <= 1'b0;

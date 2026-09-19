@@ -335,7 +335,7 @@ initial begin
     $display("MBC3 full restore: 32768 bytes across four banks, no latch writes");
 
     // MBC5 + RAM + battery: the same four-bank sequence. Battery-less and
-    // rumble MBC5 and the other RAM codes are refused.
+    // rumble MBC5 and RAM codes other than 02 and 03 are refused.
     setup_case; banked_model = 1'b1; cart_type = 8'h1B; ram_size_code = 8'h03;
     if (!supported) $fatal(1, "MBC5 32 KiB configuration refused");
     launch;
@@ -346,7 +346,16 @@ initial begin
     $display("MBC5 full restore: 32768 bytes across four banks, no latch writes");
     setup_case; banked_model = 1'b1; cart_type = 8'h1A; ram_size_code = 8'h03; refuse_start;
     setup_case; banked_model = 1'b1; cart_type = 8'h1E; ram_size_code = 8'h03; refuse_start;
-    setup_case; banked_model = 1'b1; cart_type = 8'h1B; ram_size_code = 8'h02; refuse_start;
+    // MBC5 with one 8 KiB bank: bank 0 through 0x4000, no bank switch.
+    setup_case; banked_model = 1'b1; cart_type = 8'h1B; ram_size_code = 8'h02;
+    if (!supported) $fatal(1, "MBC5 8 KiB configuration refused");
+    launch;
+    finish_run(1'b0);
+    if (ram_writes != 8192 || write_pulses != 8196)
+        $fatal(1, "MBC5 8 KiB restore wrote %0d save bytes and %0d total transactions",
+               ram_writes, write_pulses);
+    $display("MBC5 8 KiB restore: 8192 bytes in one bank");
+    setup_case; banked_model = 1'b1; cart_type = 8'h1B; ram_size_code = 8'h01; refuse_start;
     setup_case; banked_model = 1'b1; cart_type = 8'h1B; ram_size_code = 8'h04; refuse_start;
     setup_case; banked_model = 1'b1; cart_type = 8'h1B; ram_size_code = 8'h05; refuse_start;
     setup_case; banked_model = 1'b1; cart_type = 8'h13; ram_size_code = 8'h03;

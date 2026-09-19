@@ -4,7 +4,7 @@
 
 // Full restore transaction against a writable, synthetic MBC1 cartridge, or
 // with MBC3 or MBC5 set, a synthetic cartridge of that mapper with four RAM
-// banks and a CGB flag (80 for MBC3, C0 for MBC5).
+// banks, or one with MBC5 and RAM8K, and a CGB flag (80 for MBC3, C0 for MBC5).
 // The file transport is modeled here; its actual APF bridge and byte order
 // are independently exercised by tb_restore_file_io. No corpus bytes enter
 // this fixture. Run a clamped-off candidate and enabled writer independently.
@@ -13,6 +13,7 @@ module restore_engine_case #(
     parameter integer ROM_CODE = 0,
     parameter bit MBC3 = 1'b0,
     parameter bit MBC5 = 1'b0,
+    parameter bit RAM8K = 1'b0,
     // 0 runs every scenario; 1 runs the clean transaction and preflight
     // faults, 2 the post-READY and cancellation scenarios. The MBC3 cases
     // are split so each bench file stays inside the default time limit.
@@ -23,10 +24,11 @@ module restore_engine_case #(
     output integer errors = 0
 );
 localparam bit BANKED = MBC3 || MBC5;
+localparam bit FOUR_BANK = BANKED && !RAM8K;
 localparam [7:0] CART_TYPE = MBC5 ? 8'h1B : MBC3 ? 8'h10 : 8'h03;
-localparam [7:0] RAM_CODE = BANKED ? 8'h03 : 8'h02;
+localparam [7:0] RAM_CODE = FOUR_BANK ? 8'h03 : 8'h02;
 localparam [7:0] CGB_FLAG = MBC5 ? 8'hC0 : MBC3 ? 8'h80 : 8'h00;
-localparam integer SAVE_BYTES = BANKED ? 32768 : 8192;
+localparam integer SAVE_BYTES = FOUR_BANK ? 32768 : 8192;
 localparam integer SAVE_WORDS = SAVE_BYTES / 4;
 reg reset = 1, preflight_start = 0, commit_start = 0, cancel = 0;
 reg cart_powered = 1, mode_ready = 1, target_ok = 1;
@@ -562,7 +564,7 @@ initial begin
               "cancel drains at most one accepted save write then stops");
         for (k=0; k<SAVE_WORDS; k=k+1)
             check(retained_backup[k] === original_word(k), "cancel retains the complete original backup");
-        if (BANKED) begin
+        if (FOUR_BANK) begin
             // The last bank of a four-bank save is reached through three bank
             // switches; a fault there must still be caught at its true offset.
             fresh(19);
@@ -572,11 +574,13 @@ initial begin
             wait_complete();
             check(failed && error == 8 && ram_writes == 0 && mismatch_offset == SAVE_BYTES-1,
                   "final-save mismatch in the last RAM bank reports its full offset");
+        end
+        if (BANKED) begin
             fresh(20);
-            metadata[2] = 8192;
+            metadata[2] = FOUR_BANK ? 8192 : 32768;
             update_meta_crc();
             expect_preflight_failure(1);
-            check(save_calls == 0, "8 KiB manifest for a 32 KiB cartridge is refused before loading");
+            check(save_calls == 0, "manifest save length for the other RAM size is refused before loading");
         end
         fresh(17);
         metadata[12] = 1;
@@ -589,7 +593,7 @@ initial begin
         check(metadata_calls == 0 && save_calls == 0 && backup_calls == 0,
               "unsupported mapper rejected before file I/O");
         fresh(21);
-        ram_size_code = BANKED ? 8'h02 : 8'h03;
+        ram_size_code = MBC5 ? 8'h01 : MBC3 ? 8'h02 : 8'h03;
         expect_preflight_failure(2);
         check(!dut.geometry_ok, "other geometry's RAM code is not offered to the guard");
         check(metadata_calls == 0, "mapper with the other geometry's RAM code is rejected");
