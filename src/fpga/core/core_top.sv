@@ -398,7 +398,6 @@ wire [31:0] cart_report_74a;
 wire cart_report_valid_74a;
 wire [31:0] cart_report_s;
 wire cart_report_valid_s, cart_report_changed_s;
-// Registered so the admission decode stays off the path into the pin registers.
 reg gb_mode_s, gba_mode_s, gg_mode_s;
 reg [1:0] pins_mode_r;
 wire [3:0] cart_report_seq;
@@ -634,8 +633,6 @@ end
 wire cart_mode_live_s;
 wire core_reset_n_s;
 synch_3 s_core_reset_n (reset_n, core_reset_n_s, clk_sys);
-// Adapter ID compares are registered off the timing-critical fanout; valid and
-// the power bits below stay combinational so power loss still gates at once.
 reg native_id_r, gg_id_r, session_id_match_r;
 reg cart_session_admitted;
 reg [7:0] cart_session_adapter;
@@ -650,7 +647,7 @@ wire gg_adapter = cart_report_valid_s && gg_id_r;
 wire adapter_supported = native_adapter || gg_adapter;
 wire adapter_diagnostic = ADAPTER_DIAGNOSTIC_ONLY ||
                           (cart_report_valid_s && !adapter_supported);
-// Power/report loss is physical disconnection and gates the pins immediately.
+// Power/report loss is physical disconnection and idles the pins two clocks later.
 // Reset Enter is different: an admitted session must stay powered while its
 // owner finishes an in-flight write and, on GB, closes the RAM write gate.
 // Only Reset Exit admits a new powered adapter session. Remember its ID so a

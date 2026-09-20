@@ -90,8 +90,8 @@ localparam [4:0] SETTLE_CYCLES = 5'd16;
 
 
 // mode_q is the mode the settle counter is counting for. A mode input that
-// disagrees with it drops mode_ready combinationally, so leaving a mode is
-// immediate and entering one costs the settle window.
+// disagrees with it drops mode_ready combinationally, so leaving a mode takes
+// one clock through the pin registers and entering one costs the settle window.
 reg [1:0] mode_q;
 reg [4:0] settle;
 

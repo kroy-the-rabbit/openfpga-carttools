@@ -103,11 +103,11 @@ wire cs_active = (latched_addr[15:13] == 3'b101);
 // High for the whole of a transaction, and the reason it matters is not
 // arbitration.
 //
-// e_ctl_out and e_hi_oe are both gated by gb_mode combinationally, so the
-// instant the mode goes away /WR rises and the data pins release together.
+// e_ctl_out and e_hi_oe are both gated by gb_mode, so when the mode goes
+// away /WR rises and the data pins release together, on the same clock.
 // That is the edge a cartridge latches a mapper register on, and releasing
 // the data on it is how a write gets corrupted. The strobe cannot defend
-// itself: cart_pins owns the pins and honours the mode immediately.
+// itself: cart_pins owns the pins and honours the mode within two clocks.
 //
 // So whoever changes the mode must wait for this to fall first. dump_engine
 // does, including on an abort, where the reader is reset but the transaction

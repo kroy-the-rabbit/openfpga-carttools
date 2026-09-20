@@ -830,7 +830,6 @@ set_global_assignment -name SYSTEMVERILOG_FILE ../core/core_top.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/cart_action_guard.sv
 set_global_assignment -name VERILOG_FILE ../core/core_bridge_cmd.v
 set_global_assignment -name SDC_FILE ../core/core_constraints.sdc
-# Cartridge outputs and enables in the I/O cells: same pin timing on every seed.
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank1[0]
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank1[1]
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank1[2]
