@@ -29,7 +29,7 @@ cart_pins dut (
     .gba_ctl_out(4'hF), .gba_p30_out(1'b1), .gba_p30_oe(1'b1), .gba_ad_in(), .gba_hi_in(),
     .gb_ad_out(16'hA55A), .gb_ad_oe(1'b1), .gb_hi_out(8'hD6), .gb_hi_oe(1'b1),
     .gb_ctl_out(4'hF), .gb_p30_out(1'b1), .gb_p30_oe(1'b1), .gb_ad_in(), .gb_hi_in(),
-    .gg_ad_out(gg_addr), .gg_ad_oe(gg_addr_oe), .gg_hi_out(gg_data), .gg_hi_oe(gg_data_oe),
+    .gg_addr_direct(1'b0), .gg_ad_out(gg_addr), .gg_ad_oe(gg_addr_oe), .gg_hi_out(gg_data), .gg_hi_oe(gg_data_oe),
     .gg_ctl_out(gg_ctl), .gg_p30_out(1'b1), .gg_p30_oe(1'b1), .gg_hi_in(gg_data_in),
     .cart_tran_bank2(bank2), .cart_tran_bank2_dir(b2dir),
     .cart_tran_bank3(bank3), .cart_tran_bank3_dir(b3dir),

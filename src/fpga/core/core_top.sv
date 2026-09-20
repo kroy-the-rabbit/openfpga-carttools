@@ -398,7 +398,7 @@ wire [31:0] cart_report_74a;
 wire cart_report_valid_74a;
 wire [31:0] cart_report_s;
 wire cart_report_valid_s, cart_report_changed_s;
-reg gb_mode_s, gba_mode_s, gg_mode_s;
+reg gb_mode_s, gba_mode_s, gg_mode_s, lynx_mode_s;
 reg [1:0] pins_mode_r;
 wire [3:0] cart_report_seq;
 // Passive adapter diagnostic: every cartridge engine remains disabled.
@@ -406,6 +406,8 @@ localparam bit ADAPTER_DIAGNOSTIC_ONLY = 1'b0;
 // Official GG adapter measured on C982: RAW 01010001, ID 01, Play/Power 1.
 // Evidence: Memories/Screenshots/20260914_205342.png (2026-09-14).
 localparam [7:0] GG_ADAPTER_ID = 8'h01;
+// Official Lynx adapter measured on 6BDB: RAW 01010003, ID 03, Play/Power 1.
+localparam [7:0] LYNX_ADAPTER_ID = 8'h03;
 wire            cart_mode_74a = cart_play & cart_power;
 
 // Save states are gone with the emulator. Reporting them unsupported is not
@@ -633,18 +635,22 @@ end
 wire cart_mode_live_s;
 wire core_reset_n_s;
 synch_3 s_core_reset_n (reset_n, core_reset_n_s, clk_sys);
-reg native_id_r, gg_id_r, session_id_match_r;
+reg native_id_r, gg_id_r, lynx_id_r, session_id_match_r;
 reg cart_session_admitted;
 reg [7:0] cart_session_adapter;
 always @(posedge clk_sys) begin
     native_id_r <= cart_report_s[7:0] == 8'd0;
     gg_id_r <= GG_ADAPTER_ID != 8'hFF && GG_ADAPTER_ID != 8'd0 &&
                cart_report_s[7:0] == GG_ADAPTER_ID;
+    lynx_id_r <= cart_report_s[7:0] == LYNX_ADAPTER_ID;
     session_id_match_r <= cart_session_adapter == cart_report_s[7:0];
 end
 wire native_adapter = cart_report_valid_s && native_id_r;
 wire gg_adapter = cart_report_valid_s && gg_id_r;
-wire adapter_supported = native_adapter || gg_adapter;
+wire lynx_adapter = cart_report_valid_s && lynx_id_r;
+// The Lynx bus answers the Sega readers, so both adapters share their path.
+wire sega_adapter = gg_adapter || lynx_adapter;
+wire adapter_supported = native_adapter || sega_adapter;
 wire adapter_diagnostic = ADAPTER_DIAGNOSTIC_ONLY ||
                           (cart_report_valid_s && !adapter_supported);
 // Power/report loss is physical disconnection and idles the pins two clocks later.
@@ -669,7 +675,7 @@ wire cart_mode_s = cart_powered_s && cart_session_admitted && session_id_match_r
 // Every new action uses this admission gate. Existing owners use cart_mode_s
 // until their ordinary cancellation/cleanup path releases the connector.
 wire cart_run_allowed = cart_mode_s && core_reset_n_s;
-wire [1:0] slot_protocol = gg_adapter ? 2'd2 : native_adapter ? 2'd0 : 2'd3;
+wire [1:0] slot_protocol = sega_adapter ? 2'd2 : native_adapter ? 2'd0 : 2'd3;
 synch_3 s_cart_mode (cart_mode_74a, cart_mode_live_s, clk_sys);
 cart_adapter_state adapter_state (
     .clk_host(clk_74a), .reset_host(~pll_core_locked_s),
@@ -915,10 +921,13 @@ gb_cart_bus gb_bus (
 
 wire gg_mode_c = cart_mode_s && gg_adapter && (cart_mode_req == 2'b11) &&
                  (pins_mode_r == 2'b11) && cart_mode_ready;
+wire lynx_mode_c = cart_mode_s && lynx_adapter && (cart_mode_req == 2'b11) &&
+                   (pins_mode_r == 2'b11) && cart_mode_ready;
 always @(posedge clk_sys) begin
     gb_mode_s   <= gb_mode_c;
     gba_mode_s  <= gba_mode_c;
     gg_mode_s   <= gg_mode_c;
+    lynx_mode_s <= lynx_mode_c;
     pins_mode_r <= cart_mode_s && adapter_supported ? cart_mode_req : 2'b00;
 end
 wire [15:0] gg_ad_out;
@@ -930,6 +939,13 @@ wire gg_bus_done, gg_bus_busy, gg_write_active, gg_bus_rejected;
 wire ggid_req, ggid_wr, ggdmp_req, ggdmp_wr;
 wire [15:0] ggid_addr, ggdmp_addr;
 wire [7:0] ggid_wdata, ggdmp_wdata;
+wire [15:0] ggb_ad_out, lxb_ad_out;
+wire [7:0] ggb_hi_out, lxb_hi_out, ggb_rdata, lxb_rdata;
+wire [3:0] ggb_ctl_out, lxb_ctl_out;
+wire ggb_ad_oe, ggb_hi_oe, ggb_p30_out, ggb_p30_oe, ggb_done, ggb_busy, ggb_rejected;
+wire lxb_ad_oe, lxb_hi_oe, lxb_p30_out, lxb_p30_oe, lxb_done, lxb_busy, lxb_rejected;
+reg lynx_sel;
+always @(posedge clk_sys) lynx_sel <= lynx_adapter;
 
 gg_cart_bus gg_bus (
     .clk(clk_sys), .reset(~pll_core_locked), .gg_mode(gg_mode_s),
@@ -937,12 +953,37 @@ gg_cart_bus gg_bus (
     .wr(dump_busy ? ggdmp_wr : ggid_wr),
     .addr(dump_busy ? ggdmp_addr : ggid_addr),
     .wdata(dump_busy ? ggdmp_wdata : ggid_wdata),
-    .rdata(gg_bus_rdata), .done(gg_bus_done), .busy(gg_bus_busy),
-    .write_active(gg_write_active), .rejected(gg_bus_rejected),
-    .e_ad_out(gg_ad_out), .e_ad_oe(gg_ad_oe),
-    .e_hi_out(gg_hi_out), .e_hi_oe(gg_hi_oe), .e_hi_in(gg_hi_in),
-    .e_ctl_out(gg_ctl_out), .e_p30_out(gg_p30_out), .e_p30_oe(gg_p30_oe)
+    .rdata(ggb_rdata), .done(ggb_done), .busy(ggb_busy),
+    .write_active(gg_write_active), .rejected(ggb_rejected),
+    .e_ad_out(ggb_ad_out), .e_ad_oe(ggb_ad_oe),
+    .e_hi_out(ggb_hi_out), .e_hi_oe(ggb_hi_oe), .e_hi_in(gg_hi_in),
+    .e_ctl_out(ggb_ctl_out), .e_p30_out(ggb_p30_out), .e_p30_oe(ggb_p30_oe)
 );
+
+lynx_cart_bus lynx_bus (
+    .clk(clk_sys), .reset(~pll_core_locked), .lynx_mode(lynx_mode_s),
+    .req(dump_busy ? ggdmp_req : ggid_req),
+    .wr(dump_busy ? ggdmp_wr : ggid_wr),
+    .addr(dump_busy ? ggdmp_addr : ggid_addr),
+    .wdata(dump_busy ? ggdmp_wdata : ggid_wdata),
+    .rdata(lxb_rdata), .done(lxb_done), .busy(lxb_busy),
+    .write_active(), .rejected(lxb_rejected),
+    .e_ad_out(lxb_ad_out), .e_ad_oe(lxb_ad_oe),
+    .e_hi_out(lxb_hi_out), .e_hi_oe(lxb_hi_oe), .e_hi_in(gg_hi_in),
+    .e_ctl_out(lxb_ctl_out), .e_p30_out(lxb_p30_out), .e_p30_oe(lxb_p30_oe)
+);
+
+assign gg_bus_rdata = lynx_sel ? lxb_rdata : ggb_rdata;
+assign gg_bus_done = lynx_sel ? lxb_done : ggb_done;
+assign gg_bus_busy = lynx_sel ? lxb_busy : ggb_busy;
+assign gg_bus_rejected = lynx_sel ? lxb_rejected : ggb_rejected;
+assign gg_ad_out = lynx_sel ? lxb_ad_out : ggb_ad_out;
+assign gg_ad_oe = lynx_sel ? lxb_ad_oe : ggb_ad_oe;
+assign gg_hi_out = lynx_sel ? lxb_hi_out : ggb_hi_out;
+assign gg_hi_oe = lynx_sel ? lxb_hi_oe : ggb_hi_oe;
+assign gg_ctl_out = lynx_sel ? lxb_ctl_out : ggb_ctl_out;
+assign gg_p30_out = lynx_sel ? lxb_p30_out : ggb_p30_out;
+assign gg_p30_oe = lynx_sel ? lxb_p30_oe : ggb_p30_oe;
 
 // cart_pins owns the connector pins and muxes the engines onto them by mode.
 // 00 idle, 01 GBA, 10 GB, 11 GG. The verified adapter selects the protocol.
@@ -971,6 +1012,7 @@ cart_pins cart_pins_inst (
     .gb_p30_oe              ( gb_p30_oe ),
     .gb_ad_in               ( gb_ad_in ),
     .gb_hi_in               ( gb_hi_in ),
+    .gg_addr_direct         ( lynx_sel ),
     .gg_ad_out              ( gg_ad_out ),
     .gg_ad_oe               ( gg_ad_oe ),
     .gg_hi_out              ( gg_hi_out ),
@@ -1205,7 +1247,7 @@ wire [3:0] ggid_version, ggid_region, ggid_size_code;
 
 cart_identify_gg identify_gg (
     .clk(clk_sys), .reset(~pll_core_locked || !cart_run_allowed ||
-                         !gg_adapter || cart_report_changed_s), .gg_mode(gg_mode_s),
+                         !sega_adapter || cart_report_changed_s), .gg_mode(gg_mode_s || lynx_mode_s),
     .start(gg_start), .busy(ggid_busy), .done(ggid_done),
     .cart_req(ggid_req), .cart_wr(ggid_wr), .cart_addr(ggid_addr),
     .cart_wdata(ggid_wdata), .cart_rdata(gg_bus_rdata),
@@ -1245,7 +1287,7 @@ cart_probe probe (
     .gba_result   ( id_result ),
     .gg_start     ( gg_start ),
     .gg_done      ( ggid_done ),
-    .gg_result    ( ggid_result ),
+    .gg_result    ( lynx_sel && ggid_result == 3'd3 ? 3'd0 : ggid_result ),
     .platform     ( platform ),
     .answered_protocol ( probe_answered_protocol )
 );
@@ -1257,10 +1299,10 @@ reg gg_size_512;
 reg gg_left_d, gg_right_d;
 wire gg_left = cont1_key_s[2];
 wire gg_right = cont1_key_s[3];
-wire gg_size_change = (gg_left && !gg_left_d || gg_right && !gg_right_d) &&
+wire gg_size_change = (gg_left && !gg_left_d || gg_right && !gg_right_d) && !lynx_sel &&
                      cart_run_allowed && id_valid && platform == 3'd6 && !cart_engine_busy &&
                      !dump_busy && !action_pending && !action_dump_start && !restore_block;
-wire [31:0] gg_size_bytes = gg_size_512 ? 32'd524288 : 32'd262144;
+wire [31:0] gg_size_bytes = gg_size_512 || lynx_sel ? 32'd524288 : 32'd262144;
 always @(posedge clk_sys) begin
     gg_left_d <= gg_left;
     gg_right_d <= gg_right;
@@ -1655,14 +1697,14 @@ wire [31:0]  dump_save_first;
 // GBA cartridge are both ordinary, so a file named only after its length
 // tells a reader nothing.
 wire [2:0] cart_kind =
-    action_save_mode ? 3'd3 : (platform == 3'd6) ? 3'd4 :
+    action_save_mode ? 3'd3 : (platform == 3'd6) ? (lynx_sel ? 3'd5 : 3'd4) :
     (platform == 3'd1) ? 3'd2 :
     (gbid_cgb_flag == 8'h80 || gbid_cgb_flag == 8'hC0) ? 3'd1 : 3'd0;
 
 assign action_rom_available = id_valid &&
                               ((platform == 3'd2) ||
                                ((platform == 3'd1) && sz_size_valid) ||
-                               ((platform == 3'd6) && gg_adapter));
+                               ((platform == 3'd6) && sega_adapter));
 
 // Hide both actions while one is being revalidated. The displayed readiness
 // is for accepting a new press; the guard separately receives the raw result
@@ -1713,7 +1755,7 @@ assign action_validation_complete = action_pending &&
 // their done pulse is high.
 assign action_validated_rom_available =
     (platform == 3'd2) || ((platform == 3'd1) && sz_size_valid) ||
-    ((platform == 3'd6) && gg_adapter);
+    ((platform == 3'd6) && sega_adapter);
 assign action_validated_save_available = action_validated_rom_available &&
     (((platform == 3'd2) && dump_save_supported) ||
      ((platform == 3'd1) &&
@@ -1808,7 +1850,7 @@ dump_engine dump (
     .ram_size_code ( gbid_ram_size ),
     .rom_source    ( (platform == 3'd6) ? 2'd2 : (platform == 3'd1) ? 2'd1 : 2'd0 ),
     .gg_size_bytes ( gg_size_bytes ),
-    .gg_connected  ( cart_mode_s && gg_adapter ),
+    .gg_connected  ( cart_mode_s && sega_adapter ),
     .gg_verify_checked ( dump_gg_verify_checked ),
     .gg_verify_ok ( dump_gg_verify_ok ),
     .gg_verify_crc32 ( dump_gg_verify_crc32 ),
@@ -2115,7 +2157,7 @@ ui_screen screen (
     .answered_protocol( probe_answered_protocol ),
     .gg_product(ggid_product), .gg_version(ggid_version), .gg_region(ggid_region),
     .gg_header_addr(ggid_header_addr), .gg_header(ggid_raw_bytes),
-    .gg_size_512(gg_size_512), .gg_verify_checked(dump_gg_verify_checked),
+    .lynx(lynx_sel), .gg_size_512(gg_size_512), .gg_verify_checked(dump_gg_verify_checked),
     .gg_verify_ok(dump_gg_verify_ok),
     .title       ( id_title ),
     .game_code   ( id_game_code ),

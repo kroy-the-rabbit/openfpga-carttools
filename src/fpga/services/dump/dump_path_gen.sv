@@ -140,6 +140,7 @@ localparam [31:0] EXT_GBA = ".gba";
 localparam [31:0] EXT_BIN = ".bin";
 localparam [31:0] EXT_SAV = ".sav";
 localparam [31:0] EXT_GG  = ".gg ";
+localparam [31:0] EXT_LYX = ".lyx";
 
 localparam [2:0] KIND_GB  = 3'd0;
 localparam [2:0] KIND_GBC = 3'd1;
@@ -149,6 +150,7 @@ localparam [2:0] KIND_GBA = 3'd2;
 // more than two files distinguished by a suffix nobody reads.
 localparam [2:0] KIND_SAV = 3'd3;
 localparam [2:0] KIND_GG  = 3'd4;
+localparam [2:0] KIND_LYNX = 3'd5;
 
 // Create if absent, and resize to the size below.
 localparam [31:0] OPEN_FLAGS      = 32'h0000_0003;   // create and resize
@@ -372,17 +374,17 @@ always @(posedge clk) begin
                         ext_reg  <= EXT_BIN;
                         ext_len  <= 3'd4;
                         state    <= ST_EMIT;
-                    end else if (cart_kind == KIND_GG) begin
+                    end else if (cart_kind == KIND_GG || cart_kind == KIND_LYNX) begin
                         // GG has no standard title. The caller probes this
                         // indexed name before creating it, preserving every
                         // capture, including failed and repeated dumps.
-                        name_reg <= {"GG", hex_digit(file_index[15:12]),
+                        name_reg <= {(cart_kind == KIND_LYNX) ? "LX" : "GG", hex_digit(file_index[15:12]),
                                      hex_digit(file_index[11:8]),
                                      hex_digit(file_index[7:4]),
                                      hex_digit(file_index[3:0]), 80'd0};
                         name_len <= 5'd6;
-                        ext_reg  <= EXT_GG;
-                        ext_len  <= 3'd3;
+                        ext_reg  <= cart_kind == KIND_LYNX ? EXT_LYX : EXT_GG;
+                        ext_len  <= cart_kind == KIND_LYNX ? 3'd4 : 3'd3;
                         state    <= ST_EMIT;
                     end else begin
                         name_reg <= 128'd0;

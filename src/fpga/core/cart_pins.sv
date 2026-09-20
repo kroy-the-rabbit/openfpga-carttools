@@ -54,6 +54,8 @@ module cart_pins (
     output wire [7:0]  gb_hi_in,
 
     // GG engine. Addresses remain logical until this connector boundary.
+    // Set for the Lynx adapter, whose address pins are in order.
+    input  wire        gg_addr_direct,
     input  wire [15:0] gg_ad_out,
     input  wire        gg_ad_oe,
     input  wire [7:0]  gg_hi_out,
@@ -127,7 +129,7 @@ wire [15:0] gg_connector_addr = {
 };
 
 // Any pin no engine claims takes the safe idle posture.
-wire [15:0] ad_out_d  = sel_gba ? gba_ad_out  : sel_gb ? gb_ad_out  : sel_gg ? gg_connector_addr : 16'h0000;
+wire [15:0] ad_out_d  = sel_gba ? gba_ad_out  : sel_gb ? gb_ad_out  : sel_gg ? (gg_addr_direct ? gg_ad_out : gg_connector_addr) : 16'h0000;
 wire        ad_oe_d   = sel_gba ? gba_ad_oe   : sel_gb ? gb_ad_oe   : sel_gg ? gg_ad_oe   : 1'b0;
 wire [7:0]  hi_out_d  = sel_gba ? gba_hi_out  : sel_gb ? gb_hi_out  : sel_gg ? gg_hi_out  : 8'h00;
 wire        hi_oe_d   = sel_gba ? gba_hi_oe   : sel_gb ? gb_hi_oe   : sel_gg ? gg_hi_oe   : 1'b0;

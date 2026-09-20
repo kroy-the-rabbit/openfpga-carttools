@@ -102,7 +102,7 @@ cart_pins pins (
     .gb_ctl_out (gb_ctl_out),
     .gb_p30_out (gb_p30_out), .gb_p30_oe (gb_p30_oe),
     .gb_ad_in (gb_ad_in), .gb_hi_in (gb_hi_in),
-    .gg_ad_out (16'd0), .gg_ad_oe (1'b0),
+    .gg_addr_direct (1'b0), .gg_ad_out (16'd0), .gg_ad_oe (1'b0),
     .gg_hi_out (8'd0), .gg_hi_oe (1'b0), .gg_ctl_out (4'hF),
     .gg_p30_out (1'b1), .gg_p30_oe (1'b0), .gg_hi_in (),
     .cart_tran_bank2 (cart_tran_bank2), .cart_tran_bank2_dir (bank2_dir),

@@ -96,7 +96,7 @@ wire [1:0] rd_attr;
 
 ui_screen dut (
     .gg_product(gg_product), .gg_version(gg_version), .gg_region(gg_region),
-    .gg_header_addr(gg_header_addr), .gg_header(gg_header), .gg_size_512(gg_size_512),
+    .gg_header_addr(gg_header_addr), .gg_header(gg_header), .lynx(1'b0), .gg_size_512(gg_size_512),
     .gg_verify_checked(gg_verify_checked), .gg_verify_ok(gg_verify_ok),
     .adapter_diagnostic(adapter_diagnostic), .adapter_report(adapter_report), .adapter_valid(adapter_valid), .adapter_seq(adapter_seq),
     .clk        ( clk ),

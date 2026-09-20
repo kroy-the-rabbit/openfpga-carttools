@@ -54,7 +54,7 @@ module ui_screen #(
     input wire [3:0] gg_version, gg_region,
     input wire [15:0] gg_header_addr,
     input wire [127:0] gg_header,
-    input wire gg_size_512, gg_verify_checked, gg_verify_ok,
+    input wire lynx, gg_size_512, gg_verify_checked, gg_verify_ok,
     input  wire [95:0] title,
     input  wire [31:0] game_code,
     input  wire [15:0] maker_code,
@@ -417,10 +417,12 @@ function [LW-1:0] msg_of(input scan, input val, input [2:0] res,
         else case (res)
             P_GBA:      msg_of = MSG_GBA;
             P_GB:       msg_of = MSG_GB;
-            P_GG:       msg_of = "GAME GEAR CARTRIDGE           ";
+            P_GG:       msg_of = lynx ? "ATARI LYNX CARTRIDGE          " :
+                                          "GAME GEAR CARTRIDGE           ";
             P_ADAPTER:  msg_of = "UNSUPPORTED ADAPTER           ";
             P_NONE:     msg_of = MSG_NO_CART;
-            P_UNSTABLE: msg_of = from_protocol == 2'd2 ? "UNSTABLE: GG HEADER           " :
+            P_UNSTABLE: msg_of = from_protocol == 2'd2 ? (lynx ? "UNSTABLE: LYNX READS          " :
+                                                            "UNSTABLE: GG HEADER           ") :
                                    from_protocol == 2'd1 ? MSG_UNSTABLE_GBA : MSG_UNSTABLE_GB;
             P_UNKNOWN:  msg_of = from_protocol == 2'd2 ? "UNKNOWN: GG HEADER            " :
                                    from_protocol == 2'd1 ? MSG_UNKNOWN_GBA : MSG_UNKNOWN_GB;
@@ -665,14 +667,14 @@ function [127:0] gg_hex_bytes(input [63:0] value);
         end
     end
 endfunction
-wire [LW-1:0] gg_product_line = {"PRODUCT ", hex_digit(gg_product[19:16]),
+wire [LW-1:0] gg_product_line = lynx ? "NO HEADER ON CARTRIDGE        " : {"PRODUCT ", hex_digit(gg_product[19:16]),
     hex_digit(gg_product[15:12]), hex_digit(gg_product[11:8]),
     hex_digit(gg_product[7:4]), hex_digit(gg_product[3:0]),
     "  REV ", hex_digit(gg_version), "          "};
-wire [LW-1:0] gg_mapper_line = {"SEGA ROM   REGION ", hex_digit(gg_region), "           "};
-wire [LW-1:0] gg_size_line = gg_size_512 ?
+wire [LW-1:0] gg_mapper_line = lynx ? "256 BLOCKS OF 2048 BYTES      " : {"SEGA ROM   REGION ", hex_digit(gg_region), "           "};
+wire [LW-1:0] gg_size_line = lynx ? "ROM 512 KB (FIXED)            " : gg_size_512 ?
     "ROM 512 KB (MANUAL)           " : "ROM 256 KB (MANUAL)           ";
-wire [LW-1:0] gg_header_line = platform == P_GG ?
+wire [LW-1:0] gg_header_line = lynx && platform == P_GG ? "READS STABLE                  " : platform == P_GG ?
     {"HEADER AT ", hex_digit(gg_header_addr[15:12]), hex_digit(gg_header_addr[11:8]),
      hex_digit(gg_header_addr[7:4]), hex_digit(gg_header_addr[3:0]), "  STABLE        "} :
     platform == P_UNSTABLE ? "HEADER READS UNSTABLE         " :
@@ -692,7 +694,7 @@ wire [LW-1:0] static_next = adapter_diagnostic ? adapter_line(row_c) :
                             details_gg && row_c == 5'd9 ?
                                 {"HDR1 ", gg_hex_bytes(gg_header[127:64]), "         "} :
                             decoded_gg && dump_ready && row_c == 5'd16 && paint_dump_state == 0 ?
-                                "LEFT 256 KB   RIGHT 512 KB    " :
+                                lynx ? "SMALLER ROMS REPEAT IN FILE   " : "LEFT 256 KB   RIGHT 512 KB    " :
                             details_gg && row_c == 5'd17 ?
                                 "ROM ONLY; SAVE NOT SUPPORTED  " :
                             gg_verdict_shown && row_c == R_VERIFY ? gg_verify_line : pair_shown && row_c == 5'd15 ? pair_count_line :

@@ -589,7 +589,7 @@ always @(posedge clk_sys) begin
                     type_l     <= cart_type;
                     size_l     <= rom_size_code;
                     source_l   <= selftest ? 2'd0 : rom_source;
-                    kind_l     <= rom_source == 2'd2 ? 3'd4 : cart_kind;
+                    kind_l     <= rom_source != 2'd2 ? cart_kind : cart_kind == 3'd5 ? 3'd5 : 3'd4;
                     gsize_l    <= rom_source == 2'd2 ? gg_size_bytes : gba_size_bytes;
                     gssize_l   <= gba_save_size_bytes;
                     eeprom_l   <= gba_save_is_eeprom;
