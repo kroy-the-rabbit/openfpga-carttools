@@ -58,6 +58,12 @@ for CartTools. They do not import the GG emulator or modify its vendored sources
 The initial implementation deliberately uses slot-2 banking and explicit ROM
 lengths rather than copying Cartload's slot-1 size probe.
 
+## Lynx adapter
+
+The Lynx adapter mapping is based on [sfiera's AP-A03 wiring](https://github.com/sfiera/pocket-adapters/blob/4c61591b7bb0565331d525b96186ce0b308667be/lynx.md).
+The Lynx bus and its hardware model were written for CartTools. It answers the
+Sega header reader and ROM reader, which run unchanged.
+
 ## Build harness
 
 `Makefile`, `tools/podman/` and parts of `scripts/` came from the `cheats`

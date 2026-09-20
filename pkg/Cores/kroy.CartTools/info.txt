@@ -2,7 +2,7 @@ openFPGA-CartTools
 
 A cartridge utility core: identify, dump and back up Game Boy, Game Boy Color
 and Game Boy Advance cartridges through the Pocket's cartridge slot, and dump
-Game Gear ROMs through the official Analogue adapter.
+Game Gear and Atari Lynx ROMs through the official Analogue adapters.
 
 Derived from the Pocket GBA core by mincer_ray, itself a port of GBA_MiSTer.
 Licensed under GPL-2.0.

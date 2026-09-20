@@ -6,7 +6,7 @@ Reads cartridges through the Pocket's cartridge slot.
 * Dumps ROMs to the SD card
 * Backs up saves
 * Restores GB / GBC saves (alpha)
-* Dumps Game Gear ROMs through the official Analogue adapter
+* Dumps Game Gear and Atari Lynx ROMs through the official Analogue adapters
 
 It does not play games.
 
@@ -20,6 +20,7 @@ Release `v0.9999.20260920`.
 | GB / GBC ROM dump | Tested, 32 KiB to 4 MiB; ROM-only, MBC1, MBC3, MBC5 |
 | GBA ROM dump | Tested, 4 to 16 MiB; larger untested |
 | Game Gear ROM dump | Tested, 256 and 512 KiB. See [Game Gear](docs/GAME-GEAR.md) |
+| Atari Lynx ROM dump | Tested, one cartridge, 256 KiB. See [Lynx](docs/LYNX.md) |
 | CRC32 on the device | ROMs and saves |
 | On-device checksum check | GB / GBC only |
 | GB / GBC save backup | Tested at 8 and 32 KiB; 64 and 128 KiB untested |
@@ -28,7 +29,7 @@ Release `v0.9999.20260920`.
 | Unknown adapter | APF report shown, bus idle |
 | MBC2, MBC1 above 512 KiB | Simulation only |
 | MBC2 save RAM | Refused |
-| MBC3 RTC, GBA save restore, Game Gear saves | Not supported |
+| MBC3 RTC, GBA save restore, Game Gear and Lynx saves | Not supported |
 | Readback of dumped files | Not built |
 | Sidecar metadata | Specified in [FILE-FORMATS](docs/FILE-FORMATS.md), not written |
 
@@ -47,6 +48,7 @@ Verified cartridges are listed in [CARTRIDGE-CORPUS](docs/CARTRIDGE-CORPUS.md).
 | GBA ROM dump | None |
 | GBA save backup | EEPROM read requests only; no save data |
 | Game Gear dump | Sega ROM-control registers |
+| Lynx dump | None |
 | Save restore | GB / GBC save RAM, after a verified recovery file and a three-second hold |
 
 ## Versions
@@ -69,13 +71,14 @@ Installs as `Cores/kroy.CartTools`, under **Tools**. No boot ROM.
 ## Usage
 
 1. Power off before changing a cartridge or adapter.
-2. Insert the cartridge and launch the core. For Game Gear, launch through
-   **Play Cartridge**.
+2. Insert the cartridge and launch the core. For Game Gear and Lynx, launch
+   through **Play Cartridge**.
 3. Choose an action. SELECT shows the raw header bytes.
 
 Dumps land in `/Assets/carttools/common/`.
 
 * [Game Gear guide](docs/GAME-GEAR.md)
+* [Lynx guide](docs/LYNX.md)
 * [Save restore guide](docs/SAVE-RESTORE.md)
 
 If a dump fails its checksum, copy it off the card before dumping again, and
@@ -97,6 +100,7 @@ tools/podman/play-dump.sh ROM [SAV]     play it in mGBA, in a container
 | GB / GBC ROM | Header and global checksums |
 | GBA ROM | No-Intro DAT match, or two reads compared |
 | Game Gear ROM | DAT match, or `--expect-size`, `--expect-sha1`, `--expect-crc32` |
+| Lynx ROM | Folded hashes from `verify_dump.py` against a No-Intro or MAME record, or two reads compared |
 | Save | Load it beside its ROM with `play-dump.sh` |
 
 `match_dats.py` accepts zipped or extracted XML DATs. CRC-only records cannot
@@ -140,6 +144,7 @@ docs/          reference documentation
 |---|---|
 | [SAVE-RESTORE](docs/SAVE-RESTORE.md) | writing a save to a cartridge |
 | [GAME-GEAR](docs/GAME-GEAR.md) | Game Gear dumping |
+| [LYNX](docs/LYNX.md) | Atari Lynx dumping |
 | [CARTRIDGE-CORPUS](docs/CARTRIDGE-CORPUS.md) | verified cartridges |
 | [FILE-FORMATS](docs/FILE-FORMATS.md) | files written to the card |
 | [UI](docs/UI.md) | the text layer |
@@ -189,7 +194,8 @@ Based on commit `0e1b2e1` of the `feat/cartridge-support` branch of
 | [mincer-ray/openfpga-GBA](https://github.com/mincer-ray/openfpga-GBA) | the Pocket port, at `v0.4.0` |
 | [Rai/openfpga-GBA](https://github.com/Rai/openfpga-GBA) | the `feat/cartridge-support` branch: the cartridge bus, the `cart_mode` plumbing and the header read |
 | [No-Intro](https://no-intro.org/) | reference data for identifying dumps. Not shipped |
-| [MAME](https://github.com/mamedev/mame) | Game Gear reference hashes. Not shipped |
+| [MAME](https://github.com/mamedev/mame) | Game Gear and Lynx reference hashes. Not shipped |
+| [sfiera/pocket-adapters](https://github.com/sfiera/pocket-adapters) | the Game Gear and Lynx adapter pinouts |
 | [Analogue openFPGA](https://www.analogue.co/developer) | the Pocket framework |
 
 ## License
