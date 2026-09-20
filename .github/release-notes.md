@@ -1,87 +1,26 @@
-**Download `kroy.CartTools_<version>.zip` below**, not the "Source code"
-archives. Those are the repository, and the bitstream is not committed, so a
-core installed from one is listed by the Pocket but cannot start.
+CartTools 0.9999.20260920 adds Game Gear ROM dumping and MBC5 save restore. Save restore remains **alpha**.
 
-Unzip and merge `Assets`, `Cores` and `Platforms` into the root of the SD card.
-On macOS, Finder **replaces** a folder instead of merging it, which deletes the
-ROMs already in `Assets`; copy the folders inside the three rather than the
-three themselves. There is no boot ROM to find: this core runs no games.
+### What changed
 
-Dumps land in `/Assets/carttools/common/`, named from the cartridge header.
-The `<version>` in the filename is the exact commit the bitstream was built
-from, and `Cores/kroy.CartTools/core.json` carries the same string.
+- **Game Gear ROM dumping** through the official Analogue adapter, with 256 and 512 KiB profiles and a CRC reread of the selected range. ROM only; saves are not supported. See [Game Gear](https://github.com/kroy-the-rabbit/openfpga-carttools/blob/v0.9999.20260920/docs/GAME-GEAR.md).
+- **MBC5 save restore**, 8 KiB and 32 KiB (type `1B`, ROM up to 4 MiB).
+- **Cartridge pin timing no longer depends on the fit.** Every cartridge output and direction bit is now registered in its I/O cell. A development build that met Quartus timing lost MBC5 bank-select writes on hardware; this removes that class of failure.
+- The GBA probe fix from artifact revision `0.9999.20260914.1` (`57513fc`) is now on `main`.
+- An unrecognised adapter shows its APF report and the cartridge bus stays idle.
 
-## What this build has done
-
-**Alpha.** Everything below was measured on cartridges through the Pocket's
-own slot, and every image was checked against a record this project does not
-control. The full record, cartridge by cartridge, is
-[docs/CARTRIDGE-CORPUS.md](https://github.com/kroy-the-rabbit/openfpga-carttools/blob/main/docs/CARTRIDGE-CORPUS.md).
+### Verified on hardware
 
 | | |
 |---|---|
-| ROM images | **41**, all retained: 15 Game Boy, 11 Game Boy Color, 15 Game Boy Advance |
-| Matched to No-Intro | **41 of 41**, by CRC32 and byte length, against 7,572 DAT entries |
-| GB / GBC | 32 KB to 4 MB across five mapper families: ROM-only, MBC1, MBC1+RAM+battery, MBC5, MBC5+RUMBLE |
-| GBA | 4, 8 and 16 MB, each size measured from open bus and each agreeing with the record |
-| Reproduces | 12 GB/GBC cartridges and 2 GBA cartridges re-dumped byte for byte identical |
-| Rejected reads | 2, both Yu-Gi-Oh! through dirty contacts, both failing the global checksum; the clean retry matched the record exactly |
+| Restore, MBC3 32 KiB | Pokemon Silver |
+| Restore, MBC5 32 KiB | Dragon Warrior III, post-restore dump byte-identical to the input |
+| Restore, MBC5 8 KiB | Shadowgate Classic, post-restore dump byte-identical to the input |
+| GB / GBC ROM dump | Shadowgate Classic, Dragon Warrior III, Pokemon Silver |
+| GBA ROM and save dump | Metroid Zero Mission, SimCity 2000 |
+| Game Gear ROM dump | Sonic the Hedgehog 2 (World), 512 KiB, matches the MAME reference; World Series Baseball and Arch Rivals on the earlier 563E build |
 
-**Saves.** 27 retained from 27 cartridges, each checked the only way a save can
-be, by loading it in mGBA beside its own ROM and finding the game's state
-intact.
+These results are from builds `6BDB` and `9302`. The published bitstream is a rebuild of the same logic from the release commit, with only comments and the build stamp changed; it met timing and was not separately re-run on hardware.
 
-| | |
-|---|---|
-| GB / GBC | 16 cartridges, 7 Game Boy and 9 Game Boy Color, 8 KiB and 32 KiB four-bank. One, Tetris Plus, shows no recognisable state and is carried as unverified; a depleted battery is possible and unproven |
-| GBA SRAM 32 KiB | 2, Metroid: Zero Mission and Kirby: Nightmare in Dream Land |
-| GBA Flash 64 KiB | 1, Golden Sun |
-| GBA EEPROM 512 bytes | 4, Super Mario Advance, Harry Potter, Magical Quest, Shrek |
-| GBA EEPROM 8 KiB | 4, A Link to the Past & Four Swords, The Minish Cap, NHL 2002, SimCity 2000 |
+### Scope
 
-None of it writes to the cartridge. Flash and SRAM are read plainly, and the
-EEPROM reader cannot form a write: its two command bits are constants, and the
-simulation model kills the run if a write prefix is ever seen. EEPROM capacity
-is measured rather than assumed, since a chip of either size answers a request
-of either width; the discriminator is repeated block data under wide addressing.
-
-**Refused, and the screen says so:** 128 KiB Flash, which needs a bank-select
-write, and MBC2's 512 nibbles of save RAM. **Simulation only, no cartridge to
-test:** MBC2, MBC3, MBC1 above 512 KB.
-
-## What changed since v0.9999.52305c7
-
-* **GBA EEPROM backup**, at both capacities, with the byte order that mGBA
-  reads back correctly. A save is emitted in the order the chip delivers it.
-* **GBA detection no longer fails intermittently.** The floating safety-gate
-  bus is precharged to `FF` while both strobes are idle and released during
-  setup. The cartridge that reproduced the failure could not be made to fail
-  after the fix, and the two cartridges that had been marked scan-unstable are
-  cleared.
-* The screen names which probe failed, and hides a stale filename until the
-  path is ready.
-* The save dump's CRC32 is asserted in simulation at two lengths, mutation
-  checked both ways.
-
-## What it must not be taken for
-
-A save is read **once**. The double read is not built, nothing reads a file
-back off the card, and there is no restore path on either platform. A `.sav`
-from this core is evidence, not yet a backup you would rely on.
-
-This core writes to a cartridge in two places, both mapper registers in ROM
-space: bank registers, which is how a Game Boy cartridge is banked, and the
-save RAM gate on a save backup, which is closed again on every exit. It never
-writes to GBA ROM space and never writes a byte into cartridge RAM.
-
-## Checking a download
-
-```sh
-sha256sum -c SHA256SUMS --ignore-missing
-```
-
-The zip and the timing report are the only artifacts. Read
-[docs/STATUS.md](https://github.com/kroy-the-rabbit/openfpga-carttools/blob/main/docs/STATUS.md)
-for what is proven and how, and
-[docs/HANDOFF.md](https://github.com/kroy-the-rabbit/openfpga-carttools/blob/main/docs/HANDOFF.md)
-for what is not.
+MBC1 8 KiB and other MBC3 and MBC5 cartridges are implemented but untested. **MBC3 RTC state and GBA saves are not restored.** Read the [save restore guide](https://github.com/kroy-the-rabbit/openfpga-carttools/blob/v0.9999.20260920/docs/SAVE-RESTORE.md) before writing to a cartridge, and keep the `PRE*.sav` recovery files. Install all three folders from the ZIP into the Pocket card root, merging with the existing folders.
