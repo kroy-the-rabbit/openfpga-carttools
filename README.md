@@ -1,152 +1,53 @@
 # Cartridge tools for Analogue Pocket
 
-A Pocket core that reads cartridges through the handheld's own cartridge slot.
-It identifies Game Boy, Game Boy Color and Game Boy Advance cartridges, dumps
-their ROMs to the SD card, and backs up their saves. With the official Analogue
-adapter it also dumps Game Gear ROMs. It is not an emulator and it will not
-play anything.
+Reads cartridges through the Pocket's cartridge slot.
 
-**Based on commit `0e1b2e1` of the `feat/cartridge-support` branch of
-[Rai/openfpga-GBA](https://github.com/Rai/openfpga-GBA)**, which is a fork of
-[mincer-ray/openfpga-GBA](https://github.com/mincer-ray/openfpga-GBA) at
-`v0.4.0`, which is a Pocket port of
-[GBA_MiSTer](https://github.com/MiSTer-devel/GBA_MiSTer). Rai's branch is where
-the cartridge bus came from; the emulator around it is what got deleted.
-[docs/PROVENANCE.md](docs/PROVENANCE.md) records exactly what was inherited and
-what was written here.
+* Identifies GB, GBC and GBA cartridges
+* Dumps ROMs to the SD card
+* Backs up saves
+* Restores GB / GBC saves (alpha)
+* Dumps Game Gear ROMs through the official Analogue adapter
 
-## What works
+It does not play games.
 
-**GBA regression fix:** `57513fc` is the source of replacement artifact
-`0.9999.20260914.1`. On that build, Metroid Zero Mission produced an 8 MiB
-reference-matching dump; Pokemon Silver ROM/save dumping and the restore
-readbacks also passed. The broader cartridge counts below describe the earlier
-verified corpus, not a repeated qualification of every cart on later builds.
+## Status
 
-| | |
+Release `v0.9999.20260920`.
+
+| Feature | Status |
 |---|---|
-| GB / GBC cartridge identification | **works** |
-| GBA cartridge identification | **works** |
-| GB / GBC ROM dumping | **works**, twenty-six cartridges, 32 KB to 4 MB |
-| GBA ROM dumping | **works**, fifteen cartridges, 4 to 16 MB |
-| Game Gear ROM dumping | **works** through the official Analogue adapter, three cartridges at 256 and 512 KiB, each matching the reference size, SHA-1 and CRC32. See [Game Gear](docs/GAME-GEAR.md) |
-| GBA ROM size detection | **works**, measured from open bus, and every size agrees with the published record |
-| CRC32 shown on the device | **works**, both platforms, over a save as well as a ROM |
-| Image checked against the cartridge's own checksum | **works**, GB / GBC only |
-| Files named `.gb` / `.gbc` / `.gba` / `.gg` | **works** |
-| GB / GBC save backup | **works**, fifteen cartridges backed up and loaded in an emulator with their state intact, one of them showing no recognisable state and carried as unverified |
-| Save RAM banking, to 128 KB | **works** at 8 KB one bank and 32 KB four banks; 64 KB and 128 KB built, untested |
-| GBA save backup | **works**, eleven cartridges: 32 KiB SRAM, 64 KiB Flash, and EEPROM at 512 bytes and 8 KiB, each loaded in an emulator with its state intact. None of it writes to the cartridge; the EEPROM reader cannot even express a write. 128 KiB Flash refused, it needs a bank-select write |
-| A write that is cut short mid-pulse | **safe**, the cartridge captures the byte that was asked for rather than a floating bus |
-| Save restore | **alpha; verified on Pokemon Silver**, MBC3 32 KiB, **Dragon Warrior III**, MBC5 32 KiB, **and Shadowgate Classic**, MBC5 8 KiB. MBC1 8 KiB and other MBC3 and MBC5 cartridges are implemented but untested. See [save restore](docs/SAVE-RESTORE.md) |
-| MBC3 RTC | not started |
-| MBC3 ROM and save dumping | **works**, Pokemon Silver, 2 MB and 32 KiB, after the idle-bus fix in `ff5dd03` |
-| MBC2, MBC1 above 512 KB | simulation only, no cartridge to test |
-| MBC2's 512 nibbles of save RAM | refused, and the screen says so |
-| GBA cartridges above 16 MB | untested |
-| Automatic readback of ROM/save dump files | not built; restore recovery files are read back and verified |
-| Sidecar metadata | specified in [docs/FILE-FORMATS.md](docs/FILE-FORMATS.md), not written |
-| Two native cartridges with the same title | the second dump silently overwrites the first; the GG path allocates a new name |
-| CGB filenames | four bytes of manufacturer code land in the name |
+| GB / GBC / GBA identification | Tested |
+| GB / GBC ROM dump | Tested, 32 KiB to 4 MiB; ROM-only, MBC1, MBC3, MBC5 |
+| GBA ROM dump | Tested, 4 to 16 MiB; larger untested |
+| Game Gear ROM dump | Tested, 256 and 512 KiB. See [Game Gear](docs/GAME-GEAR.md) |
+| CRC32 on the device | ROMs and saves |
+| On-device checksum check | GB / GBC only |
+| GB / GBC save backup | Tested at 8 and 32 KiB; 64 and 128 KiB untested |
+| GBA save backup | Tested: 32 KiB SRAM, 64 KiB Flash, 512 byte and 8 KiB EEPROM. 128 KiB Flash refused |
+| Save restore | Alpha. Verified: Pokemon Silver (MBC3 32 KiB), Dragon Warrior III (MBC5 32 KiB), Shadowgate Classic (MBC5 8 KiB). MBC1 8 KiB and other MBC3 / MBC5 untested. See [save restore](docs/SAVE-RESTORE.md) |
+| Unknown adapter | APF report shown, bus idle |
+| MBC2, MBC1 above 512 KiB | Simulation only |
+| MBC2 save RAM | Refused |
+| MBC3 RTC, GBA save restore, Game Gear saves | Not supported |
+| Readback of dumped files | Not built |
+| Sidecar metadata | Specified in [FILE-FORMATS](docs/FILE-FORMATS.md), not written |
 
-## Why cartridge control stays in RTL
+Known defects:
 
-Everything this core gets right or wrong comes down to two things: **when an
-edge happens, and which way a pin is pointing.** Both are hardware properties,
-so they live in hardware, where they can be held to the cycle and checked at
-the connector rather than inferred.
+* Two native cartridges with the same title: the second dump overwrites the first.
+* CGB filenames carry four bytes of manufacturer code.
 
-**Direction is the dangerous half.** The Pocket's level translators are
-switched per bank of eight pins, not per pin, so a single wrong direction bit
-does not misread anything, it drives eight outputs into a cartridge that is
-also driving them. That is not a bug you observe and fix afterwards; it is
-current through somebody's Game Boy cartridge. Connector pin 30 makes the same
-point from the other side: it is held low by a clamp that keeps a Game Boy
-cartridge in reset, and the core has to release it deliberately.
+Verified cartridges are listed in [CARTRIDGE-CORPUS](docs/CARTRIDGE-CORPUS.md).
 
-So one module owns the pins. `cart_pins.sv` makes every direction decision and
-is the only file allowed to read or assign a cartridge pin. Two files above it,
-`core_top.sv` and the APF wrapper, may name one only in a port declaration or a
-named port connection, because that is how the pins reach the owner at all;
-they may not touch a value. Everything below, `gba_cart_bus.sv` and every other
-protocol engine included, sees a flat interface and cannot reach a pin even by
-accident.
+## Cartridge writes
 
-`tools/sim/check_pin_isolation.py` enforces exactly that, on the six
-`cart_tran_*` signals plus `cart_pin30_pwroff_reset` and their `_dir`
-companions. `make test` discovers it automatically and CI runs `make test`, so
-the rule is checked rather than remembered. It is not wired into `make cart`:
-a local bitstream can be built without it, which is worth knowing before
-trusting a build you did not test first. Widening the allowlist is a visible
-edit to a file that says it has to be argued for.
-
-**Timing is the half that has to be exact.** A cartridge answers to edge
-spacing measured in tens of nanoseconds, and it answers whether or not the
-reader was ready. Software on a soft CPU can be correct on average and wrong on
-the cycle that mattered, because a fetch stall or an interrupt lands where it
-likes. In RTL the spacing is a counter, and the same counters ship as run in
-simulation: `tb_gba_cart_timing.sv` exercises the parameters the build uses,
-separately from the bus tests that turn them down to make the suite fast.
-
-**The invariants are small enough to state in one sentence each, which is what
-makes them checkable at every clock edge.**
-
-| Invariant | Checked by |
+| Operation | Writes |
 |---|---|
-| `/WR` never falls while `/CS` is low, for a whole save read | `tb_gb_save_write_protect.sv` |
-| `WR#` never reaches a cartridge outside the three writable spaces | `tb_gba_cart_write_protect.sv` |
-| What the connector actually sees across a full probe, empty slot included | `tb_probe_pins.sv` |
-| No module outside the cartridge layer touches a cartridge pin | `check_pin_isolation.py` |
-
-That is the argument for RTL and it is not a general one. Everything above the
-bus, meaning mappers, filenames, hashing and menus, is better as software, and
-[docs/LANDSCAPE.md](docs/LANDSCAPE.md) says so plainly: a RISC-V SoC already
-exists for exactly this and would have been a legitimate base. Staying in RTL
-cost four sessions on the SD write path alone, which that document also
-records. The trade was made for the two operations that cannot be given back
-once they go wrong.
-
-## Early, and why
-
-Twelve cartridges have been re-dumped and every one came back byte for byte
-identical, so the dump path reproduces. But three cartridges have at some point
-produced a corrupt image, most likely from dirty contacts, and one was caught
-only because the core compares the image against the cartridge's own checksum:
-the header checksum on the row above it passed. Dumped ROM/save files are not
-automatically read back from the card; restore recovery files are.
-
-Every dumped image passes the checks the cartridge itself carries: the Nintendo
-logo, the header checksum, and for Game Boy the global checksum.
-
-**And every one of the forty-one images matches a published record.** Checked
-against the No-Intro DATs for Game Boy, Game Boy Color and Game Boy Advance,
-7,572 entries: all forty-one dumps are present by CRC32, and the size agrees
-too. The corpus, cartridge by cartridge, is in
-[docs/CARTRIDGE-CORPUS.md](docs/CARTRIDGE-CORPUS.md). That is the strongest evidence this project has, because it is
-external to the core, external to this repo, and it covers the GBA images,
-which carry no checksum of their own. [docs/STATUS.md](docs/STATUS.md) has the
-evidence for each claim and [docs/HANDOFF.md](docs/HANDOFF.md) has what is
-left.
-
-## What this core writes to a cartridge
-
-**Save restore writes cartridge save RAM.** It requires identity and input
-checks, a verified recovery file and a deliberate three-second hold. This
-alpha has passed hardware restore on Pokemon Silver; other implemented
-geometries remain untested. See [save restore](docs/SAVE-RESTORE.md).
-
-It does write to mapper registers, in ROM space, because the hardware offers no
-other way to read:
-
-* **bank registers**, which is how a Game Boy cartridge is banked and the only
-  way to read past bank 0;
-* **the save RAM gate**, `0x0A` to open it and `0x00` to close it, because a
-  cartridge answers in the RAM window only while the gate is open. It is closed
-  again on every exit, including an abort.
-
-Ordinary dumping does not write save data. `tb_gb_save_write_protect` checks
-the connector pins throughout a full save read. The separately authorized
-restore writer accesses GB/GBC save RAM; GBA save restore is not implemented.
+| GB / GBC dump | Bank registers; save RAM gate `0x0A` open, `0x00` close |
+| GBA ROM dump | None |
+| GBA save backup | EEPROM read requests only; no save data |
+| Game Gear dump | Sega ROM-control registers |
+| Save restore | GB / GBC save RAM, after a verified recovery file and a three-second hold |
 
 ## Versions
 
@@ -155,40 +56,34 @@ for example `v0.9999.20260913`. Each project releases independently.
 The source commit and bitstream checksums are recorded in build provenance.
 A published date is not reused for a different build.
 
-## What 1.0 would mean
-
-* Detect standard GB, GBC and GBA cartridges
-* Dump supported ROMs to SD, and verify the dump
-* Back up supported save types, and verify the backup
-* Restore saves, always taking a backup first, always verifying afterwards
-* Handle MBC3 RTC data
-* Refuse unsupported or ambiguous hardware rather than guessing
-
 ## Installation
 
-Prebuilt cores are on the [Releases](../../releases) page. Download
-`kroy.CartTools_<version>.zip`, not the "Source code" archives: the bitstream is
-not committed, so a core installed from a source archive is listed by the
-Pocket and cannot start.
+1. Download `kroy.CartTools_<version>.zip` from [Releases](../../releases),
+   not the "Source code" archives.
+2. Merge its `Assets`, `Cores` and `Platforms` folders into the SD card root.
+   On macOS, copy the folders inside those three; Finder replaces rather than
+   merges.
 
-This core installs as `Cores/kroy.CartTools`. Copy the `Assets`, `Cores` and
-`Platforms` folders to the root of the SD card. Finder on macOS *replaces*
-folders rather than merging them the way Windows does, which will delete the
-ROMs already in `Assets`, so copy the folders inside those three rather than
-dragging the three themselves.
-
-There is no boot ROM to find. This core needs none, because it does not run
-games.
+Installs as `Cores/kroy.CartTools`, under **Tools**. No boot ROM.
 
 ## Usage
 
-Put a cartridge in, launch the core, and choose what to do with it. Dumps land
-on the card under `/Assets/carttools/common/`. SELECT shows the raw header bytes
-for anything that identifies itself.
+1. Power off before changing a cartridge or adapter.
+2. Insert the cartridge and launch the core. For Game Gear, launch through
+   **Play Cartridge**.
+3. Choose an action. SELECT shows the raw header bytes.
 
-For save writes, follow the [save restore guide](docs/SAVE-RESTORE.md).
+Dumps land in `/Assets/carttools/common/`.
 
-## Checking what came off the cartridge
+* [Game Gear guide](docs/GAME-GEAR.md)
+* [Save restore guide](docs/SAVE-RESTORE.md)
+
+If a dump fails its checksum, copy it off the card before dumping again, and
+clean the cartridge contacts.
+
+## Checking a dump
+
+Run from an activated project venv.
 
 ```sh
 scripts/verify_dump.py FILE...          logos, checksums, sizes, hashes
@@ -197,141 +92,104 @@ scripts/match_dats.py                   match every dump to a published record
 tools/podman/play-dump.sh ROM [SAV]     play it in mGBA, in a container
 ```
 
-**A Game Boy or Game Boy Color dump proves itself.** The header checksum and
-the global checksum were written at manufacture, they cover the image, and this
-core checks both on the device.
+| Dump | Check |
+|---|---|
+| GB / GBC ROM | Header and global checksums |
+| GBA ROM | No-Intro DAT match, or two reads compared |
+| Game Gear ROM | DAT match, or `--expect-size`, `--expect-sha1`, `--expect-crc32` |
+| Save | Load it beside its ROM with `play-dump.sh` |
 
-**A Game Boy Advance dump does not, and cannot.** A GBA cartridge carries a
-Nintendo logo, a header complement over the first 29 bytes, and the fixed `0x96`
-byte, and nothing that covers the ROM itself. `verify_dump.py` says so where it
-checks the logo: no checksum in a GBA cartridge covers those bytes, which is
-what makes the logo an independent check rather than a circular one. The CRC32
-this core shows for a GBA image is computed from the bytes it just read, so it
-proves a second read matches the first, not that either matches the cartridge.
-Matching a published record, or dumping twice and comparing, is the evidence
-there is, and `match_dats.py` is the first of those: it checks every dump
-against a No-Intro DAT by SHA-1, CRC32 and size. The DAT is external to this core and
-to this repo, so it cannot agree with a dump for the same reason the dump is
-wrong. **Save RAM
-carries no checksum of any kind**, so the only thing that can prove a `.sav` is
-loading it beside its ROM and seeing the game's own state come back. That is
-what `play-dump.sh` is for, and it is what moved save backup from built to
-verified.
-
-For `.gg` dumps, `verify_dump.py` reads the Sega headers at `0x1FF0`, `0x3FF0`
-and `0x7FF0`. Product, revision, region and checksum extent are hints: they
-provide no title or reliable ROM capacity, and a checksum mismatch is only a
-diagnostic. Repeated banks likewise do not prove the mapper failed or reveal
-the physical size. Keep the complete dump and compare two reads, then use a
-Game Gear DAT or an explicit reference:
+`match_dats.py` accepts zipped or extracted XML DATs. CRC-only records cannot
+verify a dump.
 
 ```sh
 scripts/verify_dump.py GG0000.gg --expect-size 524288 --expect-sha1 dabb452e416b4fa9cb83d8ddd307c2a32c3a1a7f --expect-crc32 95a18ec7
 ```
 
-That reference is [Sonic the Hedgehog 2 (World)](https://github.com/mamedev/mame/blob/954def46685cd0276671138fbd032036b1a771fb/hash/gamegear.xml#L8086).
-`match_dats.py` accepts zipped or extracted XML DATs; CRC-only records cannot
-verify a dump. Run these Python commands with an activated project venv.
-
-`verify_dump.py` covers what a checksum can, computed independently of the core,
-plus the one structural failure the device cannot see: **every bank identical**,
-which is what a bank select that did not take produces, a file of exactly the
-right length holding bank 0 over and over. It cannot prove a save is correct and
-says so.
+Reference: [Sonic the Hedgehog 2 (World)](https://github.com/mamedev/mame/blob/954def46685cd0276671138fbd032036b1a771fb/hash/gamegear.xml#L8086).
 
 ## The desktop app
 
-[pocket-tools](https://github.com/kroy-the-rabbit/pocket-tools) is the desktop
-side of this set, and it is the other half of the dumping workflow. This core
-can read a title out of a header and sanitise it, but it cannot list a
-directory, so it cannot tell that two cartridges named the same have overwritten
-each other or that four bytes of manufacturer code are stuck to a filename. The
-app can, because it is the only part that sees the bytes after they land.
-
-It identifies a dump by SHA-1 against a No-Intro DAT, files it into a library
-under its real name, keeps the core's original beside it as evidence of what was
-actually produced, and only deletes the card's copy after comparing the two byte
-for byte.
-
-**Those features appear in the app only when this core is on your card.** The
-app always offers to install it and never installs it for you, so putting it
-there is the whole of opting in.
-
-You do not need any of it. The dumps are ordinary files on the card.
+[pocket-tools](https://github.com/kroy-the-rabbit/pocket-tools) identifies
+dumps against a No-Intro DAT, files them into a library under their real names
+and verifies the copy before deleting from the card. Optional. Its dump
+features appear when this core is on the card.
 
 ## Layout
 
 ```
 src/fpga/
-  core/        Pocket top level, APF bridge glue, clocks, the two cartridge buses
+  core/        Pocket top level, APF bridge glue, clocks, cartridge buses
   services/
     identify/  header readers and the platform probe
-    dump/      the readers, the size probe, buffering, checksums, the file writer
+    dump/      readers, size probe, buffering, checksums, file writer
+    restore/   save writer, guard, file I/O
   ui/          text renderer and screen
   apf/         the Pocket host interface, inherited
+scripts/       dump verification, DAT matching, restore input preparation
 tools/         simulation harness and the containerised build
-docs/          current reference documentation and engineering-history links
+docs/          reference documentation
 ```
 
-There is no `src/fpga/cart/`; the buses live in `core/` under `cart_pins.sv`,
-which is the only module allowed to drive a connector pin.
+`cart_pins.sv` is the only module that touches a connector pin.
+`tools/sim/check_pin_isolation.py` enforces it.
 
 ## Documentation
 
-[Engineering history](https://github.com/kroy-the-rabbit/pocket-engineering/tree/main/carttools)
-is maintained separately in a private repository.
-
 | | |
 |---|---|
-| [plan.md](plan.md) | the phase plan |
-| [docs/STATUS.md](docs/STATUS.md) | current position and every known defect |
-| [docs/HANDOFF.md](docs/HANDOFF.md) | traps and next steps |
-| [docs/BRINGUP.md](docs/BRINGUP.md) | the first hardware test and how to read the result |
-| [docs/LANDSCAPE.md](docs/LANDSCAPE.md) | prior art, and the architecture this project did not take |
-| [docs/FILE-FORMATS.md](docs/FILE-FORMATS.md) | what gets written to the card |
-| [docs/UI.md](docs/UI.md) | the text layer contract |
-| [docs/HARDWARE-NOTES.md](docs/HARDWARE-NOTES.md) | the cartridge connector, verified claims separated from assumed |
-| [docs/APF-NOTES.md](docs/APF-NOTES.md) | the Pocket host interface |
-| [docs/PROVENANCE.md](docs/PROVENANCE.md) | what came from where |
-| [docs/SALVAGE.md](docs/SALVAGE.md) | deleted files and how to get them back |
-| [docs/COMPANION-APP-PLAN.md](docs/COMPANION-APP-PLAN.md) | the desktop side |
+| [SAVE-RESTORE](docs/SAVE-RESTORE.md) | writing a save to a cartridge |
+| [GAME-GEAR](docs/GAME-GEAR.md) | Game Gear dumping |
+| [CARTRIDGE-CORPUS](docs/CARTRIDGE-CORPUS.md) | verified cartridges |
+| [FILE-FORMATS](docs/FILE-FORMATS.md) | files written to the card |
+| [UI](docs/UI.md) | the text layer |
+| [HARDWARE-NOTES](docs/HARDWARE-NOTES.md) | the cartridge connector |
+| [APF-NOTES](docs/APF-NOTES.md) | the Pocket host interface |
+| [LOGO-BYTES](docs/LOGO-BYTES.md) | the Nintendo logos |
+| [PROVENANCE](docs/PROVENANCE.md) | what came from where |
+| [DONOR-README](docs/DONOR-README.md) | the donor core's README |
+
+[Engineering history](https://github.com/kroy-the-rabbit/pocket-engineering/tree/main/carttools)
+is private.
 
 ## Building from source
 
-Quartus runs in a container and nothing is installed on the host:
+Quartus and Icarus Verilog run in containers.
 
 ```sh
 make cart                 # -> build/cart/{bitstream.rbf_r, sd/, *.zip, report.txt}
-make cart SKIP_COMPILE=1  # repackage existing outputs without running Quartus
-make cart SEED=2          # re-run the fitter with a different placement seed
+make cart SKIP_COMPILE=1  # repackage without running Quartus
+make cart SEED=2          # different placement seed
 make report               # regenerate build/cart/report.txt
-make shell                # interactive shell in the Quartus container
+make shell                # shell in the Quartus container
+make sim-image            # build the simulation container, once
+make test                 # testbench suite
+make sim-shell            # shell in the simulation container
 ```
 
-Simulation, also containerised. Every cartridge-facing module is expected to
-have a testbench, because the hardware it talks to cannot be put in CI and a
-wrong write to a cartridge is not recoverable:
+The build fails if the design misses timing.
 
-```sh
-make sim-image            # build the Icarus Verilog container, once
-make test                 # run the testbench suite
-make sim-shell            # interactive shell with the repo at /work
-```
+## Where to report a problem
 
-The build fails if the design misses timing. Quartus exits 0 on negative slack,
-so the harness checks worst-case slack itself and stops, because a bitstream
-with negative slack may work on one bench and fail on somebody's handheld.
+Open an issue here with the cartridge, the build stamp shown on screen and,
+for a bad dump, the `verify_dump.py` output.
 
 ## Credits
 
-This core is a subtraction from other people's work.
+Based on commit `0e1b2e1` of the `feat/cartridge-support` branch of
+[Rai/openfpga-GBA](https://github.com/Rai/openfpga-GBA), a fork of
+[mincer-ray/openfpga-GBA](https://github.com/mincer-ray/openfpga-GBA) at
+`v0.4.0`, which is a Pocket port of
+[GBA_MiSTer](https://github.com/MiSTer-devel/GBA_MiSTer). See
+[PROVENANCE](docs/PROVENANCE.md).
 
 | | |
 |---|---|
 | [GBA_MiSTer](https://github.com/MiSTer-devel/GBA_MiSTer) | the original FPGA GBA |
 | [mincer-ray/openfpga-GBA](https://github.com/mincer-ray/openfpga-GBA) | the Pocket port, at `v0.4.0` |
-| [Rai/openfpga-GBA](https://github.com/Rai/openfpga-GBA) | the `feat/cartridge-support` branch, which is where the cartridge bus, the `cart_mode` plumbing and the header read came from |
-| [No-Intro](https://no-intro.org/) | the reference data a dump is identified against. None of it is shipped here |
+| [Rai/openfpga-GBA](https://github.com/Rai/openfpga-GBA) | the `feat/cartridge-support` branch: the cartridge bus, the `cart_mode` plumbing and the header read |
+| [No-Intro](https://no-intro.org/) | reference data for identifying dumps. Not shipped |
+| [MAME](https://github.com/mamedev/mame) | Game Gear reference hashes. Not shipped |
 | [Analogue openFPGA](https://www.analogue.co/developer) | the Pocket framework |
 
 ## License
@@ -346,6 +204,5 @@ supplied under Analogue's own software licence agreement and the Pocket EULA
 linked from their headers, which provide that where the MIT or GNU licences must
 apply, those prevail.
 
-Binary releases are built on a controlled builder. `BUILD.json` records the
-original build commit and bitstream SHA-256; packaging updates preserve that
-provenance. Releases include the package, timing report and checksums.
+Releases include the package, timing report, checksums and `BUILD.json`, which
+records the build commit and bitstream SHA-256.
