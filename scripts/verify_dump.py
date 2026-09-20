@@ -403,6 +403,36 @@ def verify_sav(path, data, rep):
     rep.note("read once", "the core does not double read; --compare two dumps")
 
 
+def verify_lyx(path, data, rep):
+    """A fixed 512 KiB capture: 256 blocks of 2048 bytes, no header, no checksum."""
+    size = len(data)
+    rep.note("size", "{} bytes".format(size))
+    rep.note("crc32", "{:08X}".format(zlib.crc32(data) & 0xFFFFFFFF))
+    rep.note("sha1", hashlib.sha1(data).hexdigest())
+    if size != 256 * 2048:
+        rep.bad("256 blocks of 2048 bytes", "{} bytes".format(size))
+        return
+    blocks = [data[i:i + 2048] for i in range(0, size, 2048)]
+    if len(set(data)) == 1:
+        rep.bad("cartridge data", "every byte is {:02X}".format(data[0]))
+        return
+    if len(set(blocks)) == 1:
+        rep.bad("every block identical", "the block number did not reach the cartridge")
+        return
+    rep.ok("blocks differ")
+    used = 2048
+    for span in (512, 1024):
+        if all(b == b[:span] * (2048 // span) for b in blocks):
+            used = span
+            break
+    folded = b"".join(b[:used] for b in blocks)
+    rep.note("block size", "{} bytes, ROM {} KiB".format(used, len(folded) // 1024))
+    if used != 2048:
+        rep.note("  folded crc32", "{:08X}".format(zlib.crc32(folded) & 0xFFFFFFFF))
+        rep.note("  folded sha1", hashlib.sha1(folded).hexdigest())
+    rep.note("no checksum on a Lynx cartridge", "match a No-Intro record or --compare two dumps")
+
+
 def verify(path, *, sha1=None, crc32=None, size=None):
     rep = Report(os.path.basename(path))
     try:
@@ -419,6 +449,8 @@ def verify(path, *, sha1=None, crc32=None, size=None):
         verify_gba(path, data, rep)
     elif ext == ".gg":
         verify_gg(path, data, rep)
+    elif ext == ".lyx":
+        verify_lyx(path, data, rep)
     elif ext == ".sav":
         verify_sav(path, data, rep)
     else:

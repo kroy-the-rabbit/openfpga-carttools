@@ -56,6 +56,25 @@ class Fixture(unittest.TestCase):
         return missed, output.getvalue()
 
 
+class LynxVerification(Fixture):
+    def blocks(self, span):
+        return b"".join(bytes((i + j * 7 + (j >> 8)) & 0xFF for j in range(span)) * (2048 // span)
+                        for i in range(256))
+
+    def test_mirrored_blocks_report_the_folded_rom(self):
+        for span, kib in ((512, 128), (1024, 256), (2048, 512)):
+            with self.subTest(span=span):
+                rep = verify_dump.verify(self.put(self.blocks(span), "LX0000.lyx"))
+                self.assertEqual(rep.failures, 0)
+                self.assertIn("ROM {} KiB".format(kib), str(rep.lines))
+
+    def test_stuck_block_number_and_wrong_length_fail(self):
+        stuck = verify_dump.verify(self.put(bytes(range(256)) * 8 * 256, "LX0001.lyx"))
+        self.assertEqual(stuck.failures, 1)
+        short = verify_dump.verify(self.put(b"x" * 1000, "LX0002.lyx"))
+        self.assertEqual(short.failures, 1)
+
+
 class GameGearVerification(Fixture):
     def test_each_header_location_and_checksum_extent(self):
         for size, offset, code in [(8192, 0x1FF0, 0xA), (16384, 0x3FF0, 0xB),
