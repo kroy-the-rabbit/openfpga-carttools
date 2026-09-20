@@ -17,6 +17,51 @@ A cartridge passes only when all applicable rules pass:
 `ROM PASS, SAVE PENDING` means only rule 1 has passed. Structural inspection of
 a save is useful triage but is never a substitute for rule 2.
 
+## Builds `9302` and `7D63`, 2026-09-19 and 2026-09-20
+
+The dump directory of the Pocket card as read on 2026-09-20. Every ROM below
+matches a No-Intro record on SHA-1, CRC32 and size (`scripts/match_dats.py`,
+DATs dated 2026-08-22 to 2026-08-27), except the Lynx cartridge, which has no
+DAT on hand and matches MAME. `7D63` is the bitstream released as
+`v0.9999.20260920.1`. File stems are the core's names, not titles.
+
+### ROMs
+
+| Status | Build | File | Record | Hardware | Bytes | CRC32 | SHA-256 |
+|---|---|---|---|---|---:|---|---|
+| PASS | `9302` | `SHADOWGATE_CLAS.gbc` | Shadowgate Classic (USA, Europe) (En,Fr,De,Es,Sv) (GB Compatible) | GBC, MBC5, type `1B` | 1,048,576 | `F6A876A5` | `2e3e9bfd375c3eeb7b50428935eda7fbc323a6107d49b83683b0e97c21c7c087` |
+| PASS | `9302` | `DW_3_______BD3E.gbc` | Dragon Warrior III (USA) | GBC, MBC5, type `1B` | 4,194,304 | `0FD9C59C` | `34f11935cb3c23102462aab9d96c09e25b81b35eef91f5e5456b2c3665734f0e` |
+| PASS | `9302` | `POKEMON_SLVAAXE.gbc` | Pokemon - Silver Version (USA, Europe) (SGB Enhanced) (GB Compatible) | GBC, MBC3 + RTC, type `10` | 2,097,152 | `8AD48636` | `72b190859a59623cbef6c49d601f8de52c1d2331b4f08a8d2acc17274fc19a8c` |
+| PASS | `9302` | `ZEROMISSIONE.gba` | Metroid - Zero Mission (USA, Australia) | GBA `BMXE` | 8,388,608 | `5C61A844` | `fc94f65380b65b870a30b9b04b39cca1dc63d6e46a4a373d3904adc0912ebc37` |
+| PASS | `9302` | `SIMCITY_2000.gba` | SimCity 2000 (USA) | GBA | 4,194,304 | `733751B3` | `02a951f2918e13052f4b28844106093a28a3f9c78739434b1e49a2839babc333` |
+| PASS | `9302` | `GG0001.gg` | Sonic The Hedgehog 2 (World) | Game Gear, Sega mapper, 512 KiB profile | 524,288 | `95A18EC7` | `2826d679932566411003334cd4b9d8b3618248b6693e98822f5b2425430623e0` |
+| PASS | `7D63` | `AGB_KIRBY_DX.gba` | Kirby - Nightmare in Dream Land (USA) | GBA `A7KE` | 8,388,608 | `20EF3F64` | `caa4e11b6102257939297710dc4b49f6cec307de67838b2e7b7627e81b155db8` |
+| PASS | `7D63` | `SUPER_MARIOA.gba` | Super Mario Advance (USA, Europe) | GBA `AMAE` | 4,194,304 | `1E4C6D6A` | `d29dec02caacbf449e2a93c6042258b0669542e102eb0e6fd0eb92a5411e0244` |
+| PASS | `7D63` | `MIC_MIN_MA.gba` | Magical Quest Starring Mickey & Minnie (USA) | GBA `A3ME` | 4,194,304 | `B4294FA7` | `47a1a511ba49ec4d205706bde17bdd146e094bee3197470312be72d20b128814` |
+| PASS (MAME) | `7D63` | `LX0000.lyx`, `LX0001.lyx` | NFL Football (Euro, USA) | Atari Lynx, adapter ID `03`, 256 KiB ROM in a 512 KiB capture | 524,288 | `CDCE2431` | `751e4b26b65002ef7712a51e0660a48091eba6b718f5a32ce91fafabd4dc401e` |
+
+The two Lynx captures are byte-identical. Folded to 262,144 bytes the ROM is
+CRC32 `006FD398`, SHA-1 `caea445bddcf75bcbe13920718279220d1acb869`, equal to
+`nfl football (euro, usa).bin` in MAME `hash/lynx.xml` at
+`954def46685cd0276671138fbd032036b1a771fb`. `GG0000.gg` is byte-identical to
+`GG0001.gg`.
+
+### Saves
+
+| Build | File | Type | Bytes | CRC32 | SHA-256 | Status |
+|---|---|---|---:|---|---|---|
+| `9302` | `SHADOWGATE_CLAS.sav` | SRAM 8 KiB | 8,192 | `D1190CA8` | `e319bf093665a51eec2644238a2387065465212afb758f3112d7580d9ae05024` | SAVE PENDING; restore subject, a save made in mGBA |
+| `9302` | `DW_3_______BD3E.sav` | SRAM 32 KiB | 32,768 | `142E19F0` | `1b94faedbdf1d840bc41e781087585ad1e9e0b2ecda5dfb20badd7e8dd5c53ec` | SAVE PENDING; the cartridge's original save, equal to the `PRE0006.sav` recovery file from build 6B24 |
+| `9302` | `POKEMON_SLVAAXE.sav` | SRAM 32 KiB | 32,768 | `C3DD33DD` | `dc5f3697430c3f4e7cfda647d8ebf522c856ba9fdccbb0467be543893f2d172a` | SAVE PENDING; restore subject |
+| `9302` | `ZEROMISSIONE.sav` | SRAM 32 KiB | 32,768 | `EF7C4E7B` | `99a7f5e006cea5ca5ff0983492ef19313257cf6a23ec90c06419848c443334f9` | SAVE PENDING; differs from the `6C90074B` save verified on `250D` |
+| `9302` | `SIMCITY_2000.sav` | EEPROM 8 KiB | 8,192 | `4CBD7F34` | `20469f06e21f5d0f4fb8705a364162d9e405cc3d95d9df03cf930ef198f62020` | PASS; byte-identical to the save verified in Batch 5 |
+| `7D63` | `AGB_KIRBY_DX.sav` | SRAM 32 KiB | 32,768 | `719220B2` | `57d710897d20c1c46421e9ed9050d14daa096af824d46fe9ff3c7c10d06d7bcb` | PASS; byte-identical to the save verified in Batch 1 |
+| `7D63` | `SUPER_MARIOA.sav` | EEPROM 512 bytes | 512 | `E7943192` | `5bc6984153daab26abd9175e2eb662502008d56387c467f7b1d30c62a34709bd` | PASS; byte-identical to the save verified in Batch 1 |
+| `7D63` | `MIC_MIN_MA.sav` | EEPROM 512 bytes | 512 | `D4EB2716` | `8989905de9583a55cfd56ec0202b073fc73573a95507a83f1ba7afda40a6d811` | PASS; byte-identical to the save verified in Batch 1 |
+
+The three `7D63` GBA ROMs are byte-identical to their Batch 1 dumps.
+GB, GBC, Game Gear and save restore have not been repeated on `7D63`.
+
 ## Resolved scan instability
 
 `250d6a0` resolved the intermittent GBA scan failure for the two cartridges
