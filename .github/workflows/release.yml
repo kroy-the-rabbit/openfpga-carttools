@@ -87,7 +87,7 @@ jobs:
           with zipfile.ZipFile(package) as archive:
               metadata = json.loads(archive.read('Cores/kroy.CartTools/core.json'))['core']['metadata']
               assert metadata['version'] == version, 'wrong package version'
-              day = version.rsplit('.', 1)[1]
+              day = version.split('.')[2]
               assert metadata['date_release'] == f'{day[:4]}-{day[4:6]}-{day[6:]}', 'wrong package date'
               bitstream = archive.read('Cores/kroy.CartTools/bitstream.rbf_r')
               assert hashlib.sha256(bitstream).hexdigest() == provenance['bitstream_sha256'], 'wrong bitstream'

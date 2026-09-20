@@ -12,7 +12,7 @@ It does not play games.
 
 ## Status
 
-Release `v0.9999.20260920`.
+Release `v0.9999.20260920.1`.
 
 | Feature | Status |
 |---|---|
@@ -54,9 +54,9 @@ Verified cartridges are listed in [CARTRIDGE-CORPUS](docs/CARTRIDGE-CORPUS.md).
 ## Versions
 
 Versions use `0.9999.YYYYMMDD`, where the date is UTC. Release tags add `v`,
-for example `v0.9999.20260913`. Each project releases independently.
+for example `v0.9999.20260913`. A second release on one date adds `.1`. Each project releases independently.
 The source commit and bitstream checksums are recorded in build provenance.
-A published date is not reused for a different build.
+A published version is not reused for a different build.
 
 ## Installation
 
