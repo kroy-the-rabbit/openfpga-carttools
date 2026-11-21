@@ -712,6 +712,12 @@ wire [LW-1:0] flash_verdict_line = !flash_ok ? ROW_BLANKR :
 wire [LW-1:0] gg_verify_line = gg_verify_ok ?
     "SELECTED RANGE CRC AGREES     " : "SELECTED RANGE CRC MISMATCH   ";
 
+// Chosen ahead of the row mux, so the flash rows add no depth to it.
+wire diag_shown = flash_shown || pair_shown;
+wire [LW-1:0] diag_line_15 = flash_shown ? flash_id_line : pair_count_line;
+wire [LW-1:0] diag_line_16 = flash_shown ? flash_rom_line : pair_parity_line;
+wire [LW-1:0] diag_line_17 = flash_shown ? flash_verdict_line : pair_first_line;
+
 wire [LW-1:0] static_next = adapter_diagnostic ? adapter_line(row_c) :
                             decoded_gg && row_c == R_NAME ? gg_product_line :
                             decoded_gg && row_c == R_TYPE ? gg_mapper_line :
@@ -726,12 +732,9 @@ wire [LW-1:0] static_next = adapter_diagnostic ? adapter_line(row_c) :
                             details_gg && row_c == 5'd17 ?
                                 "ROM ONLY; SAVE NOT SUPPORTED  " :
                             gg_verdict_shown && row_c == R_VERIFY ? gg_verify_line :
-                            flash_shown && row_c == 5'd15 ? flash_id_line :
-                            flash_shown && row_c == 5'd16 ? flash_rom_line :
-                            flash_shown && row_c == 5'd17 ? flash_verdict_line :
-                            pair_shown && row_c == 5'd15 ? pair_count_line :
-                            pair_shown && row_c == 5'd16 ? pair_parity_line :
-                            pair_shown && row_c == 5'd17 ? pair_first_line :
+                            diag_shown && row_c == 5'd15 ? diag_line_15 :
+                            diag_shown && row_c == 5'd16 ? diag_line_16 :
+                            diag_shown && row_c == 5'd17 ? diag_line_17 :
                             row_c == R_RESTORE_HELP && restore_ready ?
                             "HOLD SELECT 3s: RESTORE       " :
                             line_of(row_c, details, details_gb, msg_line,

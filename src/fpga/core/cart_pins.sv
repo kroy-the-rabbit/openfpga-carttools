@@ -138,7 +138,9 @@ wire        hi_oe_d   = sel_gba ? gba_hi_oe   : sel_gb ? gb_hi_oe   : sel_gg ? g
 wire [3:0]  ctl_out_d = sel_gba ? gba_ctl_out : sel_gb ? gb_ctl_out : sel_gg ? gg_ctl_out : 4'hf;
 wire        p30_out_d = sel_gba ? gba_p30_out : sel_gb ? gb_p30_out : sel_gg ? gg_p30_out : 1'b0;
 wire        p30_oe_d  = sel_gba ? gba_p30_oe  : sel_gb ? gb_p30_oe  : sel_gg ? gg_p30_oe  : 1'b0;
-wire        p31_oe_d  = sel_gb & gb_p31_oe;
+// gb_p31_oe already carries the registered GB mode. The settle counter stays
+// out of this path; through it the pin 31 cell missed setup.
+wire        p31_oe_d  = gb_p31_oe;
 
 // I/O-cell registers: pin timing must not depend on placement. Async reset releases without a clock.
 reg [15:0] ad_out;
@@ -169,7 +171,7 @@ always @(posedge clk or posedge reset) begin
         ctl_out <= ctl_out_d;
         p30_out <= p30_oe_d & p30_out_d;
         p30_oe  <= p30_oe_d;
-        p31_out <= p31_oe_d ? gb_p31_out : 1'b1;
+        p31_out <= gb_p31_out;
         p31_oe  <= p31_oe_d;
     end
 end
