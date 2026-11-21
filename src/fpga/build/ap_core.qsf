@@ -859,6 +859,9 @@ set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank0[5]
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank0[6]
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank0[7]
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_pin30
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_pin31
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_pin31_dir
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cart_tran_pin31
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank0_dir
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank1_dir
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank2_dir
@@ -930,6 +933,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE ../services/restore/restore_guard
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/restore/restore_engine.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../services/restore/restore_file_io.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../ui/ui_restore_screen.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../services/flash/flash_gb.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../ui/ui_textbuf.sv
 # ui_font.vh holds a module, not an include fragment, so it needs an explicit
 # file type: Quartus treats a .vh extension as include-only and would never

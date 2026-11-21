@@ -50,6 +50,8 @@ module cart_pins (
     input  wire [3:0]  gb_ctl_out,
     input  wire        gb_p30_out,
     input  wire        gb_p30_oe,
+    input  wire        gb_p31_out,
+    input  wire        gb_p31_oe,
     output wire [15:0] gb_ad_in,
     output wire [7:0]  gb_hi_in,
 
@@ -136,6 +138,9 @@ wire        hi_oe_d   = sel_gba ? gba_hi_oe   : sel_gb ? gb_hi_oe   : sel_gg ? g
 wire [3:0]  ctl_out_d = sel_gba ? gba_ctl_out : sel_gb ? gb_ctl_out : sel_gg ? gg_ctl_out : 4'hf;
 wire        p30_out_d = sel_gba ? gba_p30_out : sel_gb ? gb_p30_out : sel_gg ? gg_p30_out : 1'b0;
 wire        p30_oe_d  = sel_gba ? gba_p30_oe  : sel_gb ? gb_p30_oe  : sel_gg ? gg_p30_oe  : 1'b0;
+// gb_p31_oe already carries the registered GB mode. The settle counter stays
+// out of this path; through it the pin 31 cell missed setup.
+wire        p31_oe_d  = gb_p31_oe;
 
 // I/O-cell registers: pin timing must not depend on placement. Async reset releases without a clock.
 reg [15:0] ad_out;
@@ -145,6 +150,8 @@ reg        hi_oe;
 reg [3:0]  ctl_out;
 reg        p30_out;
 reg        p30_oe;
+reg        p31_out;
+reg        p31_oe;
 always @(posedge clk or posedge reset) begin
     if (reset) begin
         ad_out  <= 16'h0000;
@@ -154,6 +161,8 @@ always @(posedge clk or posedge reset) begin
         ctl_out <= 4'hf;
         p30_out <= 1'b0;
         p30_oe  <= 1'b0;
+        p31_out <= 1'b1;
+        p31_oe  <= 1'b0;
     end else begin
         ad_out  <= ad_out_d;
         ad_oe   <= ad_oe_d;
@@ -162,6 +171,8 @@ always @(posedge clk or posedge reset) begin
         ctl_out <= ctl_out_d;
         p30_out <= p30_oe_d & p30_out_d;
         p30_oe  <= p30_oe_d;
+        p31_out <= gb_p31_out;
+        p31_oe  <= p31_oe_d;
     end
 end
 
@@ -185,9 +196,10 @@ assign cart_tran_pin30_dir = p30_oe;
 assign cart_pin30_pwroff_reset = sel_gba || sel_gb || sel_gg;
 
 // Pin 31 is IRQ on GBA, analogue VIN on GB, and /GG mode sense through AP-A01.
-// All three are inputs to the Pocket. No engine may drive this pin.
-assign cart_tran_pin31     = 1'bz;
-assign cart_tran_pin31_dir = 1'b0;
+// All three are inputs to the Pocket. Only the GB flash engine drives it, as
+// WE# of a flash cartridge wired that way, and only around its command writes.
+assign cart_tran_pin31     = p31_oe ? p31_out : 1'bz;
+assign cart_tran_pin31_dir = p31_oe;
 
 assign gba_ad_in = {cart_tran_bank2, cart_tran_bank3};
 assign gba_hi_in = cart_tran_bank1;

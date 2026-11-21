@@ -17,6 +17,27 @@ A cartridge passes only when all applicable rules pass:
 `ROM PASS, SAVE PENDING` means only rule 1 has passed. Structural inspection of
 a save is useful triage but is never a substitute for rule 2.
 
+## Ferrante Crafts flash cartridge, 2026-11-20
+
+Dumped on build `7D63`. A reflashable cartridge holding its shipped test ROM,
+so no DAT record applies.
+
+| Status | File | Cartridge | Hardware | Bytes | CRC32 | SHA-256 |
+|---|---|---|---|---:|---|---|
+| NO DAT | `UNTITLED.gbc` | Ferrante Crafts flash cartridge, label 64 KB, test ROM | GB, blank title, CGB `80`, MBC5+RAM+BAT type `1B`, ROM code `01`, RAM code `03` | 65,536 | `32A84170` | `c1e9dea69447bdded40b55c822f663157bc634ceee820c4261e863fae1f5697c` |
+| NO RAM | `UNTITLED.sav` | same | reads all `FF` | 32,768 | `1B43EABD` | `2d864c0b789a43214eee8524d3182075125e5ca2cd527f3582ec87ffd94076bc` |
+
+Logo, header checksum `B4` and global checksum `22CD` pass. Banks 1, 2 and 3
+are byte-identical (CRC32 `AA81065D`); bank 0 is `66201396`. The global
+checksum only matches over the full 64 KiB (`876D` over 32 KiB), so the image
+was authored as 64 KiB. Flash size, 32 or 64 KiB, is not settled by the dump.
+
+Flash ID `BF B5` over pin 31 (build `05A3`); no answer over /WR (build `B490`).
+On build `5D6E` the cartridge was erased and written with Tetris (World)
+(Rev 1), CRC32 `46DF91AD`; all 32,768 bytes read back equal and it then
+identified as `TETRIS`, ROM-only, 32 KiB, checksum good. It no longer holds
+the test ROM above.
+
 ## Builds `9302` and `7D63`, 2026-09-19 and 2026-09-20
 
 The dump directory of the Pocket card as read on 2026-09-20. Every ROM below
