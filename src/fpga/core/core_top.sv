@@ -489,6 +489,11 @@ wire restore_preflight_done, restore_preflight_ok, restore_done, restore_failed;
 wire restore_authorized;
 wire [1:0] restore_hold_progress;
 reg restore_probe_pending, restore_engine_start;
+wire flash_busy, flash_done, flash_failed, flash_req, flash_wr;
+wire [1:0] flash_want_mode;
+wire [15:0] flash_addr;
+wire [7:0] flash_wdata;
+reg flash_start;
 wire restore_overlay = restore_guard_state != 0;
 reg restore_input_wait;
 wire restore_entry_key = cont1_key_s[14];
@@ -843,6 +848,7 @@ wire        save_scan_want_gba;
 // this the request falls back to parked idle for exactly one cycle and
 // cart_pins begins a turnaround nobody wanted.
 wire [1:0]  cart_mode_req_raw = (restore_want_mode != 2'b00) ? restore_want_mode :
+                               (flash_want_mode != 2'b00) ? flash_want_mode :
                                (dump_want_mode != 2'b00) ? dump_want_mode :
                                 (sz_want_gba | save_scan_want_gba |
                                  save_scan_start |
@@ -885,10 +891,11 @@ wire [7:0]  dmp_wdata;
 wire restore_owns_cart = restore_want_mode != 0;
 wire        dump_gb_rom_reading;
 wire        restore_rom_reading;
-wire        gb_req_mux   = restore_owns_cart ? restore_req   : dump_busy ? dmp_req   : gbid_req;
-wire        gb_wr_mux    = restore_owns_cart ? restore_wr    : dump_busy ? dmp_wr    : gbid_wr;
-wire [15:0] gb_addr_mux  = restore_owns_cart ? restore_addr  : dump_busy ? dmp_addr  : gbid_addr;
-wire [7:0]  gb_wdata_mux = restore_owns_cart ? restore_wdata : dump_busy ? dmp_wdata : gbid_wdata;
+wire flash_owns_cart = flash_want_mode != 0;
+wire        gb_req_mux   = restore_owns_cart ? restore_req   : flash_owns_cart ? flash_req   : dump_busy ? dmp_req   : gbid_req;
+wire        gb_wr_mux    = restore_owns_cart ? restore_wr    : flash_owns_cart ? flash_wr    : dump_busy ? dmp_wr    : gbid_wr;
+wire [15:0] gb_addr_mux  = restore_owns_cart ? restore_addr  : flash_owns_cart ? flash_addr  : dump_busy ? dmp_addr  : gbid_addr;
+wire [7:0]  gb_wdata_mux = restore_owns_cart ? restore_wdata : flash_owns_cart ? flash_wdata : dump_busy ? dmp_wdata : gbid_wdata;
 
 gb_cart_bus gb_bus (
     .clk       ( clk_sys ),
@@ -897,7 +904,7 @@ gb_cart_bus gb_bus (
     // Precharge stays for the probe, save and restore RAM traffic; a GB ROM
     // read pass (the dump, or the restore identity check, which reads the
     // whole ROM the same way) releases the data pins between transactions.
-    .idle_precharge ( ~(dump_gb_rom_reading || restore_rom_reading) ),
+    .idle_precharge ( ~(dump_gb_rom_reading || restore_rom_reading || flash_owns_cart) ),
 
     .req       ( gb_req_mux ),
     .wr        ( gb_wr_mux ),
@@ -1212,7 +1219,8 @@ wire        probe_done;
 // stay available throughout. The bus conflict that would create is handled by
 // resetting the scanner when a dump starts, below, rather than by making the
 // user wait for it.
-wire        cart_engine_busy = probe_busy | probe_sizing | sz_start | ggid_busy | gg_start;
+wire        cart_engine_busy = probe_busy | probe_sizing | sz_start | ggid_busy | gg_start |
+                               flash_busy | flash_start;
 
 // A file action is accepted from the current screen state, but it first
 // requests a new probe. The guard holds the action until the newly read
@@ -1235,7 +1243,7 @@ wire        scan_start = core_reset_n_s && (cart_wake_pulse | cart_mode_fell |
                           (key_a_edge & ~restore_block) |
                           action_scan_start | restore_preflight_request | restore_reprobe_request) &
                          ~dump_busy & ~probe_sizing & ~sz_start & ~ggid_busy & ~gg_start &
-                         (~restore_busy | restore_reprobe_request);
+                         (~restore_busy | restore_reprobe_request) & ~flash_busy & ~flash_start;
 wire [2:0]  platform;
 wire        gb_start, gba_start, gg_start;
 wire ggid_busy, ggid_done;
@@ -2114,6 +2122,56 @@ restore_engine #(.WRITE_ENABLED(RESTORE_WRITE_ENABLED)) restore (
     .bus_done(gb_bus_done), .bus_busy(gb_bus_busy)
 );
 
+// Flash ID probe. Start held alone for three seconds on an identified GB
+// cartridge.
+localparam [28:0] FLASH_HOLD_CYCLES = 29'd301989888;
+wire flash_key = cont1_key_s[15] && cont1_key_s[14:0] == 15'd0;
+wire flash_available = id_valid && platform == 3'd2 && !cart_engine_busy &&
+    !dump_busy && !action_pending && !restore_block && cart_run_allowed;
+reg [28:0] flash_hold;
+reg flash_fired;
+always @(posedge clk_sys) begin
+    flash_start <= 1'b0;
+    if (~pll_core_locked || !flash_key) begin
+        flash_hold  <= 29'd0;
+        flash_fired <= 1'b0;
+    end else if (!flash_available || flash_fired) begin
+        flash_hold <= 29'd0;
+    end else if (flash_hold == FLASH_HOLD_CYCLES) begin
+        flash_hold  <= 29'd0;
+        flash_fired <= 1'b1;
+        flash_start <= 1'b1;
+    end else begin
+        flash_hold <= flash_hold + 29'd1;
+    end
+end
+
+wire [15:0] flash_rom_before, flash_id_bytes, flash_rom_after;
+wire flash_answered, flash_unchanged;
+flash_id_gb flash_id (
+    .clk(clk_sys), .reset(~pll_core_locked),
+    .start(flash_start), .cancel(cart_mode_change || !core_reset_n_s),
+    .cart_powered(cart_mode_s), .mode_ready(gb_mode_s),
+    .want_mode(flash_want_mode), .busy(flash_busy), .done(flash_done),
+    .failed(flash_failed),
+    .rom_before(flash_rom_before), .flash_id(flash_id_bytes),
+    .rom_after(flash_rom_after), .answered(flash_answered),
+    .unchanged(flash_unchanged),
+    .bus_req(flash_req), .bus_wr(flash_wr), .bus_addr(flash_addr),
+    .bus_wdata(flash_wdata), .bus_rdata(gb_bus_rdata),
+    .bus_done(gb_bus_done), .bus_busy(gb_bus_busy)
+);
+
+// 0 none, 1 running, 2 complete, 3 failed. Cleared with the dump display.
+reg [1:0] flash_state;
+always @(posedge clk_sys) begin
+    if (~pll_core_locked || !core_reset_n_s || scan_start ||
+        cart_mode_change || dump_start) flash_state <= 2'd0;
+    else if (flash_start)  flash_state <= 2'd1;
+    else if (flash_done && flash_state == 2'd1)
+                           flash_state <= flash_failed ? 2'd3 : 2'd2;
+end
+
 // cart_play and cart_power are in the clk_74a domain. The diagnostics page
 // reports them raw rather than as the AND the bus uses.
 // Adapter diagnostics use cart_report_s and cart_report_valid_s from the mailbox.
@@ -2176,6 +2234,13 @@ ui_screen screen (
     .pair_first_addr( dump_pair_first_addr ),
     .pair_first_a  ( dump_pair_first_a ),
     .pair_first_b  ( dump_pair_first_b ),
+
+    .flash_state    ( flash_state ),
+    .flash_before   ( flash_rom_before ),
+    .flash_id       ( flash_id_bytes ),
+    .flash_after    ( flash_rom_after ),
+    .flash_answered ( flash_answered ),
+    .flash_unchanged( flash_unchanged ),
 
     .gb_title       ( gbid_title ),
     .gb_cart_type   ( gbid_cart_type ),

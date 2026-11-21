@@ -92,6 +92,15 @@ module ui_screen #(
     input  wire [7:0]   pair_first_a,
     input  wire [7:0]   pair_first_b,
 
+    // Flash ID probe. 0 none, 1 running, 2 complete, 3 failed. The values are
+    // stable before flash_state reaches 2.
+    input  wire [1:0]   flash_state,
+    input  wire [15:0]  flash_before,
+    input  wire [15:0]  flash_id,
+    input  wire [15:0]  flash_after,
+    input  wire         flash_answered,
+    input  wire         flash_unchanged,
+
     // Game Boy fields, used when platform is P_GB.
     input  wire [119:0] gb_title,
     input  wire [7:0]   gb_cart_type,
@@ -350,7 +359,7 @@ endfunction
 // out_ext are the exception: path generation finishes after paint_dump_state enters
 // RUN, so out_name_valid repaints once those fields belong to this dump
 // without putting their 192 bits here.
-wire [48:0] snapshot = {adapter_diagnostic, adapter_valid, adapter_seq, valid, scanning, platform, answered_protocol, id_seq,
+wire [50:0] snapshot = {flash_state, adapter_diagnostic, adapter_valid, adapter_seq, valid, scanning, platform, answered_protocol, id_seq,
                         save_ready, restore_ready, save_shown, save_refused,
                         // The probed size, as a code. Four bits, and they are
                         // needed: the size arrives after the probe that
@@ -363,7 +372,7 @@ wire [48:0] snapshot = {adapter_diagnostic, adapter_valid, adapter_seq, valid, s
                         // changes only when they do.
                         dump_progress[7:4], dump_err, out_name_valid};
 
-reg [48:0] shown;
+reg [50:0] shown;
 reg         painting;
 
 // ---- Where the painter is -------------------------------------------------
@@ -681,6 +690,23 @@ wire [LW-1:0] gg_header_line = lynx && platform == P_GG ? "READS STABLE         
                             "HEADER UNRECOGNISED           ";
 wire gg_verdict_shown = details_gg && (paint_dump_state == 2'd2 || paint_dump_state == 2'd3) &&
                        gg_verify_checked;
+function [31:0] hex16(input [15:0] v);
+    hex16 = {hex_digit(v[15:12]), hex_digit(v[11:8]),
+             hex_digit(v[7:4]), hex_digit(v[3:0])};
+endfunction
+wire flash_shown = details_gb && flash_state != 2'd0;
+wire flash_ok = flash_state == 2'd2;
+wire [LW-1:0] flash_id_line =
+    flash_state == 2'd1 ? "FLASH ID PROBE RUNNING        " :
+    flash_state == 2'd3 ? "FLASH ID PROBE FAILED         " :
+    {"FLASH ID ", hex_digit(flash_id[15:12]), hex_digit(flash_id[11:8]), " ",
+     hex_digit(flash_id[7:4]), hex_digit(flash_id[3:0]),
+     (flash_answered ? "  ANSWERED /WR  " : "  NO ANSWER     ")};
+wire [LW-1:0] flash_rom_line = !flash_ok ? ROW_BLANKR :
+    {"ROM 0000 ", hex16(flash_before), " THEN ", hex16(flash_after), "       "};
+wire [LW-1:0] flash_verdict_line = !flash_ok ? ROW_BLANKR :
+    flash_unchanged ? "ROM READS BACK UNCHANGED      " :
+                      "ROM CHANGED AFTER PROBE       ";
 wire [LW-1:0] gg_verify_line = gg_verify_ok ?
     "SELECTED RANGE CRC AGREES     " : "SELECTED RANGE CRC MISMATCH   ";
 
@@ -697,7 +723,11 @@ wire [LW-1:0] static_next = adapter_diagnostic ? adapter_line(row_c) :
                                 lynx ? "SMALLER ROMS REPEAT IN FILE   " : "LEFT 256 KB   RIGHT 512 KB    " :
                             details_gg && row_c == 5'd17 ?
                                 "ROM ONLY; SAVE NOT SUPPORTED  " :
-                            gg_verdict_shown && row_c == R_VERIFY ? gg_verify_line : pair_shown && row_c == 5'd15 ? pair_count_line :
+                            gg_verdict_shown && row_c == R_VERIFY ? gg_verify_line :
+                            flash_shown && row_c == 5'd15 ? flash_id_line :
+                            flash_shown && row_c == 5'd16 ? flash_rom_line :
+                            flash_shown && row_c == 5'd17 ? flash_verdict_line :
+                            pair_shown && row_c == 5'd15 ? pair_count_line :
                             pair_shown && row_c == 5'd16 ? pair_parity_line :
                             pair_shown && row_c == 5'd17 ? pair_first_line :
                             row_c == R_RESTORE_HELP && restore_ready ?
@@ -965,7 +995,7 @@ always @(posedge clk) begin
         col_c    <= 5'd0;
         addr_c   <= 10'd0;
         paint_r  <= 1'b0;
-        shown    <= {49{1'b1}};   // deliberately not a reachable snapshot
+        shown    <= {51{1'b1}};   // deliberately not a reachable snapshot
         tb_we    <= 1'b0;
     end else begin
         tb_we <= 1'b0;
