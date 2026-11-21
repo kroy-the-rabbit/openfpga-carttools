@@ -39,6 +39,10 @@ module gb_cart_bus #(
 
     input  wire        req,           // sampled in idle only
     input  wire        wr,
+    // A write with wr_alt strobes pin 31 in place of /WR. alt_enable drives
+    // pin 31 high between those strobes.
+    input  wire        wr_alt,
+    input  wire        alt_enable,
     input  wire [15:0] addr,
     input  wire [7:0]  wdata,
     output reg  [7:0]  rdata,
@@ -53,6 +57,8 @@ module gb_cart_bus #(
     output wire [3:0]  e_ctl_out,     // {PHI, WR_n, RD_n, CS_n}
     output wire        e_p30_out,
     output wire        e_p30_oe,
+    output wire        e_p31_out,
+    output wire        e_p31_oe,
     input  wire [15:0] e_ad_in,
     input  wire [7:0]  e_hi_in
 );
@@ -72,9 +78,11 @@ reg [7:0]  wait_count;
 reg [15:0] latched_addr;
 reg [7:0]  latched_wdata;
 reg        latched_wr;
+reg        latched_alt;
 
 reg        rd_n;
 reg        wr_n;
+reg        alt_n;
 reg        addr_drive;
 reg        data_drive;
 
@@ -149,6 +157,9 @@ assign e_ctl_out = gb_mode ? {phi, wr_n, rd_n, ~(cs_active & busy)} : 4'hF;
 assign e_p30_out = 1'b1;
 assign e_p30_oe  = gb_mode;
 
+assign e_p31_out = alt_n;
+assign e_p31_oe  = gb_mode & alt_enable;
+
 // ---- Sequencer ------------------------------------------------------------
 
 always @(posedge clk) begin
@@ -160,9 +171,11 @@ always @(posedge clk) begin
         latched_addr  <= 16'd0;
         latched_wdata <= 8'd0;
         latched_wr    <= 1'b0;
+        latched_alt   <= 1'b0;
         rdata         <= 8'd0;
         rd_n          <= 1'b1;
         wr_n          <= 1'b1;
+        alt_n         <= 1'b1;
         addr_drive    <= 1'b0;
         data_drive    <= 1'b0;
         refuse        <= 1'b0;
@@ -171,6 +184,7 @@ always @(posedge clk) begin
             ST_IDLE: begin
                 rd_n       <= 1'b1;
                 wr_n       <= 1'b1;
+                alt_n      <= 1'b1;
                 addr_drive <= 1'b0;
                 data_drive    <= idle_precharge;
                 latched_wdata <= 8'hFF;
@@ -184,6 +198,7 @@ always @(posedge clk) begin
                     // low if data arrives before output-disable does.
                     latched_wdata <= wr ? wdata : 8'hFF;
                     latched_wr    <= wr;
+                    latched_alt   <= wr && wr_alt;
                     addr_drive    <= 1'b1;
                     // Write data goes out with the address, so it is stable
                     // for the whole of the strobe.
@@ -195,8 +210,9 @@ always @(posedge clk) begin
 
             ST_SETUP: begin
                 if (wait_count == 8'd0) begin
-                    if (latched_wr) wr_n <= 1'b0;
-                    else            rd_n <= 1'b0;
+                    if (latched_alt)     alt_n <= 1'b0;
+                    else if (latched_wr) wr_n  <= 1'b0;
+                    else                 rd_n  <= 1'b0;
                     wait_count <= STROBE_COUNT;
                     state      <= ST_STROBE;
                 end else begin
@@ -213,6 +229,7 @@ always @(posedge clk) begin
                 if (wait_count == 8'd0) begin
                     rd_n       <= 1'b1;
                     wr_n       <= 1'b1;
+                    alt_n      <= 1'b1;
                     wait_count <= HOLD_COUNT;
                     state      <= ST_HOLD;
                 end else begin

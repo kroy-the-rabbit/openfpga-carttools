@@ -490,6 +490,8 @@ wire restore_authorized;
 wire [1:0] restore_hold_progress;
 reg restore_probe_pending, restore_engine_start;
 wire flash_busy, flash_done, flash_failed, flash_req, flash_wr;
+wire flash_alt, flash_p31_enable, flash_used_p31;
+wire gb_p31_out, gb_p31_oe;
 wire [1:0] flash_want_mode;
 wire [15:0] flash_addr;
 wire [7:0] flash_wdata;
@@ -908,6 +910,8 @@ gb_cart_bus gb_bus (
 
     .req       ( gb_req_mux ),
     .wr        ( gb_wr_mux ),
+    .wr_alt    ( flash_owns_cart && flash_alt ),
+    .alt_enable( flash_owns_cart && flash_p31_enable ),
     .addr      ( gb_addr_mux ),
     .wdata     ( gb_wdata_mux ),
     .rdata     ( gb_bus_rdata ),
@@ -921,6 +925,8 @@ gb_cart_bus gb_bus (
     .e_ctl_out ( gb_ctl_out ),
     .e_p30_out ( gb_p30_out ),
     .e_p30_oe  ( gb_p30_oe ),
+    .e_p31_out ( gb_p31_out ),
+    .e_p31_oe  ( gb_p31_oe ),
     .e_ad_in   ( gb_ad_in ),
     .e_hi_in   ( gb_hi_in )
 );
@@ -1017,6 +1023,8 @@ cart_pins cart_pins_inst (
     .gb_ctl_out             ( gb_ctl_out ),
     .gb_p30_out             ( gb_p30_out ),
     .gb_p30_oe              ( gb_p30_oe ),
+    .gb_p31_out             ( gb_p31_out ),
+    .gb_p31_oe              ( gb_p31_oe ),
     .gb_ad_in               ( gb_ad_in ),
     .gb_hi_in               ( gb_hi_in ),
     .gg_addr_direct         ( lynx_sel ),
@@ -2122,10 +2130,12 @@ restore_engine #(.WRITE_ENABLED(RESTORE_WRITE_ENABLED)) restore (
     .bus_done(gb_bus_done), .bus_busy(gb_bus_busy)
 );
 
-// Flash ID probe. Start held alone for three seconds on an identified GB
-// cartridge.
+// Flash ID probe. Start held for three seconds on an identified GB cartridge:
+// alone for WE# on /WR, with L for WE# on pin 31.
 localparam [28:0] FLASH_HOLD_CYCLES = 29'd301989888;
-wire flash_key = cont1_key_s[15] && cont1_key_s[14:0] == 15'd0;
+wire flash_key = cont1_key_s[15] && (cont1_key_s[14:0] & ~15'h0100) == 15'd0;
+wire flash_key_p31 = cont1_key_s[8];
+reg flash_use_p31;
 wire flash_available = id_valid && platform == 3'd2 && !cart_engine_busy &&
     !dump_busy && !action_pending && !restore_block && cart_run_allowed;
 reg [28:0] flash_hold;
@@ -2135,6 +2145,10 @@ always @(posedge clk_sys) begin
     if (~pll_core_locked || !flash_key) begin
         flash_hold  <= 29'd0;
         flash_fired <= 1'b0;
+        flash_use_p31 <= flash_key_p31;
+    end else if (flash_key_p31 != flash_use_p31) begin
+        flash_hold    <= 29'd0;
+        flash_use_p31 <= flash_key_p31;
     end else if (!flash_available || flash_fired) begin
         flash_hold <= 29'd0;
     end else if (flash_hold == FLASH_HOLD_CYCLES) begin
@@ -2151,13 +2165,15 @@ wire flash_answered, flash_unchanged;
 flash_id_gb flash_id (
     .clk(clk_sys), .reset(~pll_core_locked),
     .start(flash_start), .cancel(cart_mode_change || !core_reset_n_s),
+    .use_p31(flash_use_p31),
     .cart_powered(cart_mode_s), .mode_ready(gb_mode_s),
     .want_mode(flash_want_mode), .busy(flash_busy), .done(flash_done),
     .failed(flash_failed),
     .rom_before(flash_rom_before), .flash_id(flash_id_bytes),
     .rom_after(flash_rom_after), .answered(flash_answered),
-    .unchanged(flash_unchanged),
-    .bus_req(flash_req), .bus_wr(flash_wr), .bus_addr(flash_addr),
+    .unchanged(flash_unchanged), .used_p31(flash_used_p31),
+    .p31_enable(flash_p31_enable),
+    .bus_req(flash_req), .bus_wr(flash_wr), .bus_alt(flash_alt), .bus_addr(flash_addr),
     .bus_wdata(flash_wdata), .bus_rdata(gb_bus_rdata),
     .bus_done(gb_bus_done), .bus_busy(gb_bus_busy)
 );
@@ -2241,6 +2257,7 @@ ui_screen screen (
     .flash_after    ( flash_rom_after ),
     .flash_answered ( flash_answered ),
     .flash_unchanged( flash_unchanged ),
+    .flash_p31      ( flash_used_p31 ),
 
     .gb_title       ( gbid_title ),
     .gb_cart_type   ( gbid_cart_type ),

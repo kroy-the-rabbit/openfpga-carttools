@@ -100,6 +100,7 @@ module ui_screen #(
     input  wire [15:0]  flash_after,
     input  wire         flash_answered,
     input  wire         flash_unchanged,
+    input  wire         flash_p31,
 
     // Game Boy fields, used when platform is P_GB.
     input  wire [119:0] gb_title,
@@ -701,7 +702,8 @@ wire [LW-1:0] flash_id_line =
     flash_state == 2'd3 ? "FLASH ID PROBE FAILED         " :
     {"FLASH ID ", hex_digit(flash_id[15:12]), hex_digit(flash_id[11:8]), " ",
      hex_digit(flash_id[7:4]), hex_digit(flash_id[3:0]),
-     (flash_answered ? "  ANSWERED /WR  " : "  NO ANSWER     ")};
+     (flash_answered ? (flash_p31 ? "  ANSWERED P31  " : "  ANSWERED /WR  ")
+                     : (flash_p31 ? "  NO ANSWER P31 " : "  NO ANSWER /WR "))};
 wire [LW-1:0] flash_rom_line = !flash_ok ? ROW_BLANKR :
     {"ROM 0000 ", hex16(flash_before), " THEN ", hex16(flash_after), "       "};
 wire [LW-1:0] flash_verdict_line = !flash_ok ? ROW_BLANKR :

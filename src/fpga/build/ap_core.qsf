@@ -859,6 +859,9 @@ set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank0[5]
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank0[6]
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank0[7]
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_pin30
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_pin31
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_pin31_dir
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cart_tran_pin31
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank0_dir
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank1_dir
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cart_tran_bank2_dir

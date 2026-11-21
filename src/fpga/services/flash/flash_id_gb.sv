@@ -2,9 +2,10 @@
 `default_nettype none
 
 // Software ID probe for an SST39SF-family flash on a GB cartridge whose WE#
-// is wired to /WR. Sequence from the SST39SF010A/020A/040 datasheet: Software
+// is wired to /WR, or to connector pin 31 when use_p31 is set. Sequence from the SST39SF010A/020A/040 datasheet: Software
 // ID Entry 5555:AA 2AAA:55 5555:90, read 0000 and 0001, Software ID Exit F0.
-// Cartridge wiring reference: FlashGBX config fc_DMG_FerranteCrafts_32KB_2.txt.
+// Cartridge wiring reference: FlashGBX config fc_DMG_FerranteCrafts_32KB.txt,
+// fc_DMG_FerranteCrafts_32KB_2.txt and fc_DMG_FerranteCrafts_64KB.txt.
 //
 // No erase or program command is formed. The command writes also land on MBC5
 // registers, so ROM bank 1, RAM bank 0 and RAM disabled are written back after.
@@ -17,6 +18,7 @@ module flash_id_gb #(
     input  wire        reset,
     input  wire        start,
     input  wire        cancel,
+    input  wire        use_p31,
     input  wire        cart_powered,
     input  wire        mode_ready,
 
@@ -30,9 +32,12 @@ module flash_id_gb #(
     output reg  [15:0] rom_after,
     output reg         answered,     // flash_id differs from rom_before
     output reg         unchanged,    // rom_after equals rom_before
+    output reg         used_p31,
+    output reg         p31_enable,   // pin 31 driven; high outside its strobes
 
     output reg         bus_req,
     output reg         bus_wr,
+    output reg         bus_alt,      // strobe pin 31 in place of /WR
     output reg  [15:0] bus_addr,
     output reg  [7:0]  bus_wdata,
     input  wire [7:0]  bus_rdata,
@@ -75,6 +80,8 @@ reg        fail_l;
 assign want_mode = mode_owned ? 2'b10 : 2'b00;
 
 wire [24:0] cur = step_of(step);
+// The four flash command writes.
+wire cmd_step = step == 4'd3 || step == 4'd4 || step == 4'd5 || step == 4'd8;
 wire committed = step > FIRST_WRITE || (step == FIRST_WRITE && state != S_LOAD);
 
 always @(posedge clk) begin
@@ -94,6 +101,9 @@ always @(posedge clk) begin
         rom_after  <= 16'd0;
         answered   <= 1'b0;
         unchanged  <= 1'b0;
+        used_p31   <= 1'b0;
+        p31_enable <= 1'b0;
+        bus_alt    <= 1'b0;
         bus_wr     <= 1'b0;
         bus_addr   <= 16'd0;
         bus_wdata  <= 8'd0;
@@ -105,6 +115,7 @@ always @(posedge clk) begin
                     failed     <= 1'b0;
                     fail_l     <= 1'b0;
                     mode_owned <= 1'b1;
+                    used_p31   <= use_p31;
                     step       <= 4'd0;
                     timer      <= WAKE_CYCLES;
                     state      <= S_WAKE;
@@ -130,6 +141,9 @@ always @(posedge clk) begin
                     state  <= S_DRAIN;
                 end else if (!bus_busy && !bus_done) begin
                     bus_wr    <= cur[24];
+                    bus_alt   <= used_p31 && cmd_step;
+                    // One mapper write ahead of the first strobe.
+                    if (used_p31 && step == FIRST_WRITE) p31_enable <= 1'b1;
                     bus_addr  <= cur[23:8];
                     bus_wdata <= cur[7:0];
                     state     <= S_REQ;
@@ -155,6 +169,7 @@ always @(posedge clk) begin
                         4'd13: rom_after[7:0]   <= bus_rdata;
                         default: ;
                     endcase
+                    if (step == 4'd8) p31_enable <= 1'b0;
                     if (step == LAST_STEP) begin
                         state <= S_DRAIN;
                     end else begin
@@ -173,6 +188,7 @@ always @(posedge clk) begin
             S_DRAIN: begin
                 if (!bus_busy || !cart_powered) begin
                     mode_owned <= 1'b0;
+                    p31_enable <= 1'b0;
                     busy       <= 1'b0;
                     done       <= 1'b1;
                     failed     <= fail_l;

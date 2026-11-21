@@ -50,7 +50,7 @@ Verified cartridges are listed in [CARTRIDGE-CORPUS](docs/CARTRIDGE-CORPUS.md).
 | Game Gear dump | Sega ROM-control registers |
 | Lynx dump | None |
 | Save restore | GB / GBC save RAM, after a verified recovery file and a three-second hold |
-| Flash ID probe | SST software ID entry and exit commands, MBC5 bank registers, after a three-second Start hold |
+| Flash ID probe | SST software ID entry and exit commands, MBC5 bank registers, after a three-second Start hold. With L held, the commands strobe connector pin 31 |
 
 ## Versions
 

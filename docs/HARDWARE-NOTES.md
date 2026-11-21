@@ -693,7 +693,10 @@ correct from configuration onward, not just once the core is running.
   audio input into the console's mixer (`S13`). It is not a digital pin. Both
   the template (`S1:246-247`) and both working cores (`S4:124-125`, `S8:1032-1033`)
   leave it tri-stated with direction `0`. Never drive it. Falsified by: a
-  documented use of pin 31 as an output; I found none.
+  documented use of pin 31 as an output; I found none. Exception, 2026-11-20:
+  the flash ID probe drives it as WE# for a Ferrante Crafts flash cartridge,
+  only around its four command writes, at the maintainer's accepted risk to
+  the Pocket's audio ADC input (`audio_adc`, framework 1.2).
 - **Driving PHI into a cartridge that does not expect it.** GBA cartridges can
   have PHI disabled entirely. The donor drives it constantly low in cart mode
   (`S4:117`) while the template idle drives it high (`S1:241`). A DC level on a
