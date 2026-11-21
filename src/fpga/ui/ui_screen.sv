@@ -92,9 +92,16 @@ module ui_screen #(
     input  wire [7:0]   pair_first_a,
     input  wire [7:0]   pair_first_b,
 
-    // Flash ID probe. 0 none, 1 running, 2 complete, 3 failed. The values are
-    // stable before flash_state reaches 2.
-    input  wire [1:0]   flash_state,
+    // Flash engine; flash_view is flash_gb's view code. Every value is stable
+    // before the view that shows it.
+    input  wire [3:0]   flash_view,
+    input  wire [1:0]   flash_wphase,
+    input  wire [31:0]  flash_file_crc,
+    input  wire [31:0]  flash_read_crc,
+    input  wire [2:0]   flash_err,
+    input  wire [3:0]   flash_io_err,
+    input  wire [15:0]  flash_mis_count,
+    input  wire [15:0]  flash_mis_addr,
     input  wire [15:0]  flash_before,
     input  wire [15:0]  flash_id,
     input  wire [15:0]  flash_after,
@@ -360,7 +367,7 @@ endfunction
 // out_ext are the exception: path generation finishes after paint_dump_state enters
 // RUN, so out_name_valid repaints once those fields belong to this dump
 // without putting their 192 bits here.
-wire [50:0] snapshot = {flash_state, adapter_diagnostic, adapter_valid, adapter_seq, valid, scanning, platform, answered_protocol, id_seq,
+wire [54:0] snapshot = {flash_view, flash_wphase, adapter_diagnostic, adapter_valid, adapter_seq, valid, scanning, platform, answered_protocol, id_seq,
                         save_ready, restore_ready, save_shown, save_refused,
                         // The probed size, as a code. Four bits, and they are
                         // needed: the size arrives after the probe that
@@ -373,7 +380,7 @@ wire [50:0] snapshot = {flash_state, adapter_diagnostic, adapter_valid, adapter_
                         // changes only when they do.
                         dump_progress[7:4], dump_err, out_name_valid};
 
-reg [50:0] shown;
+reg [54:0] shown;
 reg         painting;
 
 // ---- Where the painter is -------------------------------------------------
@@ -695,28 +702,63 @@ function [31:0] hex16(input [15:0] v);
     hex16 = {hex_digit(v[15:12]), hex_digit(v[11:8]),
              hex_digit(v[7:4]), hex_digit(v[3:0])};
 endfunction
-wire flash_shown = details_gb && flash_state != 2'd0;
-wire flash_ok = flash_state == 2'd2;
-wire [LW-1:0] flash_id_line =
-    flash_state == 2'd1 ? "FLASH ID PROBE RUNNING        " :
-    flash_state == 2'd3 ? "FLASH ID PROBE FAILED         " :
-    {"FLASH ID ", hex_digit(flash_id[15:12]), hex_digit(flash_id[11:8]), " ",
-     hex_digit(flash_id[7:4]), hex_digit(flash_id[3:0]),
-     (flash_answered ? (flash_p31 ? "  ANSWERED P31  " : "  ANSWERED /WR  ")
-                     : (flash_p31 ? "  NO ANSWER P31 " : "  NO ANSWER /WR "))};
-wire [LW-1:0] flash_rom_line = !flash_ok ? ROW_BLANKR :
-    {"ROM 0000 ", hex16(flash_before), " THEN ", hex16(flash_after), "       "};
-wire [LW-1:0] flash_verdict_line = !flash_ok ? ROW_BLANKR :
-    flash_unchanged ? "ROM READS BACK UNCHANGED      " :
-                      "ROM CHANGED AFTER PROBE       ";
+function [63:0] hex32(input [31:0] v);
+    hex32 = {hex16(v[31:16]), hex16(v[15:0])};
+endfunction
+wire flash_shown = details_gb && flash_view != 4'd0;
+wire [39:0] flash_id_text = {hex_digit(flash_id[15:12]), hex_digit(flash_id[11:8]), " ",
+                             hex_digit(flash_id[7:4]), hex_digit(flash_id[3:0])};
+function [LW-1:0] flash_line_15(input [3:0] v);
+    case (v)
+        4'd1:    flash_line_15 = "FLASH ID PROBE RUNNING        ";
+        4'd2:    flash_line_15 = {"FLASH ID ", flash_id_text,
+                     (flash_answered ? (flash_p31 ? "  ANSWERED P31  " : "  ANSWERED /WR  ")
+                                     : (flash_p31 ? "  NO ANSWER P31 " : "  NO ANSWER /WR "))};
+        4'd3:    flash_line_15 = "FLASH ID PROBE FAILED         ";
+        4'd4:    flash_line_15 = "LOADING RESTORE.SAV           ";
+        4'd5:    flash_line_15 = {"FLASH FILE CRC ", hex32(flash_file_crc), "       "};
+        4'd6:    flash_line_15 = {"FLASH FILE LOAD FAILED ERR ", hex_digit(flash_io_err), "  "};
+        4'd7:    flash_line_15 = "FLASHING. DO NOT REMOVE.      ";
+        4'd8:    flash_line_15 = {"FLASH VERIFIED  CRC ", hex32(flash_read_crc), "  "};
+        default: flash_line_15 = {"FLASH FAILED  ERR ", hex_digit({1'b0, flash_err}), "           "};
+    endcase
+endfunction
+function [LW-1:0] flash_line_16(input [3:0] v);
+    case (v)
+        4'd2:    flash_line_16 = {"ROM 0000 ", hex16(flash_before), " THEN ", hex16(flash_after), "       "};
+        4'd5:    flash_line_16 = "32 KB FROM RESTORE.SAV        ";
+        4'd6:    flash_line_16 = "NEEDS 32768 BYTE RESTORE.SAV  ";
+        4'd7:    flash_line_16 = flash_wphase == 2'd0 ? "ERASING                       " :
+                                 flash_wphase == 2'd1 ? "WRITING                       " :
+                                                        "VERIFYING                     ";
+        4'd8:    flash_line_16 = "32768 BYTES READ BACK EQUAL   ";
+        4'd9:    flash_line_16 = {"MISMATCHES ", hex16(flash_mis_count), "  FIRST ",
+                                  hex16(flash_mis_addr), "   "};
+        default: flash_line_16 = ROW_BLANKR;
+    endcase
+endfunction
+function [LW-1:0] flash_line_17(input [3:0] v);
+    case (v)
+        4'd2:    flash_line_17 = flash_unchanged ? "ROM READS BACK UNCHANGED      " :
+                                                   "ROM CHANGED AFTER PROBE       ";
+        4'd5:    flash_line_17 = "HOLD START+R 3s: ERASE+WRITE  ";
+        4'd9:    flash_line_17 = {"FLASH ID ", flash_id_text, "                "};
+        default: flash_line_17 = ROW_BLANKR;
+    endcase
+endfunction
 wire [LW-1:0] gg_verify_line = gg_verify_ok ?
     "SELECTED RANGE CRC AGREES     " : "SELECTED RANGE CRC MISMATCH   ";
 
-// Chosen ahead of the row mux, so the flash rows add no depth to it.
-wire diag_shown = flash_shown || pair_shown;
-wire [LW-1:0] diag_line_15 = flash_shown ? flash_id_line : pair_count_line;
-wire [LW-1:0] diag_line_16 = flash_shown ? flash_rom_line : pair_parity_line;
-wire [LW-1:0] diag_line_17 = flash_shown ? flash_verdict_line : pair_first_line;
+// Registered ahead of the row mux, so these rows add no depth to it. A
+// repaint reaches row 15 hundreds of clocks after the snapshot moves.
+reg diag_shown;
+reg [LW-1:0] diag_line_15, diag_line_16, diag_line_17;
+always @(posedge clk) begin
+    diag_shown   <= flash_shown || pair_shown;
+    diag_line_15 <= flash_shown ? flash_line_15(flash_view) : pair_count_line;
+    diag_line_16 <= flash_shown ? flash_line_16(flash_view) : pair_parity_line;
+    diag_line_17 <= flash_shown ? flash_line_17(flash_view) : pair_first_line;
+end
 
 wire [LW-1:0] static_next = adapter_diagnostic ? adapter_line(row_c) :
                             decoded_gg && row_c == R_NAME ? gg_product_line :
@@ -1000,7 +1042,7 @@ always @(posedge clk) begin
         col_c    <= 5'd0;
         addr_c   <= 10'd0;
         paint_r  <= 1'b0;
-        shown    <= {51{1'b1}};   // deliberately not a reachable snapshot
+        shown    <= {55{1'b1}};   // deliberately not a reachable snapshot
         tb_we    <= 1'b0;
     end else begin
         tb_we <= 1'b0;

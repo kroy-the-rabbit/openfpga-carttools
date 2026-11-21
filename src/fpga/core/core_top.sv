@@ -489,7 +489,8 @@ wire restore_preflight_done, restore_preflight_ok, restore_done, restore_failed;
 wire restore_authorized;
 wire [1:0] restore_hold_progress;
 reg restore_probe_pending, restore_engine_start;
-wire flash_busy, flash_done, flash_failed, flash_req, flash_wr;
+wire flash_busy, flash_req, flash_wr;
+wire flash_io_start, flash_io_active;
 wire flash_alt, flash_p31_enable, flash_used_p31;
 wire gb_p31_out, gb_p31_oe;
 wire [1:0] flash_want_mode;
@@ -2052,7 +2053,8 @@ always @(posedge clk_sys) begin
         restore_io_request_toggle <= 0;
         restore_io_result_seen <= 0;
     end else begin
-        if (restore_io_start_sys) restore_io_request_toggle <= ~restore_io_request_toggle;
+        if (restore_io_start_sys || flash_io_start)
+            restore_io_request_toggle <= ~restore_io_request_toggle;
         restore_io_result_seen <= restore_io_result_s;
     end
 end
@@ -2066,7 +2068,9 @@ always @(posedge clk_74a) begin
     end
 end
 synch_3 s_restore_request (restore_io_request_toggle, restore_io_request_s, clk_74a);
-synch_3 #(.WIDTH(2)) s_restore_op (restore_io_op_sys, restore_io_op_74a, clk_74a);
+// The flash engine stages its image as the restore save slot, operation 1.
+synch_3 #(.WIDTH(2)) s_restore_op (flash_io_active ? 2'd1 : restore_io_op_sys,
+                                   restore_io_op_74a, clk_74a);
 synch_3 s_restore_result (restore_io_result_toggle, restore_io_result_s, clk_sys);
 synch_3 s_restore_failed (restore_io_failed_74a, restore_io_failed_sys, clk_sys);
 assign restore_io_done_sys = restore_io_result_s != restore_io_result_seen;
@@ -2080,7 +2084,7 @@ wire [15:0] restore_save_bytes;
 restore_file_io restore_files (
     .clk(clk_74a), .reset(~pll_core_locked_s),
     .start(restore_io_request_s != restore_io_request_seen), .op(restore_io_op_74a),
-    .save_bytes(restore_save_bytes),
+    .save_bytes(flash_io_active ? 16'd32768 : restore_save_bytes),
     .busy(restore_io_busy), .done(restore_io_done_74a), .failed(restore_io_failed_74a),
     .err(restore_io_err), .poisoned(restore_poisoned), .backup_index(restore_backup_index),
     .debug_status(restore_io_debug),
@@ -2130,63 +2134,75 @@ restore_engine #(.WRITE_ENABLED(RESTORE_WRITE_ENABLED)) restore (
     .bus_done(gb_bus_done), .bus_busy(gb_bus_busy)
 );
 
-// Flash ID probe. Start held for three seconds on an identified GB cartridge:
-// alone for WE# on /WR, with L for WE# on pin 31.
+// Flash engine. Start held for three seconds on an identified GB cartridge:
+// alone, ID probe with WE# on /WR; with L, ID probe with WE# on pin 31; with
+// R, load the image, and on a second hold erase, program and verify it.
 localparam [28:0] FLASH_HOLD_CYCLES = 29'd301989888;
-wire flash_key = cont1_key_s[15] && (cont1_key_s[14:0] & ~15'h0100) == 15'd0;
-wire flash_key_p31 = cont1_key_s[8];
-reg flash_use_p31;
+wire [1:0] flash_sel = cont1_key_s[9:8];
+wire flash_key = cont1_key_s[15] && (cont1_key_s[14:0] & ~15'h0300) == 15'd0 &&
+                 flash_sel != 2'b11;
 wire flash_available = id_valid && platform == 3'd2 && !cart_engine_busy &&
     !dump_busy && !action_pending && !restore_block && cart_run_allowed;
+wire [3:0] flash_view;
 reg [28:0] flash_hold;
-reg flash_fired;
+reg [1:0] flash_sel_q;
+reg flash_fired, flash_start_id, flash_start_load, flash_start_write, flash_use_p31;
 always @(posedge clk_sys) begin
-    flash_start <= 1'b0;
+    flash_start       <= 1'b0;
+    flash_start_id    <= 1'b0;
+    flash_start_load  <= 1'b0;
+    flash_start_write <= 1'b0;
     if (~pll_core_locked || !flash_key) begin
         flash_hold  <= 29'd0;
         flash_fired <= 1'b0;
-        flash_use_p31 <= flash_key_p31;
-    end else if (flash_key_p31 != flash_use_p31) begin
-        flash_hold    <= 29'd0;
-        flash_use_p31 <= flash_key_p31;
+        flash_sel_q <= flash_sel;
+    end else if (flash_sel != flash_sel_q) begin
+        flash_hold  <= 29'd0;
+        flash_sel_q <= flash_sel;
     end else if (!flash_available || flash_fired) begin
         flash_hold <= 29'd0;
     end else if (flash_hold == FLASH_HOLD_CYCLES) begin
         flash_hold  <= 29'd0;
         flash_fired <= 1'b1;
         flash_start <= 1'b1;
+        flash_use_p31 <= flash_sel_q[0];
+        if (!flash_sel_q[1])          flash_start_id    <= 1'b1;
+        else if (flash_view == 4'd5)  flash_start_write <= 1'b1;
+        else                          flash_start_load  <= 1'b1;
     end else begin
         flash_hold <= flash_hold + 29'd1;
     end
 end
 
 wire [15:0] flash_rom_before, flash_id_bytes, flash_rom_after;
+wire [15:0] flash_mis_count, flash_mis_addr;
+wire [31:0] flash_file_crc, flash_read_crc;
+wire [2:0] flash_err;
+wire [1:0] flash_wphase;
 wire flash_answered, flash_unchanged;
-flash_id_gb flash_id (
-    .clk(clk_sys), .reset(~pll_core_locked),
-    .start(flash_start), .cancel(cart_mode_change || !core_reset_n_s),
-    .use_p31(flash_use_p31),
+flash_gb flash (
+    .clk(clk_sys), .reset(~pll_core_locked), .clk_io(clk_74a),
+    .start_id(flash_start_id), .use_p31(flash_use_p31),
+    .start_load(flash_start_load), .start_write(flash_start_write),
+    .cancel(cart_mode_change || !core_reset_n_s),
+    .view_clear(!core_reset_n_s || scan_start || cart_mode_change || dump_start),
     .cart_powered(cart_mode_s), .mode_ready(gb_mode_s),
-    .want_mode(flash_want_mode), .busy(flash_busy), .done(flash_done),
-    .failed(flash_failed),
+    .want_mode(flash_want_mode), .busy(flash_busy),
+    .view(flash_view), .wphase(flash_wphase),
     .rom_before(flash_rom_before), .flash_id(flash_id_bytes),
     .rom_after(flash_rom_after), .answered(flash_answered),
     .unchanged(flash_unchanged), .used_p31(flash_used_p31),
     .p31_enable(flash_p31_enable),
+    .file_crc(flash_file_crc), .read_crc(flash_read_crc), .err(flash_err),
+    .mis_count(flash_mis_count), .mis_addr(flash_mis_addr),
+    .io_start(flash_io_start), .io_active(flash_io_active),
+    .io_done(restore_io_done_sys), .io_failed(restore_io_failed_sys),
+    .input_we(restore_input_we), .input_kind(restore_input_kind),
+    .input_index(restore_input_index), .input_data(restore_input_data),
     .bus_req(flash_req), .bus_wr(flash_wr), .bus_alt(flash_alt), .bus_addr(flash_addr),
     .bus_wdata(flash_wdata), .bus_rdata(gb_bus_rdata),
     .bus_done(gb_bus_done), .bus_busy(gb_bus_busy)
 );
-
-// 0 none, 1 running, 2 complete, 3 failed. Cleared with the dump display.
-reg [1:0] flash_state;
-always @(posedge clk_sys) begin
-    if (~pll_core_locked || !core_reset_n_s || scan_start ||
-        cart_mode_change || dump_start) flash_state <= 2'd0;
-    else if (flash_start)  flash_state <= 2'd1;
-    else if (flash_done && flash_state == 2'd1)
-                           flash_state <= flash_failed ? 2'd3 : 2'd2;
-end
 
 // cart_play and cart_power are in the clk_74a domain. The diagnostics page
 // reports them raw rather than as the AND the bus uses.
@@ -2251,7 +2267,14 @@ ui_screen screen (
     .pair_first_a  ( dump_pair_first_a ),
     .pair_first_b  ( dump_pair_first_b ),
 
-    .flash_state    ( flash_state ),
+    .flash_view     ( flash_view ),
+    .flash_wphase   ( flash_wphase ),
+    .flash_file_crc ( flash_file_crc ),
+    .flash_read_crc ( flash_read_crc ),
+    .flash_err      ( flash_err ),
+    .flash_io_err   ( restore_io_err_s ),
+    .flash_mis_count( flash_mis_count ),
+    .flash_mis_addr ( flash_mis_addr ),
     .flash_before   ( flash_rom_before ),
     .flash_id       ( flash_id_bytes ),
     .flash_after    ( flash_rom_after ),

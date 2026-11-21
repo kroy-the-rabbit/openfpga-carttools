@@ -51,6 +51,7 @@ Verified cartridges are listed in [CARTRIDGE-CORPUS](docs/CARTRIDGE-CORPUS.md).
 | Lynx dump | None |
 | Save restore | GB / GBC save RAM, after a verified recovery file and a three-second hold |
 | Flash ID probe | SST software ID entry and exit commands, MBC5 bank registers, after a three-second Start hold. With L held, the commands strobe connector pin 31 |
+| Flash programming | Chip erase and byte program of an SST39SF010A (`BF B5`) through connector pin 31, after two three-second Start + R holds |
 
 ## Versions
 
