@@ -32,6 +32,12 @@ are byte-identical (CRC32 `AA81065D`); bank 0 is `66201396`. The global
 checksum only matches over the full 64 KiB (`876D` over 32 KiB), so the image
 was authored as 64 KiB. Flash size, 32 or 64 KiB, is not settled by the dump.
 
+Flash ID `BF B5` over pin 31 (build `05A3`); no answer over /WR (build `B490`).
+On build `5D6E` the cartridge was erased and written with Tetris (World)
+(Rev 1), CRC32 `46DF91AD`; all 32,768 bytes read back equal and it then
+identified as `TETRIS`, ROM-only, 32 KiB, checksum good. It no longer holds
+the test ROM above.
+
 ## Builds `9302` and `7D63`, 2026-09-19 and 2026-09-20
 
 The dump directory of the Pocket card as read on 2026-09-20. Every ROM below
