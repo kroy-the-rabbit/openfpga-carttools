@@ -9,7 +9,9 @@ Restore is also verified on **Dragon Warrior III**, MBC5 32 KiB (type `1B`,
 4 MiB ROM), using the all-medals save from
 [Woodus](https://www.woodus.com/den/games/dw3gbc/monstermedalsavestate.php),
 and on **Shadowgate Classic**, MBC5 8 KiB (type `1B`, 1 MiB ROM), using a save
-made in mGBA from the cartridge's own ROM dump.
+made in mGBA from the cartridge's own ROM dump, and on **The Legend of Zelda:
+Oracle of Seasons**, the same geometry, using an edited copy of the
+cartridge's own save.
 
 MBC1 8 KiB and other MBC3 and MBC5 cartridges (MBC5 ROM up to 4 MiB)
 are implemented but untested on hardware. MBC3 RTC state and GBA
