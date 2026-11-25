@@ -13,7 +13,7 @@ It does not play games.
 
 ## Status
 
-Release `v0.9999.20260920.1`.
+Release `v0.9999.20261125`.
 
 | Feature | Status |
 |---|---|
