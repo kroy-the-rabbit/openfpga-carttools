@@ -1,8 +1,8 @@
 # GB flash cartridge programming
 
 Experimental. CartTools writes a 32 KiB ROM image to a Ferrante Crafts Game Boy
-flash cartridge, labelled 64 KB. Three writes on build 5D6E, each read back
-equal and booted:
+flash cartridge, labelled 64 KB. Three writes to one cartridge on build 5D6E,
+each over the last, each read back equal and booted:
 
 | Image | CRC32 |
 |---|---|
