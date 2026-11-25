@@ -36,7 +36,8 @@ Flash ID `BF B5` over pin 31 (build `05A3`); no answer over /WR (build `B490`).
 On build `5D6E` the cartridge was erased and written with Tetris (World)
 (Rev 1), CRC32 `46DF91AD`; all 32,768 bytes read back equal and it then
 identified as `TETRIS`, ROM-only, 32 KiB, checksum good. It no longer holds
-the test ROM above.
+the test ROM above. Two builds of a homebrew ROM titled `WICK`, CRC32
+`37758195` and `FEEC30C4`, were written the same way and ran in the GB core.
 
 ## Builds `9302` and `7D63`, 2026-09-19 and 2026-09-20
 

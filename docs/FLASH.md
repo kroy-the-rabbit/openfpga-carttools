@@ -1,8 +1,14 @@
 # GB flash cartridge programming
 
 Experimental. CartTools writes a 32 KiB ROM image to a Ferrante Crafts Game Boy
-flash cartridge. On build 5D6E, Tetris (World) (Rev 1) was written to one
-cartridge labelled 64 KB, read back equal with CRC32 `46DF91AD`, and booted.
+flash cartridge, labelled 64 KB. Three writes on build 5D6E, each read back
+equal and booted:
+
+| Image | CRC32 |
+|---|---|
+| Tetris (World) (Rev 1) | `46DF91AD` |
+| Homebrew, ROM only, title `WICK` | `37758195` |
+| The same, a later build | `FEEC30C4` |
 
 | | |
 |---|---|

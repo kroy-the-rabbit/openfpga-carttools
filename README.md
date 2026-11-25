@@ -27,7 +27,7 @@ Release `v0.9999.20260920.1`.
 | GB / GBC save backup | Tested at 8 and 32 KiB; 64 and 128 KiB untested |
 | GBA save backup | Tested: 32 KiB SRAM, 64 KiB Flash, 512 byte and 8 KiB EEPROM. 128 KiB Flash refused |
 | Save restore | Alpha. Verified: Pokemon Silver (MBC3 32 KiB), Dragon Warrior III (MBC5 32 KiB), Shadowgate Classic (MBC5 8 KiB). MBC1 8 KiB and other MBC3 / MBC5 untested. See [save restore](docs/SAVE-RESTORE.md) |
-| GB flash cartridge programming | Experimental. Verified: one Ferrante Crafts cartridge, SST39SF010A, 32 KiB image. Drives connector pin 31. See [flash](docs/FLASH.md) |
+| GB flash cartridge programming | Experimental. Verified: Ferrante Crafts, SST39SF010A, three 32 KiB writes. Larger images not supported. Drives connector pin 31. See [flash](docs/FLASH.md) |
 | Unknown adapter | APF report shown, bus idle |
 | MBC2, MBC1 above 512 KiB | Simulation only |
 | MBC2 save RAM | Refused |

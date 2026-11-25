@@ -4,8 +4,8 @@ Pocket SD card.
 Note: macOS Finder replaces folders instead of merging them, so do it all
 manually and be careful.
 
-CartTools reads the cartridge in the Pocket's slot. It does not load ROMs from
-the SD card; it writes them to it, under /Assets/carttools/common/.
+CartTools reads the cartridge in the Pocket's slot and writes its dumps to the
+SD card, under /Assets/carttools/common/. It does not play ROMs.
 
 Save restore is alpha and writes cartridge save RAM. Hardware restore is
 verified on Pokemon Silver, Dragon Warrior III and Shadowgate Classic. It requires prepared RESTORE.sav and
@@ -14,3 +14,9 @@ three-second A hold. Keep the PRE*.sav recovery files.
 
 Read the restore guide before preparing an input:
 https://github.com/kroy-the-rabbit/openfpga-carttools/blob/main/docs/SAVE-RESTORE.md
+
+GB flash cartridge programming is experimental. It erases and writes a
+Ferrante Crafts flash cartridge (SST39SF010A) with a 32 KiB image and drives
+cartridge connector pin 31, the Game Boy audio input, as a digital output.
+Read the guide first:
+https://github.com/kroy-the-rabbit/openfpga-carttools/blob/main/docs/FLASH.md

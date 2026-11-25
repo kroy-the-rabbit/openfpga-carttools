@@ -31,3 +31,9 @@ TWO READBACK CHECKS PASSED. Keep the PRE*.sav recovery files.
 
 Input preparation and limits:
 https://github.com/kroy-the-rabbit/openfpga-carttools/blob/main/docs/SAVE-RESTORE.md
+
+GB flash cartridge programming is experimental: Ferrante Crafts cartridges
+with an SST39SF010A, 32 KiB images. Hold Start + R for three seconds to load
+RESTORE.sav as the image, then again to erase, write and verify. It drives
+connector pin 31, the Game Boy audio input, as a digital output.
+https://github.com/kroy-the-rabbit/openfpga-carttools/blob/main/docs/FLASH.md
